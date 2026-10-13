@@ -57,7 +57,7 @@ Two orthogonal layers. Both stay on the issue.
 
 House type/effort/priority are not replaced by Matt labels. Matt labels are not replaced by house. An issue arriving with only `ready-for-agent` is a taxonomy break: add house on top, keep Matt unless readiness is actually wrong.
 
-Funnel-authored issues may ship house-only; the Matt layer is applied when triaging for AFK/human pickup.
+Every funnel issue ships with house labels **and** a triage state; `needs-triage` is the default when readiness has not been judged (workspace policy: every issue carries a type, a priority and a state).
 
 ## Dedupe and amend
 
@@ -72,7 +72,7 @@ Funnel-authored issues may ship house-only; the Matt layer is applied when triag
 ## Publish
 
 1. `gh issue list` to confirm no owner.
-2. `gh issue create -R PsychedelicShayna/neocode --title "..." --body-file ...` with house labels (and `entangled` if the cluster requires it).
+2. `gh issue create -R PsychedelicShayna/neocode --title "..." --body-file ...` with house labels and a triage state (`needs-triage` unless readiness is already known), plus `entangled` if the cluster requires it.
 3. Report `#N Title` to the Assignee seat.
 4. Sequential items. Stop between items under context pressure.
 

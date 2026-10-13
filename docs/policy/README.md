@@ -36,9 +36,9 @@ after it lands is a manual `nightly` into `main` merge by the owner.
 
 ## Releases
 
-- Tags and releases come from the release workflow (`.github/workflows/release-desktop.yml`, `docs/operations/release.md`). A PR never creates a tag.
+- Tags and releases come from the release pipeline (`.github/workflows/release.yml`, which calls `release-desktop.yml` for packaging; `docs/operations/release.md`). A PR never creates a tag.
 - Fork AppImage pre-releases are tagged `v<version>-preview.<YYYYMMDD>.<n>`, for example `v0.1.0-preview.20260930.1`: `<version>` is the app version, `<YYYYMMDD>` the build date, `<n>` a counter within that date. They are GitHub pre-releases titled `T3 Code + NeoPi <version>-preview.<YYYYMMDD>.<n> (Linux x86_64)`.
-- Upstream's other channels keep their own schemes: stable `vX.Y.Z` and nightly `X.Y.Z-nightly.*` (see `docs/operations/release.md`).
+- Upstream's other channels keep their own schemes: stable `vX.Y.Z` and nightly `vX.Y.Z-nightly.<YYYYMMDD>.<run_number>` (see `docs/operations/release.md`).
 - Version bumps arrive through upstream syncs.
 
 ## Labels

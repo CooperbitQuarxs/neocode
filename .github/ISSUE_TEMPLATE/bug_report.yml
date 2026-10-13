@@ -54,6 +54,8 @@ body:
         - Linux
         - Windows (native)
         - Windows (WSL)
+        - iOS
+        - Android
     validations:
       required: true
 

@@ -40,8 +40,7 @@ observed behavior on a real PR. Keep the table directly under this heading.
 
 - Pushes do not start rounds on their own. Request one after a push when the
   previous round's findings were addressed and another look is wanted.
-- Trigger comments contain only the trigger phrase, because the bot parses
-  them. They are the one kind of comment that is not signed.
+- Trigger comments open with the workspace identity block, then a scoped prompt that names the PR number, the base branch, the head branch, and the scope (by default the PR diff and the behavior it changes), and contain the trigger phrase (`@codex review`). Never post a bare mention.
 - Stop waiting after about 20 minutes. Re-request once if the bot reported
   an error; otherwise proceed without it and note that in the merge commit.
 

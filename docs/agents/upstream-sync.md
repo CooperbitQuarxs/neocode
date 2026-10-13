@@ -46,12 +46,14 @@ TAG=$(git ls-remote --tags upstream 'v*' \
 printf '%s\n' "$TAG"
 ```
 
-Confirm the tag is the intended release and that `origin/$DEFAULT` contains every prerequisite merge. Then create the branch and worktree from the remote-tracking ref:
+Confirm the tag is the intended release and that `origin/$DEFAULT` contains every prerequisite merge. Then create the branch and worktree from the remote-tracking ref, and run every later step from inside that worktree:
 
 ```sh
-git worktree add -b "sync/upstream-$TAG" \
-  "../neocode-wt-sync-$TAG" \
+DATE=$(date -u +%Y-%m-%d)
+git worktree add -b "sync/$DATE" \
+  "../neocode-wt-sync-$DATE" \
   "origin/$DEFAULT"
+cd "../neocode-wt-sync-$DATE"
 ```
 
 Never branch this worktree from a local default branch, another integration branch, or a directory containing WIP.
@@ -94,7 +96,7 @@ For the generated lockfile, take upstream as the starting point, then regenerate
 
 ```sh
 git commit -S/home/shayna/.ssh/id_ed25519_github_signing_agents.pub \
-  -m "Merge upstream $TAG into nightly" \
+  -m "chore(sync): integrate upstream $TAG into nightly" \
   -m "Integrate the release with the per-file resolution ledger in the PR." \
   -m "Model: <provider>/<model-id>" \
   -m "Co-authored-by: <actual executing model identity and address>"
