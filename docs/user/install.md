@@ -70,7 +70,7 @@ The `.deb` updates itself like the other desktop builds. It asks for your
 password to install each update. If your desktop has no password prompt, the
 update fails. Download the new `.deb` and install it the same way.
 
-The [NeoPi-enabled Linux AppImage](https://github.com/PsychedelicShayna/t3code-npi/releases)
+The [NeoPi-enabled Linux AppImage](https://github.com/PsychedelicShayna/neocode/releases)
 includes `npi` and runs it without a separate installation. To use its terminal
 agent, run `./T3-Code-npi.AppImage --npi --help` (or replace `--help` with any
 `npi` arguments). Authenticate with `npi` before using accounts that require it.

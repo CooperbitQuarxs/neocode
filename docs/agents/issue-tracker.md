@@ -1,14 +1,15 @@
 # Issue tracker: GitHub
 
-Issues and specs for this fork live in GitHub Issues at `PsychedelicShayna/t3code-npi` (fork of `pingdotgg/t3code`). `origin` is the fork, `upstream` is pingdotgg; `gh repo set-default` points at the fork. Always pass `-R PsychedelicShayna/t3code-npi` when in doubt. Never file issues, comments, or PRs on `pingdotgg/t3code`.
+Issues and specs for this repo live in GitHub Issues at `PsychedelicShayna/neocode` (fork of `pingdotgg/t3code`). `origin` is the fork, `upstream` is pingdotgg; `gh repo set-default` points at the fork. Always pass `-R PsychedelicShayna/neocode` when in doubt. Never file issues, comments, or PRs on `pingdotgg/t3code`.
 
 ## Conventions
 
-- Create: `gh issue create -R PsychedelicShayna/t3code-npi --title "..." --body-file <path> --label ...`.
+- Create: `gh issue create -R PsychedelicShayna/neocode --title "..." --body-file <path> --label ...`.
 - Read: `gh issue view <number> --comments`, including labels.
 - List: `gh issue list --state <state> --json number,title,body,labels,comments` with the filters the task requires.
 - Apply or remove labels: `gh issue edit <number> --add-label "..."` or `--remove-label "..."`.
-- Close only when the Captain or the invoked workflow authorizes it.
+- Close an issue when the fix merged, when it is a verified duplicate, or when the owner said so. Say why in the closing comment. `Fixes #<n>` closes an issue only when the commit reaches the default branch `main`, so after a merge into `nightly` close the issue by hand, citing the PR and merge commit.
+- Posting rules (comment identity block, labels) are the workspace policy in `~/source/github/PsychedelicShayna/AGENTS.md`. This guide is mechanics only.
 - Upstream `AGENTS.md` still applies: implementation plans and scratch notes stay out of the worktree; the issue owns the checklist, the merged PR is the record.
 
 ## Pull requests as a triage surface
@@ -22,7 +23,7 @@ Issues and specs for this fork live in GitHub Issues at `PsychedelicShayna/t3cod
 
 ## Dual taxonomy
 
-Blended from the NeoPi fork (`PsychedelicShayna/neopi`, `docs/agents/issue-funnel.md`). Two orthogonal label layers; an issue carries both and neither replaces the other.
+House labels (type, `effort: *`, `priority: *`, and `entangled` only for true alternative clusters) and Matt triage labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) are **orthogonal layers**, not replacements. An issue may carry both. Do not strip house labels to be Matt-only. The same taxonomy applies in `neopi` and `neodeck`. The Issue Funnel contract is `docs/agents/issue-funnel.md`.
 
 **House:**
 
@@ -31,9 +32,9 @@ Blended from the NeoPi fork (`PsychedelicShayna/neopi`, `docs/agents/issue-funne
 - Exactly one `priority: p0|p1|p2|p3`.
 - `entangled` only for a true alternative cluster (shipping one supersedes the siblings), and only when the Captain ordered it.
 
-**Matt triage (readiness):** `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+**Matt triage (readiness):** see `docs/agents/triage-labels.md`.
 
-Do not invent labels; every label above already exists on the fork.
+**PR state** (on PRs, not issues): `needs-review`, `ready-for-merge`, `review-stalled`; the full label list is in `docs/policy/README.md` › Labels. Do not invent labels.
 
 ## Issue shape
 

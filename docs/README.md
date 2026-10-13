@@ -25,8 +25,9 @@
 
 ## Working on T3 Code
 
-Start with the [development runbook](./operations/development.md) and
-[contribution policy](../CONTRIBUTING.md).
+Start with the [development runbook](./operations/development.md),
+[contribution policy](../CONTRIBUTING.md), and
+[repository policy](./policy/README.md) (branches, PRs, labels, releases).
 
 Internal notes preserve architectural decisions, constraints, and implementation traps that the
 source alone does not explain. Most code changes do not need an internal documentation update. Follow the

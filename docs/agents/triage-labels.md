@@ -8,4 +8,4 @@
 | `ready-for-human` | `ready-for-human` | Requires human implementation              |
 | `wontfix`         | `wontfix`         | Will not be actioned                       |
 
-When a skill names a canonical role, use the tracker label from this table. These are the readiness layer only; house type/effort/priority labels stay on the issue (see `docs/agents/issue-tracker.md`).
+When a skill names a canonical role, use the tracker label from this table. These are the readiness layer only; house type/effort/priority labels stay on the issue (see `docs/agents/issue-tracker.md`). They apply to issues; PR state labels are separate (`docs/policy/README.md` › Labels).
