@@ -56,6 +56,20 @@ We need to be on the same page with terminology. When communicating, use this la
 - **turn** means one user-to-agent cycle, including follow-up work such as checkpointing.
 - **T3 home** means the base data directory. Runtime state normally lives below its userdata directory.
 
+## Workspace policy comes first
+
+Branches, worktrees, commits, signing, pull requests, merging, labels, and anything posted to GitHub are governed by the workspace policy in `~/source/github/PsychedelicShayna/AGENTS.md`. This file adds only what is specific to this repository and never adds a confirmation step the workspace policy does not have. The sections below ("Pull requests", "Verifying") keep upstream's guidance where it does not conflict with it.
+
+Repository specifics (`docs/policy/README.md` has the full table):
+
+- Default branch `main`; integration branch `nightly`. Topic branches start from `origin/nightly` in a worktree named `../neocode-wt-<slug>`, and PRs target `nightly`. Both branches are protected: PR required, merge commits only, no force-push.
+- Merge commits read `Merge PR #<number>: <conventional PR subject> (@<author>)`.
+- `nightly` is promoted into `main` weekly by `.github/workflows/promote-nightly.yml`; promotion and `hotfix/` PRs into `main` are the owner's decision.
+- Review bots are advisory. The authoring agent decides whether a round is worth requesting; see `docs/agents/pr-review-bots.md`.
+- Before integrating upstream or adding fork behavior, read `docs/agents/fork-maintenance.md` and `docs/agents/upstream-sync.md`.
+- Contributor PRs (any author other than the owner) are read-only on the owner's machine: never run their code locally.
+- Releases and tags: `docs/policy/README.md` › Releases.
+
 ## The three ways to hurt yourself
 
 1. **Killing by pattern.** Never `pkill -f`, `pgrep | kill`, or `kill` a PID you found by matching a name, path, or worktree string. Your own agent process has this worktree's path in its argv, and this machine runs several other dev servers at once. Kill only a PID you captured at spawn, or the owner of your port from `ss -H -ltnp` after confirming `/proc/<pid>/cwd` is your worktree.
@@ -114,9 +128,9 @@ For authorized mobile verification, a missing or outdated native client is a bui
 
 ## Pull requests
 
-- Never make a PR unless the developer explicitly asks you to do so.
+- Every change reaches `nightly` through a PR; nothing is pushed to `main` or `nightly`. Opening it is part of the assigned work, and the authoring agent merges it under the workspace policy (`docs/policy/README.md`). Never open a PR, issue, or comment on `pingdotgg/t3code`.
 - Conventional commit titles, plain language: `fix(web): new threads no longer spike CPU`.
-- Body: the problem in a sentence or two, then how you fixed it. End with the model and harness that did the work.
+- Body: use `.github/PULL_REQUEST_TEMPLATE.md` exactly, and say what was actually run. End with the model and harness that did the work.
 - UI changes need before/after images. Motion or timing needs a short video.
 - Upload PR evidence to GitHub. Never commit PR-only screenshots or assets such as `.github/pr-assets/`.
 - One concern per PR. If the description says "also", split it.
@@ -197,7 +211,7 @@ This repository is upstream T3 Code (`pingdotgg/t3code`) plus a NeoPi/OMP provid
 
 ### Issue tracker
 
-Issues and specs live in `PsychedelicShayna/t3code-npi` GitHub Issues (the fork, never upstream). See `docs/agents/issue-tracker.md`.
+Issues and specs live in `PsychedelicShayna/neocode` GitHub Issues (the fork, never upstream). See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
@@ -206,3 +220,7 @@ Five canonical Matt triage labels, layered orthogonally over house type/effort/p
 ### Domain docs
 
 Single-context: root `CONTEXT.md` + `docs/adr/`, extending `docs/internals/glossary.md`. See `docs/agents/domain.md`.
+
+### PR review bots
+
+Advisory, never a merge gate. `docs/agents/pr-review-bots.md` has the bot table and the owner-head safety rule.
