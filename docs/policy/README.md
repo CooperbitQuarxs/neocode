@@ -37,6 +37,10 @@ Classify completed failures against the base per workspace policy: fix
 PR-caused failures on the branch; file matching base failures as `baseline`
 issues with evidence.
 
+Diagnostic startup must not outrun process ownership: establish the launcher's
+identity before permitting application descendants. Failed process discovery
+retains private state and never counts as successful cleanup.
+
 ## Promotion
 
 `nightly` is promoted into `main` weekly by the `promote-nightly` workflow

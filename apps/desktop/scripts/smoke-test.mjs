@@ -27,6 +27,9 @@ const fatalPatterns = [
 // Fresh private settings enable the primary backend; wait for its window and
 // control socket too, rather than accepting the early Electron lifecycle event.
 const readinessPatterns = ["app ready", "desktop app control socket ready", "main window created"];
+// Do not start any application descendants before the initial ownership snapshot.
+// exec preserves the detached launch PID/group once observation permits startup.
+const posixLaunchGate = 'IFS= read -r gate && [ "$gate" = launch ] || exit 1; exec "$@"';
 // DirectoryInfo.Create(DirectorySecurity) applies the DACL atomically. POSIX
 // modes do not restrict Windows access, especially below a shared TEMP folder.
 const windowsScratchSetup = String.raw`
@@ -389,6 +392,7 @@ let observationTimer;
 let monitor;
 let launchStartedAt;
 let launchReturnedAt;
+let launchReleased = false;
 let stopObservation;
 let interruptedSignal;
 
@@ -586,6 +590,17 @@ function inspectKnownProcess(pid, timeoutMs) {
   return queryMacProcesses(pid, timeoutMs)[0];
 }
 
+function killUnreapedLaunchGroup() {
+  // spawn(detached) creates this group. Its leader's captured PID cannot be
+  // reused before Node reaps it; never signal this fallback after child exit.
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  try {
+    process.kill(-child.pid, "SIGKILL");
+  } catch (error) {
+    if (error.code !== "ESRCH") throw error;
+  }
+}
+
 function signalProcesses(remaining, signal, deadline) {
   let failure;
   const groups = new Set(remaining.map((entry) => entry.group));
@@ -682,6 +697,7 @@ async function cleanup() {
     if (discoveryFailed) {
       // Preserve best-effort teardown even when discovery cannot be repeated.
       try {
+        killUnreapedLaunchGroup();
         child.kill(signal);
       } catch (error) {
         failure ??= error;
@@ -696,6 +712,7 @@ async function cleanup() {
       failure ??= error;
       remaining = [...trackedProcesses.values()];
       try {
+        killUnreapedLaunchGroup();
         child.kill(signal);
       } catch (killError) {
         failure ??= killError;
@@ -706,6 +723,7 @@ async function cleanup() {
     } catch (error) {
       failure ??= error;
       try {
+        killUnreapedLaunchGroup();
         child.kill(signal);
       } catch (killError) {
         failure ??= killError;
@@ -717,6 +735,7 @@ async function cleanup() {
   if (failure || !verified || remaining.length > 0) {
     // Escalation remains reachable even if discovery failed during the first pass.
     try {
+      killUnreapedLaunchGroup();
       child.kill("SIGKILL");
     } catch (error) {
       failure ??= error;
@@ -850,15 +869,21 @@ try {
   logFd = NodeFS.openSync(logPath, "ax", 0o600);
   launchStartedAt = Date.now();
   child = NodeChildProcess.spawn(
-    isLinux ? "dbus-run-session" : isWindows ? "powershell.exe" : electronPath,
-    isLinux
-      ? ["--", "xvfb-run", "-a", electronPath, ...args]
-      : isWindows
-        ? ["-NoProfile", "-NonInteractive", "-Command", windowsSupervisor]
-        : args,
+    isWindows ? "powershell.exe" : "/bin/sh",
+    isWindows
+      ? ["-NoProfile", "-NonInteractive", "-Command", windowsSupervisor]
+      : [
+          "-c",
+          posixLaunchGate,
+          "t3-desktop-smoke",
+          ...(isLinux
+            ? ["dbus-run-session", "--", "xvfb-run", "-a", electronPath]
+            : [electronPath]),
+          ...args,
+        ],
     {
       cwd: desktopDir,
-      stdio: ["ignore", logFd, logFd],
+      stdio: [isWindows ? "ignore" : "pipe", logFd, logFd],
       env,
       detached: !isWindows,
       windowsHide: true,
@@ -868,6 +893,7 @@ try {
   await new Promise((resolve, reject) => {
     stopObservation = reject;
     child.once("error", reject);
+    if (!isWindows) child.stdin.once("error", reject);
     child.once("exit", (code, signal) => {
       reject(
         new Error(
@@ -883,7 +909,13 @@ try {
     );
     const observe = () => {
       try {
-        if (!isWindows) remainingProcesses();
+        if (!isWindows) {
+          remainingProcesses();
+          if (!launchReleased) {
+            launchReleased = true;
+            child.stdin.end("launch\n");
+          }
+        }
         const output = NodeFS.readFileSync(logPath, "utf8");
         const failures = fatalPatterns.filter((pattern) => output.includes(pattern));
         if (failures.length > 0) throw new Error(`Fatal smoke output: ${failures.join(", ")}`);
