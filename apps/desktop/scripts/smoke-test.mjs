@@ -42,6 +42,10 @@ try {
       [IO.Path]::GetPathRoot($parentPath) -notmatch '^[A-Za-z]:\\$') {
     throw 'Windows smoke requires an existing local application-data directory'
   }
+  $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($parentPath))
+  if ($drive.DriveType -ne [IO.DriveType]::Fixed) {
+    throw 'Windows smoke scratch must reside on a fixed local drive'
+  }
   $scratchParent = [IO.DirectoryInfo]::new($parentPath)
   $installer = [Security.Principal.NTAccount]::new('NT SERVICE', 'TrustedInstaller')
   $trusted = @($user.Value, 'S-1-5-18', 'S-1-5-32-544',
