@@ -24,93 +24,240 @@ const fatalPatterns = [
 const scratch = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-desktop-smoke-"));
 const stateDir = NodePath.join(scratch, "state");
 const logPath = NodePath.join(scratch, "output.log");
+const inspectionLogPath = NodePath.join(scratch, "processes.log");
 const trackedProcesses = new Map();
 let child;
 let logFd;
 let observationTimer;
+let monitor;
+let launchStartedAt;
+let launchReturnedAt;
 let stopObservation;
 let interruptedSignal;
 
-// POSIX descendants inherit the detached launch's private process group.
-// Windows has no process groups, so retain the native process-tree identities.
-function windowsProcesses() {
-  const output = NodeChildProcess.execFileSync(
-    "powershell.exe",
-    [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CreationDate | ConvertTo-Json -Compress",
-    ],
-    { encoding: "utf8", timeout: 3_000, windowsHide: true },
-  );
-  const rows = JSON.parse(output);
-  const snapshot = Array.isArray(rows) ? rows : [rows];
-  const owned = new Set([child.pid]);
+// The backend starts in a separate POSIX group. Retain creation identities
+// across ancestor exits instead of treating the outer group as an enclosure.
+function processSnapshot() {
+  if (isLinux) {
+    const snapshot = [];
+    for (const name of NodeFS.readdirSync("/proc")) {
+      if (!/^\d+$/.test(name)) continue;
+      try {
+        const stat = NodeFS.readFileSync(`/proc/${name}/stat`, "utf8");
+        const fields = stat
+          .slice(stat.lastIndexOf(")") + 2)
+          .trim()
+          .split(/\s+/);
+        let tagged = false;
+        try {
+          tagged = NodeFS.readFileSync(`/proc/${name}/environ`)
+            .toString()
+            .split("\0")
+            .includes(`T3CODE_DESKTOP_SMOKE_ROOT=${scratch}`);
+        } catch (error) {
+          if (!["ENOENT", "ESRCH", "EACCES", "EPERM"].includes(error.code)) throw error;
+        }
+        snapshot.push({
+          pid: Number(name),
+          parent: Number(fields[1]),
+          group: Number(fields[2]),
+          identity: fields[19],
+          started: BigInt(fields[19]),
+          tagged,
+        });
+      } catch (error) {
+        if (!["ENOENT", "ESRCH", "EACCES", "EPERM"].includes(error.code)) throw error;
+      }
+    }
+    return snapshot;
+  }
+  if (isWindows) {
+    const output = NodeChildProcess.execFileSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "Get-CimInstance Win32_Process | Where-Object { $_.CreationDate } | ForEach-Object { [pscustomobject]@{ pid = $_.ProcessId; parent = $_.ParentProcessId; identity = $_.CreationDate.ToUniversalTime().Ticks.ToString() } } | ConvertTo-Json -Compress",
+      ],
+      { encoding: "utf8", timeout: 3_000, windowsHide: true },
+    );
+    const rows = JSON.parse(output);
+    return (Array.isArray(rows) ? rows : [rows]).map((entry) => ({
+      ...entry,
+      started: BigInt(entry.identity),
+    }));
+  }
+  const output = NodeChildProcess.execFileSync("ps", ["-axo", "pid=,ppid=,pgid=,lstart="], {
+    encoding: "utf8",
+    timeout: 3_000,
+    env: { ...process.env, LC_ALL: "C" },
+  });
+  return output
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [pid, parent, group, ...date] = line.trim().split(/\s+/);
+      const identity = date.join(" ");
+      return {
+        pid: Number(pid),
+        parent: Number(parent),
+        group: Number(group),
+        identity,
+        started: BigInt(Date.parse(identity)),
+      };
+    });
+}
+
+function remainingProcesses() {
+  const snapshot = processSnapshot();
+  const byPid = new Map(snapshot.map((entry) => [entry.pid, entry]));
+  const owned = new Map();
+  const now = isWindows ? BigInt(Date.now()) * 10_000n + 621355968000000000n : BigInt(Date.now());
+  for (const entry of snapshot) {
+    if (entry.tagged || trackedProcesses.get(entry.pid)?.identity === entry.identity) {
+      owned.set(entry.pid, entry);
+    }
+  }
+  if (trackedProcesses.size === 0) {
+    const root = byPid.get(child.pid);
+    if (root) {
+      const createdAt = isWindows
+        ? Number((root.started - 621355968000000000n) / 10_000n)
+        : Number(root.started);
+      const tolerance = isWindows ? 1 : 1_000;
+      if (
+        root.tagged ||
+        (!isLinux &&
+          createdAt >= launchStartedAt - tolerance &&
+          createdAt <= launchReturnedAt + tolerance)
+      ) {
+        owned.set(root.pid, root);
+      }
+    }
+    if (owned.size === 0) throw new Error("Could not establish the launched process identity");
+  }
+  for (const [pid, tracked] of trackedProcesses) {
+    if (!byPid.has(pid) && tracked.missingAfter === undefined) tracked.missingAfter = now;
+  }
   let added;
   do {
     added = false;
     for (const entry of snapshot) {
-      if (owned.has(entry.ParentProcessId) && !owned.has(entry.ProcessId)) {
-        owned.add(entry.ProcessId);
+      if (owned.has(entry.pid)) continue;
+      const parent = owned.get(entry.parent);
+      const historicalParent = trackedProcesses.get(entry.parent);
+      const orphanParent =
+        !isLinux &&
+        !byPid.has(entry.parent) &&
+        historicalParent?.missingAfter !== undefined &&
+        entry.started <= historicalParent.missingAfter
+          ? historicalParent
+          : undefined;
+      const ancestor = parent ?? orphanParent;
+      const inOwnedGroup =
+        !isWindows &&
+        [...owned.values()].some(
+          (member) => member.group === entry.group && entry.started >= member.started,
+        );
+      if ((ancestor && entry.started >= ancestor.started) || inOwnedGroup) {
+        owned.set(entry.pid, entry);
         added = true;
       }
     }
   } while (added);
-  const remaining = snapshot.filter(
-    (entry) =>
-      owned.has(entry.ProcessId) || trackedProcesses.get(entry.ProcessId) === entry.CreationDate,
-  );
-  for (const entry of remaining) trackedProcesses.set(entry.ProcessId, entry.CreationDate);
-  return remaining;
-}
-
-function groupExists() {
-  try {
-    process.kill(-child.pid, 0);
-    return true;
-  } catch (error) {
-    if (error.code === "ESRCH") return false;
-    throw error;
+  for (const entry of owned.values()) {
+    if (
+      trackedProcesses.get(entry.pid)?.identity !== entry.identity &&
+      isLinux &&
+      logFd !== undefined
+    ) {
+      try {
+        // Inspect only launched processes, logging no inherited host-secret variables.
+        const args = NodeFS.readFileSync(`/proc/${entry.pid}/cmdline`).toString().split("\0");
+        const environment = NodeFS.readFileSync(`/proc/${entry.pid}/environ`)
+          .toString()
+          .split("\0");
+        const isolatedEnvironment = environment.filter((value) =>
+          /^(HOME|XDG_RUNTIME_DIR|XDG_CURRENT_DESKTOP|DISPLAY|DBUS_SESSION_BUS_ADDRESS|T3CODE_HOME)=/.test(
+            value,
+          ),
+        );
+        const stat = NodeFS.readFileSync(`/proc/${entry.pid}/stat`, "utf8");
+        const identity = stat
+          .slice(stat.lastIndexOf(")") + 2)
+          .trim()
+          .split(/\s+/)[19];
+        if (identity !== entry.identity) continue;
+        NodeFS.appendFileSync(
+          inspectionLogPath,
+          `Smoke process ${entry.pid}, group ${entry.group}: ${JSON.stringify(args)} ${JSON.stringify(isolatedEnvironment)}\n`,
+          { mode: 0o600 },
+        );
+      } catch (error) {
+        if (!["ENOENT", "ESRCH", "EACCES", "EPERM"].includes(error.code)) throw error;
+      }
+    }
+    trackedProcesses.set(entry.pid, entry);
   }
+  return [...owned.values()];
 }
 
-function signalGroup(signal) {
-  try {
-    process.kill(-child.pid, signal);
-  } catch (error) {
-    if (error.code !== "ESRCH") throw error;
+function signalProcesses(remaining, signal) {
+  if (isWindows) {
+    // Re-check creation identity inside the terminating command. Never let
+    // taskkill /T traverse an unvalidated, reused PID.
+    const identities = remaining.map((entry) => `${entry.pid}='${entry.identity}'`).join(";");
+    NodeChildProcess.execFileSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `$owned=@{${identities}}; Get-CimInstance Win32_Process | Where-Object { $_.CreationDate } | ForEach-Object { if ($owned.ContainsKey([int]$_.ProcessId) -and $owned[[int]$_.ProcessId] -eq $_.CreationDate.ToUniversalTime().Ticks.ToString()) { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }`,
+      ],
+      { stdio: "ignore", timeout: 3_000, windowsHide: true },
+    );
+    return;
+  }
+  const groups = new Set(remaining.map((entry) => entry.group));
+  for (const group of groups) {
+    // The preceding group's termination may reap this group's leader.
+    // Require a still-live, identity-matching member immediately before signalling.
+    const fresh = new Map(processSnapshot().map((entry) => [entry.pid, entry]));
+    const anchored = remaining.some(
+      (entry) =>
+        entry.group === group &&
+        fresh.get(entry.pid)?.identity === entry.identity &&
+        fresh.get(entry.pid)?.group === group,
+    );
+    if (!anchored) continue;
+    try {
+      process.kill(-group, signal);
+    } catch (error) {
+      if (error.code !== "ESRCH") throw error;
+    }
   }
 }
 
 async function cleanup() {
+  clearInterval(monitor);
   clearTimeout(observationTimer);
   if (!child?.pid) return;
-  const deadline = Date.now() + 5_000;
-  if (isWindows) {
-    let remaining = windowsProcesses();
-    for (let index = remaining.length - 1; index >= 0; index--) {
-      const entry = remaining[index];
-      const result = NodeChildProcess.spawnSync(
-        "taskkill.exe",
-        ["/PID", String(entry.ProcessId), "/T", "/F"],
-        { stdio: "ignore", timeout: 3_000, windowsHide: true },
-      );
-      if (result.error) throw result.error;
-    }
-    while (remaining.length > 0 && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      remaining = windowsProcesses();
-    }
-    if (remaining.length > 0) throw new Error("Smoke cleanup left Windows process-tree members");
-    return;
-  }
-  signalGroup("SIGTERM");
-  while (groupExists() && Date.now() < deadline) {
+  const deadline = Date.now() + 8_000;
+  const escalateAt = Date.now() + 2_000;
+  let remaining = remainingProcesses();
+  while (remaining.length > 0 && Date.now() < deadline) {
+    signalProcesses(remaining, Date.now() < escalateAt ? "SIGTERM" : "SIGKILL");
     await new Promise((resolve) => setTimeout(resolve, 100));
-    if (Date.now() >= deadline - 3_000) signalGroup("SIGKILL");
+    remaining = remainingProcesses();
   }
-  if (groupExists()) throw new Error(`Smoke cleanup left process group ${child.pid}`);
+  if (remaining.length > 0) {
+    throw new Error(
+      `Smoke cleanup left processes: ${remaining.map((entry) => entry.pid).join(", ")}`,
+    );
+  }
 }
 
 function onSignal(signal) {
@@ -161,6 +308,7 @@ try {
     // No inherited session address: dbus-run-session supplies a private bus.
     delete env.DBUS_SYSTEM_BUS_ADDRESS;
   }
+  env.T3CODE_DESKTOP_SMOKE_ROOT = scratch;
 
   // Use installed Electron, not a runtime downloader or macOS registration launcher.
   let electronPath;
@@ -189,7 +337,8 @@ try {
     }
     if (!sandboxConfigured) args.unshift("--no-sandbox");
   }
-  logFd = NodeFS.openSync(logPath, "wx", 0o600);
+  logFd = NodeFS.openSync(logPath, "ax", 0o600);
+  launchStartedAt = Date.now();
   child = NodeChildProcess.spawn(
     isLinux ? "dbus-run-session" : electronPath,
     isLinux ? ["--", "xvfb-run", "-a", electronPath, ...args] : args,
@@ -201,6 +350,7 @@ try {
       windowsHide: true,
     },
   );
+  launchReturnedAt = Date.now();
   await new Promise((resolve, reject) => {
     stopObservation = reject;
     child.once("error", reject);
@@ -212,6 +362,15 @@ try {
       );
     });
     observationTimer = setTimeout(resolve, 8_000);
+    const observe = () => {
+      try {
+        remainingProcesses();
+      } catch (error) {
+        reject(error);
+      }
+    };
+    child.once("spawn", observe);
+    monitor = setInterval(observe, isWindows ? 500 : 200);
     if (interruptedSignal) onSignal(interruptedSignal);
   });
   const output = NodeFS.readFileSync(logPath, "utf8");
