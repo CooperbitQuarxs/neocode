@@ -23,10 +23,64 @@ const fatalPatterns = [
   "Uncaught ReferenceError",
   "fatal startup",
 ];
+// Electron's "app ready" precedes menu, updates, URL registration and bootstrap.
+// Fresh private settings enable the primary backend; wait for its window and
+// control socket too, rather than accepting the early Electron lifecycle event.
+const readinessPatterns = ["app ready", "desktop app control socket ready", "main window created"];
+// DirectoryInfo.Create(DirectorySecurity) applies the DACL atomically. POSIX
+// modes do not restrict Windows access, especially below a shared TEMP folder.
+const windowsScratchSetup = String.raw`
+$ErrorActionPreference = 'Stop'
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+try {
+  $user = $identity.User
+  $inheritance = [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
+    [Security.AccessControl.InheritanceFlags]::ObjectInherit
+  $security = [Security.AccessControl.DirectorySecurity]::new()
+  $security.SetOwner($user)
+  $security.SetAccessRuleProtection($true, $false)
+  $security.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+    $user, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance,
+    [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow))
+  $root = [IO.DirectoryInfo]::new([IO.Path]::Combine(
+    $env:T3CODE_SMOKE_WINDOWS_TEMP_ROOT, 't3-desktop-smoke-' + [Guid]::NewGuid().ToString('N')))
+  if ($root.Exists) { throw 'Windows smoke scratch root already exists' }
+  $root.Create($security)
+  $actual = $root.GetAccessControl(
+    [Security.AccessControl.AccessControlSections]::Access -bor
+    [Security.AccessControl.AccessControlSections]::Owner)
+  $rules = $actual.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])
+  if (-not $actual.AreAccessRulesProtected -or
+      $actual.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $user.Value -or
+      $rules.Count -ne 1) { throw 'Windows smoke scratch owner-only ACL verification failed' }
+  $rule = $rules[0]
+  if ($rule.IsInherited -or $rule.IdentityReference.Value -ne $user.Value -or
+      $rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+      $rule.FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl -or
+      $rule.InheritanceFlags -ne $inheritance -or
+      $rule.PropagationFlags -ne [Security.AccessControl.PropagationFlags]::None) {
+    throw 'Windows smoke scratch inheritable user-only access verification failed'
+  }
+  [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+  [Console]::WriteLine($root.FullName)
+} finally {
+  $identity.Dispose()
+}
+`;
 // Chromium's Unix socket paths must fit sun_path; inherited TMPDIR may be too long.
-const scratch = NodeFS.mkdtempSync(
-  NodePath.join(isWindows ? NodeOS.tmpdir() : "/tmp", "t3-desktop-smoke-"),
-);
+const scratch = isWindows
+  ? NodeChildProcess.execFileSync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", windowsScratchSetup],
+      {
+        env: { ...process.env, T3CODE_SMOKE_WINDOWS_TEMP_ROOT: NodeOS.tmpdir() },
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+        timeout: 10_000,
+      },
+    ).trim()
+  : NodeFS.mkdtempSync(NodePath.join("/tmp", "t3-desktop-smoke-"));
 const stateDir = NodePath.join(scratch, "state");
 const logPath = NodePath.join(scratch, "output.log");
 const inspectionLogPath = NodePath.join(scratch, "processes.log");
@@ -823,7 +877,8 @@ try {
     });
     // Includes xvfb-run's startup delay and cold private fontconfig cache creation.
     observationTimer = setTimeout(
-      () => reject(new Error(`Electron did not report app ready within ${startupTimeoutMs}ms`)),
+      () =>
+        reject(new Error(`Desktop bootstrap did not become ready within ${startupTimeoutMs}ms`)),
       Math.max(0, launchStartedAt + startupTimeoutMs - Date.now()),
     );
     const observe = () => {
@@ -832,9 +887,9 @@ try {
         const output = NodeFS.readFileSync(logPath, "utf8");
         const failures = fatalPatterns.filter((pattern) => output.includes(pattern));
         if (failures.length > 0) throw new Error(`Fatal smoke output: ${failures.join(", ")}`);
-        if (output.includes("app ready")) {
+        if (readinessPatterns.every((pattern) => output.includes(pattern))) {
           if (child.exitCode !== null || child.signalCode !== null) {
-            throw new Error("Smoke launcher exited before app-ready observation");
+            throw new Error("Smoke launcher exited before desktop-bootstrap readiness observation");
           }
           resolve();
         }
