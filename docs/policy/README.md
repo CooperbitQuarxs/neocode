@@ -23,6 +23,20 @@ Nothing here adds a confirmation step.
 - The authoring agent merges its own PR into `nightly` once the workspace gates pass. Review bots (`docs/agents/pr-review-bots.md`) are advisory and are requested at the agent's discretion. Docs-only and config-only PRs skip the bot and get a local review.
 - Contributor heads (any author other than the owner) are never executed on the owner's machine; see `docs/agents/pr-review-bots.md` › Running PR code.
 
+## CI
+
+PR validation and CI on `nightly` and `main` use GitHub-hosted runners:
+`ubuntu-24.04` for Linux and `macos-15` for mobile native static analysis.
+The fork has no Blacksmith runners; inheriting upstream's runner labels left
+every CI job queued instead of executing ([#23](https://github.com/PsychedelicShayna/neocode/issues/23)).
+PR preview workflows use hosted runners too. Release, production mobile,
+publish, and manual Windows lanes retain their existing runners; this decision
+does not enable those lanes or make CI non-gating.
+
+Classify completed failures against the base per workspace policy: fix
+PR-caused failures on the branch; file matching base failures as `baseline`
+issues with evidence.
+
 ## Promotion
 
 `nightly` is promoted into `main` weekly by the `promote-nightly` workflow
