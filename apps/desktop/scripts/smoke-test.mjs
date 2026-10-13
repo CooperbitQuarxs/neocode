@@ -30,13 +30,62 @@ const readinessPatterns = ["app ready", "desktop app control socket ready", "mai
 // Do not start any application descendants before the initial ownership snapshot.
 // exec preserves the detached launch PID/group once observation permits startup.
 const posixLaunchGate = 'IFS= read -r gate && [ "$gate" = launch ] || exit 1; exec "$@"';
-// DirectoryInfo.Create(DirectorySecurity) applies the DACL atomically. POSIX
-// modes do not restrict Windows access, especially below a shared TEMP folder.
+// A private child DACL cannot prevent a shared parent's delete-child access.
+// Validate the known-folder ancestry before atomically creating the private leaf.
 const windowsScratchSetup = String.raw`
 $ErrorActionPreference = 'Stop'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 try {
   $user = $identity.User
+  $parentPath = [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData)
+  if ([string]::IsNullOrWhiteSpace($parentPath) -or
+      [IO.Path]::GetPathRoot($parentPath) -notmatch '^[A-Za-z]:\\$') {
+    throw 'Windows smoke requires an existing local application-data directory'
+  }
+  $scratchParent = [IO.DirectoryInfo]::new($parentPath)
+  $installer = [Security.Principal.NTAccount]::new('NT SERVICE', 'TrustedInstaller')
+  $trusted = @($user.Value, 'S-1-5-18', 'S-1-5-32-544',
+    $installer.Translate([Security.Principal.SecurityIdentifier]).Value)
+  $replacementRights = [int64][Security.AccessControl.FileSystemRights]::Delete -bor
+    [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
+    [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+    [Security.AccessControl.FileSystemRights]::TakeOwnership -bor
+    [Security.AccessControl.FileSystemRights]::WriteData -bor
+    [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
+    [Security.AccessControl.FileSystemRights]::WriteAttributes -bor 0x10000000 -bor 0x40000000
+  function Assert-SmokeScratchParent([IO.DirectoryInfo]$directory) {
+    # Validate from the volume root inward: no unchecked ancestor may replace a checked child.
+    if ($null -ne $directory.Parent) { Assert-SmokeScratchParent $directory.Parent }
+    $directory.Refresh()
+    if (-not $directory.Exists -or
+        ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw 'Windows smoke scratch ancestry is missing or contains a reparse point'
+    }
+    $access = $directory.GetAccessControl(
+      [Security.AccessControl.AccessControlSections]::Access -bor
+      [Security.AccessControl.AccessControlSections]::Owner)
+    $descriptor = [Security.AccessControl.RawSecurityDescriptor]::new(
+      $access.GetSecurityDescriptorBinaryForm(), 0)
+    if ($null -eq $descriptor.DiscretionaryAcl -or
+        $trusted -notcontains $access.GetOwner([Security.Principal.SecurityIdentifier]).Value) {
+      throw 'Windows smoke scratch ancestry has an untrusted owner or unrestricted DACL'
+    }
+    $forbidden = $replacementRights
+    # Existing ancestors may permit new sibling folders, but the scratch parent must not.
+    if ($directory.FullName -eq $scratchParent.FullName) {
+      $forbidden = $forbidden -bor [Security.AccessControl.FileSystemRights]::CreateDirectories
+    }
+    foreach ($entry in $access.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
+      if ($entry.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
+          ($entry.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) -eq 0 -and
+          $trusted -notcontains $entry.IdentityReference.Value -and
+          $entry.IdentityReference.Value -ne 'S-1-3-4' -and
+          ([int64]$entry.FileSystemRights -band $forbidden) -ne 0) {
+        throw 'Windows smoke scratch ancestry permits replacement by another principal'
+      }
+    }
+  }
+  Assert-SmokeScratchParent $scratchParent
   $inheritance = [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
     [Security.AccessControl.InheritanceFlags]::ObjectInherit
   $security = [Security.AccessControl.DirectorySecurity]::new()
@@ -46,9 +95,13 @@ try {
     $user, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance,
     [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow))
   $root = [IO.DirectoryInfo]::new([IO.Path]::Combine(
-    $env:T3CODE_SMOKE_WINDOWS_TEMP_ROOT, 't3-desktop-smoke-' + [Guid]::NewGuid().ToString('N')))
+    $scratchParent.FullName, 't3-desktop-smoke-' + [Guid]::NewGuid().ToString('N')))
   if ($root.Exists) { throw 'Windows smoke scratch root already exists' }
   $root.Create($security)
+  $root.Refresh()
+  if (($root.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw 'Windows smoke scratch root is a reparse point'
+  }
   $actual = $root.GetAccessControl(
     [Security.AccessControl.AccessControlSections]::Access -bor
     [Security.AccessControl.AccessControlSections]::Owner)
@@ -76,7 +129,6 @@ const scratch = isWindows
       "powershell.exe",
       ["-NoProfile", "-NonInteractive", "-Command", windowsScratchSetup],
       {
-        env: { ...process.env, T3CODE_SMOKE_WINDOWS_TEMP_ROOT: NodeOS.tmpdir() },
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,

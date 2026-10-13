@@ -40,6 +40,8 @@ issues with evidence.
 Diagnostic startup must not outrun process ownership: establish the launcher's
 identity before permitting application descendants. Failed process discovery
 retains private state and never counts as successful cleanup.
+Windows scratch uses verified local known-folder ancestry, not ambient TEMP:
+a private child ACL alone cannot stop replacement through a shared parent.
 
 ## Promotion
 
