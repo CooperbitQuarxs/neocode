@@ -23,7 +23,10 @@ const fatalPatterns = [
   "Uncaught ReferenceError",
   "fatal startup",
 ];
-const scratch = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-desktop-smoke-"));
+// Chromium's Unix socket paths must fit sun_path; inherited TMPDIR may be too long.
+const scratch = NodeFS.mkdtempSync(
+  NodePath.join(isWindows ? NodeOS.tmpdir() : "/tmp", "t3-desktop-smoke-"),
+);
 const stateDir = NodePath.join(scratch, "state");
 const logPath = NodePath.join(scratch, "output.log");
 const inspectionLogPath = NodePath.join(scratch, "processes.log");
@@ -269,6 +272,62 @@ if ($electronProof.activeProcesses -ne 0) { throw 'Electron Job Object is not em
 if ($supervisorActive -ne 1) { throw 'Supervisor Job Object still contains compiler/helper descendants' }
 exit $code
 `;
+// Built-in Ruby/Fiddle reads libproc directly: no compiler, Apple events or GUI.
+// Apple proc_info.h: PROC_PIDTBSDINFO=3, proc_bsdinfo=136 bytes on x64/arm64;
+// pid/ppid at 12/16, pgid at 100, full start seconds/microseconds at 120/128.
+const macProcessQuery = String.raw`
+require 'fiddle'
+abort 'Unsupported macOS process ABI' unless Fiddle::SIZEOF_INT == 4 &&
+  Fiddle::SIZEOF_LONG_LONG == 8 && Fiddle::SIZEOF_VOIDP == 8
+library = Fiddle.dlopen('/usr/lib/libproc.dylib')
+info = Fiddle::Function.new(library['proc_pidinfo'],
+  [Fiddle::TYPE_INT, Fiddle::TYPE_INT, Fiddle::TYPE_LONG_LONG,
+   Fiddle::TYPE_VOIDP, Fiddle::TYPE_INT], Fiddle::TYPE_INT)
+list = Fiddle::Function.new(library['proc_listallpids'],
+  [Fiddle::TYPE_VOIDP, Fiddle::TYPE_INT], Fiddle::TYPE_INT)
+buffer = "\0" * 136
+query = lambda do |pid, required|
+  size = info.call(pid, 3, 0, buffer, buffer.bytesize)
+  if size == 0
+    error = Fiddle.last_error
+    next nil if error == Errno::ESRCH::Errno
+    next nil if !required && [Errno::EPERM::Errno, Errno::EACCES::Errno].include?(error)
+    raise "proc_pidinfo failed for PID #{pid}, errno #{error}"
+  end
+  raise 'Unexpected proc_bsdinfo size' unless size == buffer.bytesize
+  actual_pid, parent = buffer[12, 8].unpack('L2')
+  group = buffer[100, 4].unpack('L').first
+  seconds, microseconds = buffer[120, 16].unpack('Q2')
+  raise 'Invalid proc_bsdinfo identity' unless actual_pid == pid &&
+    seconds > 0 && microseconds < 1_000_000
+  [actual_pid, parent, group, seconds, microseconds]
+end
+raise 'Cannot query native process identities' unless query.call(Process.pid, true)
+if ARGV[0] == 'all'
+  pids = nil
+  3.times do
+    capacity = list.call(0, 0)
+    raise 'Cannot size native process list' unless capacity > 0
+    capacity += 32
+    storage = "\0" * (capacity * 4)
+    count = list.call(storage, storage.bytesize)
+    raise 'Cannot read native process list' unless count > 0 && count <= capacity
+    if count < capacity
+      pids = storage.unpack('i*').first(count).select { |pid| pid > 0 }
+      break
+    end
+  end
+  raise 'Native process list kept growing' unless pids
+  required = ARGV[1].to_s.split(',').map { |pid| Integer(pid, 10) }
+  pids.each do |pid|
+    entry = query.call(pid, required.include?(pid))
+    puts entry.join("\t") if entry
+  end
+else
+  entry = query.call(Integer(ARGV[0], 10), true)
+  puts entry.join("\t") if entry
+end
+`;
 const trackedProcesses = new Map();
 let child;
 let logFd;
@@ -278,6 +337,49 @@ let launchStartedAt;
 let launchReturnedAt;
 let stopObservation;
 let interruptedSignal;
+
+function queryMacProcesses(pid, timeoutMs) {
+  if (hostPlatform !== "darwin") throw new Error("Native process identities require macOS");
+  const required = [...trackedProcesses.keys()];
+  if (child?.pid) required.push(child.pid);
+  const output = NodeChildProcess.execFileSync(
+    "/usr/bin/ruby",
+    [
+      "--disable=gems",
+      "-e",
+      macProcessQuery,
+      "--",
+      pid === undefined ? "all" : String(pid),
+      required.join(","),
+    ],
+    {
+      encoding: "utf8",
+      timeout: timeoutMs,
+      env: {
+        PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+        HOME: NodePath.join(stateDir, "home"),
+        TMPDIR: NodePath.join(stateDir, "tmp"),
+        LC_ALL: "C",
+      },
+    },
+  );
+  return output
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const fields = /^(\d+)\t(\d+)\t(\d+)\t(\d+)\t(\d+)$/.exec(line);
+      if (!fields) throw new Error("Invalid native macOS process identity response");
+      const [, processId, parent, group, seconds, microseconds] = fields;
+      return {
+        pid: Number(processId),
+        parent: Number(parent),
+        group: Number(group),
+        identity: `${seconds}:${microseconds}`,
+        started: BigInt(seconds) * 1_000n + BigInt(microseconds) / 1_000n,
+      };
+    });
+}
 
 // The backend starts in a separate POSIX group. Retain creation identities
 // across ancestor exits instead of treating the outer group as an enclosure.
@@ -315,26 +417,7 @@ function processSnapshot() {
     }
     return snapshot;
   }
-  const output = NodeChildProcess.execFileSync("ps", ["-axo", "pid=,ppid=,pgid=,lstart="], {
-    encoding: "utf8",
-    timeout: 3_000,
-    env: { ...process.env, LC_ALL: "C" },
-  });
-  return output
-    .trim()
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => {
-      const [pid, parent, group, ...date] = line.trim().split(/\s+/);
-      const identity = date.join(" ");
-      return {
-        pid: Number(pid),
-        parent: Number(parent),
-        group: Number(group),
-        identity,
-        started: BigInt(Date.parse(identity)),
-      };
-    });
+  return queryMacProcesses(undefined, 3_000);
 }
 
 function remainingProcesses() {
@@ -446,19 +529,7 @@ function inspectKnownProcess(pid, timeoutMs) {
       throw error;
     }
   }
-  try {
-    const output = NodeChildProcess.execFileSync("ps", ["-p", String(pid), "-o", "pgid=,lstart="], {
-      encoding: "utf8",
-      timeout: timeoutMs,
-      env: { ...process.env, LC_ALL: "C" },
-    }).trim();
-    if (!output) return undefined;
-    const [group, ...date] = output.split(/\s+/);
-    return { identity: date.join(" "), group: Number(group) };
-  } catch (error) {
-    if (error.status === 1 && !error.stdout?.trim() && !error.stderr?.trim()) return undefined;
-    throw error;
-  }
+  return queryMacProcesses(pid, timeoutMs)[0];
 }
 
 function signalProcesses(remaining, signal, deadline) {
@@ -694,6 +765,8 @@ try {
       { cause: error },
     );
   }
+  // Fail before Electron starts if the built-in native identity helper is absent.
+  if (hostPlatform === "darwin") queryMacProcesses(process.pid, 3_000);
   const args = [
     "--password-store=basic",
     `--user-data-dir=${NodePath.join(stateDir, "profile")}`,
