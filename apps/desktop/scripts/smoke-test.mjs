@@ -12,6 +12,8 @@ const mainJs = NodePath.resolve(desktopDir, "dist-electron/boot.cjs");
 const hostPlatform = NodeOS.platform();
 const isLinux = hostPlatform === "linux";
 const isWindows = hostPlatform === "win32";
+const startupTimeoutMs = 30_000;
+const cleanupTimeoutMs = 8_000;
 const fatalPatterns = [
   "Cannot find module",
   "MODULE_NOT_FOUND",
@@ -25,6 +27,248 @@ const scratch = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-desktop-sm
 const stateDir = NodePath.join(scratch, "state");
 const logPath = NodePath.join(scratch, "output.log");
 const inspectionLogPath = NodePath.join(scratch, "processes.log");
+const windowsStopPath = NodePath.join(stateDir, "stop-windows-job");
+const windowsProofPath = NodePath.join(scratch, "windows-job-cleanup.json");
+// Atomically assign suspended Electron to a non-breakaway, kill-on-close Job
+// Object during creation. Kernel membership survives unobserved parent exits;
+// PowerShell/.NET are built into supported Windows installations.
+const windowsSupervisor = String.raw`
+$ErrorActionPreference = 'Stop'
+$config = $env:T3CODE_SMOKE_WINDOWS_CONFIG | ConvertFrom-Json
+Remove-Item Env:T3CODE_SMOKE_WINDOWS_CONFIG
+# Contain the supervisor before Add-Type: Windows PowerShell's managed compiler
+# may itself spawn csc.exe. Reflection.Emit requires no compiler subprocess.
+$assembly = [AppDomain]::CurrentDomain.DefineDynamicAssembly(
+  [Reflection.AssemblyName]::new('DesktopSmokeBootstrap'),
+  [Reflection.Emit.AssemblyBuilderAccess]::Run)
+$module = $assembly.DefineDynamicModule('DesktopSmokeBootstrap')
+$bootstrapType = $module.DefineType('DesktopSmokeBootstrap', [Reflection.TypeAttributes]::Public)
+function Define-SmokeNative([string]$name, [Type]$returns, [Type[]]$parameters) {
+  $method = $bootstrapType.DefinePInvokeMethod(
+    $name, 'kernel32.dll', $name,
+    [Reflection.MethodAttributes]::Public -bor [Reflection.MethodAttributes]::Static,
+    [Reflection.CallingConventions]::Standard, $returns, $parameters,
+    [Runtime.InteropServices.CallingConvention]::Winapi,
+    [Runtime.InteropServices.CharSet]::Unicode)
+  $method.SetImplementationFlags([Reflection.MethodImplAttributes]::PreserveSig)
+}
+Define-SmokeNative 'CreateJobObjectW' ([IntPtr]) ([Type[]]@([IntPtr], [IntPtr]))
+Define-SmokeNative 'SetInformationJobObject' ([bool]) ([Type[]]@([IntPtr], [int], [IntPtr], [uint32]))
+Define-SmokeNative 'AssignProcessToJobObject' ([bool]) ([Type[]]@([IntPtr], [IntPtr]))
+Define-SmokeNative 'GetCurrentProcess' ([IntPtr]) ([Type[]]@())
+$bootstrap = $bootstrapType.CreateType()
+$supervisorJob = $bootstrap.GetMethod('CreateJobObjectW').Invoke($null, @([IntPtr]::Zero, [IntPtr]::Zero))
+if ($supervisorJob -eq [IntPtr]::Zero) { throw 'Could not create supervisor Job Object' }
+# WinSDK JOBOBJECT_EXTENDED_LIMIT_INFORMATION is 144 bytes on x64, 112 on x86;
+# BasicLimitInformation.LimitFlags is at byte 16 in both layouts.
+$limitSize = if ([IntPtr]::Size -eq 8) { 144 } else { 112 }
+$limitBuffer = [Runtime.InteropServices.Marshal]::AllocHGlobal($limitSize)
+try {
+  [Runtime.InteropServices.Marshal]::Copy([byte[]]::new($limitSize), 0, $limitBuffer, $limitSize)
+  [Runtime.InteropServices.Marshal]::WriteInt32($limitBuffer, 16, 0x2000)
+  $configured = $bootstrap.GetMethod('SetInformationJobObject').Invoke(
+    $null, @($supervisorJob, [int]9, $limitBuffer, [uint32]$limitSize))
+  if (-not $configured) { throw 'Could not configure supervisor kill-on-close containment' }
+} finally {
+  [Runtime.InteropServices.Marshal]::FreeHGlobal($limitBuffer)
+}
+$currentProcess = $bootstrap.GetMethod('GetCurrentProcess').Invoke($null, @())
+$contained = $bootstrap.GetMethod('AssignProcessToJobObject').Invoke(
+  $null, @($supervisorJob, $currentProcess))
+if (-not $contained) { throw 'Could not contain supervisor before compiling the smoke helper' }
+# Keep this non-inheritable handle open until process exit; its closure also
+# kills compiler/helper descendants when the original Node child handle is killed.
+
+Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+
+public static class DesktopSmokeJob {
+  [StructLayout(LayoutKind.Sequential)]
+  struct BasicLimits {
+    public long ProcessTime, JobTime;
+    public uint Flags;
+    public UIntPtr MinWorkingSet, MaxWorkingSet;
+    public uint ActiveProcessLimit;
+    public UIntPtr Affinity;
+    public uint PriorityClass, SchedulingClass;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  struct IoCounters {
+    public ulong ReadOperations, WriteOperations, OtherOperations;
+    public ulong ReadBytes, WriteBytes, OtherBytes;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  struct ExtendedLimits {
+    public BasicLimits Basic;
+    public IoCounters Io;
+    public UIntPtr ProcessMemory, JobMemory, PeakProcessMemory, PeakJobMemory;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  struct Accounting {
+    public long TotalUser, TotalKernel, PeriodUser, PeriodKernel;
+    public uint PageFaults, TotalProcesses, ActiveProcesses, TerminatedProcesses;
+  }
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  struct StartupInfo {
+    public uint Size;
+    public string Reserved, Desktop, Title;
+    public uint X, Y, XSize, YSize, XChars, YChars, Fill, Flags;
+    public ushort ShowWindow, ReservedSize;
+    public IntPtr ReservedPointer, Input, Output, Error;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  struct StartupInfoEx {
+    public StartupInfo Startup;
+    public IntPtr Attributes;
+  }
+  [StructLayout(LayoutKind.Sequential)]
+  struct ProcessInfo {
+    public IntPtr Process, Thread;
+    public uint ProcessId, ThreadId;
+  }
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  static extern IntPtr CreateJobObjectW(IntPtr attributes, string name);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  static extern bool SetInformationJobObject(IntPtr job, int kind, ref ExtendedLimits limits, uint size);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  static extern bool QueryInformationJobObject(IntPtr job, int kind, out Accounting accounting, uint size, IntPtr returned);
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  static extern bool CreateProcessW(string application, StringBuilder command, IntPtr processAttributes, IntPtr threadAttributes, bool inheritHandles, uint flags, IntPtr environment, string directory, ref StartupInfoEx startup, out ProcessInfo process);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  static extern bool InitializeProcThreadAttributeList(IntPtr attributes, int count, uint flags, ref UIntPtr size);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  static extern bool UpdateProcThreadAttribute(IntPtr attributes, uint flags, IntPtr attribute, IntPtr value, UIntPtr size, IntPtr previous, IntPtr returned);
+  [DllImport("kernel32.dll")]
+  static extern void DeleteProcThreadAttributeList(IntPtr attributes);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  static extern uint ResumeThread(IntPtr thread);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  static extern bool TerminateJobObject(IntPtr job, uint code);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  static extern bool TerminateProcess(IntPtr process, uint code);
+  [DllImport("kernel32.dll", SetLastError = true)]
+  static extern bool GetExitCodeProcess(IntPtr process, out uint code);
+  [DllImport("kernel32.dll")]
+  static extern IntPtr GetStdHandle(int handle);
+  [DllImport("kernel32.dll")]
+  static extern bool CloseHandle(IntPtr handle);
+
+  static void Check(bool success, string operation) {
+    if (!success) throw new Win32Exception(Marshal.GetLastWin32Error(), operation);
+  }
+  public static uint Active(IntPtr job) {
+    Accounting accounting;
+    Check(QueryInformationJobObject(job, 1, out accounting, (uint)Marshal.SizeOf(typeof(Accounting)), IntPtr.Zero), "Query smoke Job Object");
+    return accounting.ActiveProcesses;
+  }
+  static void AppendQuoted(StringBuilder result, string value) {
+    result.Append('"');
+    int slashes = 0;
+    foreach (char character in value) {
+      if (character == '\\') { slashes++; continue; }
+      result.Append('\\', character == '"' ? slashes * 2 + 1 : slashes);
+      result.Append(character);
+      slashes = 0;
+    }
+    result.Append('\\', slashes * 2);
+    result.Append('"');
+  }
+  public static int Run(string executable, string[] arguments, string directory, string stopPath, string proofPath, int maximumLifetimeMs) {
+    if (File.Exists(stopPath)) {
+      File.WriteAllText(proofPath, "{\"activeProcesses\":0}");
+      return 1;
+    }
+    IntPtr job = IntPtr.Zero;
+    IntPtr attributes = IntPtr.Zero;
+    IntPtr jobList = IntPtr.Zero;
+    bool attributesInitialized = false;
+    ProcessInfo process = new ProcessInfo();
+    try {
+      job = CreateJobObjectW(IntPtr.Zero, null);
+      Check(job != IntPtr.Zero, "Create smoke Job Object");
+      ExtendedLimits limits = new ExtendedLimits();
+      limits.Basic.Flags = 0x2000; // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE; no breakaway flags.
+      Check(SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf(typeof(ExtendedLimits))), "Configure smoke Job Object");
+      UIntPtr attributeSize = UIntPtr.Zero;
+      InitializeProcThreadAttributeList(IntPtr.Zero, 1, 0, ref attributeSize);
+      Check(attributeSize != UIntPtr.Zero, "Size smoke process attributes");
+      attributes = Marshal.AllocHGlobal(checked((int)attributeSize.ToUInt64()));
+      Check(InitializeProcThreadAttributeList(attributes, 1, 0, ref attributeSize), "Initialize smoke process attributes");
+      attributesInitialized = true;
+      jobList = Marshal.AllocHGlobal(IntPtr.Size);
+      Marshal.WriteIntPtr(jobList, job);
+      // PROC_THREAD_ATTRIBUTE_JOB_LIST: atomic assignment during CreateProcess,
+      // not a suspended-but-uncontained interval vulnerable to supervisor death.
+      Check(UpdateProcThreadAttribute(attributes, 0, new IntPtr(0x0002000D), jobList, new UIntPtr((uint)IntPtr.Size), IntPtr.Zero, IntPtr.Zero), "Set atomic smoke Job Object assignment");
+      StartupInfoEx startup = new StartupInfoEx();
+      startup.Startup.Size = (uint)Marshal.SizeOf(typeof(StartupInfoEx));
+      startup.Startup.Flags = 0x100; // STARTF_USESTDHANDLES.
+      startup.Startup.Input = GetStdHandle(-10);
+      startup.Startup.Output = GetStdHandle(-11);
+      startup.Startup.Error = GetStdHandle(-12);
+      startup.Attributes = attributes;
+      StringBuilder command = new StringBuilder();
+      AppendQuoted(command, executable);
+      foreach (string argument in arguments) {
+        command.Append(" ");
+        AppendQuoted(command, argument);
+      }
+      // EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW | CREATE_SUSPENDED.
+      Check(CreateProcessW(executable, command, IntPtr.Zero, IntPtr.Zero, true, 0x08080004, IntPtr.Zero, directory, ref startup, out process), "Create atomically contained smoke Electron");
+      Check(ResumeThread(process.Thread) != 0xffffffff, "Resume contained smoke Electron");
+      Stopwatch lifetime = Stopwatch.StartNew();
+      bool timedOut = false;
+      while (Active(job) != 0) {
+        timedOut = lifetime.ElapsedMilliseconds >= maximumLifetimeMs;
+        if (File.Exists(stopPath) || timedOut) {
+          Check(TerminateJobObject(job, timedOut ? 124u : 143u), "Terminate smoke Job Object");
+          Stopwatch teardown = Stopwatch.StartNew();
+          while (Active(job) != 0 && teardown.ElapsedMilliseconds < 5000) Thread.Sleep(100);
+          if (Active(job) != 0) throw new Exception("Smoke Job Object still contains active processes");
+          break;
+        }
+        Thread.Sleep(100);
+      }
+      uint code;
+      Check(GetExitCodeProcess(process.Process, out code), "Read smoke Electron exit code");
+      File.WriteAllText(proofPath, "{\"activeProcesses\":0}");
+      return timedOut ? 124 : unchecked((int)code);
+    } finally {
+      // Closing the sole non-inheritable job handle kills every contained process,
+      // including when querying fails or PowerShell is externally terminated.
+      if (job != IntPtr.Zero) { TerminateJobObject(job, 1); CloseHandle(job); }
+      if (process.Process != IntPtr.Zero) TerminateProcess(process.Process, 1);
+      if (process.Thread != IntPtr.Zero) CloseHandle(process.Thread);
+      if (process.Process != IntPtr.Zero) CloseHandle(process.Process);
+      if (attributesInitialized) DeleteProcThreadAttributeList(attributes);
+      if (attributes != IntPtr.Zero) Marshal.FreeHGlobal(attributes);
+      if (jobList != IntPtr.Zero) Marshal.FreeHGlobal(jobList);
+    }
+  }
+}
+'@
+$code = [DesktopSmokeJob]::Run($config.executable, [string[]]$config.arguments, $config.directory, $config.stopPath, $config.proofPath, $config.maximumLifetimeMs)
+$electronProof = [IO.File]::ReadAllText($config.proofPath) | ConvertFrom-Json
+$supervisorActive = [DesktopSmokeJob]::Active($supervisorJob)
+# The enclosing job must contain only this supervisor before its sole,
+# non-inheritable handle closes at exit. Node also observes this exact PID exit.
+$proof = @{
+  electronActiveProcesses = $electronProof.activeProcesses
+  supervisorActiveProcesses = $supervisorActive
+  supervisorPid = $PID
+  supervisorKillOnClose = $true
+} | ConvertTo-Json -Compress
+[IO.File]::WriteAllText($config.proofPath, $proof)
+if ($electronProof.activeProcesses -ne 0) { throw 'Electron Job Object is not empty' }
+if ($supervisorActive -ne 1) { throw 'Supervisor Job Object still contains compiler/helper descendants' }
+exit $code
+`;
 const trackedProcesses = new Map();
 let child;
 let logFd;
@@ -71,23 +315,6 @@ function processSnapshot() {
     }
     return snapshot;
   }
-  if (isWindows) {
-    const output = NodeChildProcess.execFileSync(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "Get-CimInstance Win32_Process | Where-Object { $_.CreationDate } | ForEach-Object { [pscustomobject]@{ pid = $_.ProcessId; parent = $_.ParentProcessId; identity = $_.CreationDate.ToUniversalTime().Ticks.ToString() } } | ConvertTo-Json -Compress",
-      ],
-      { encoding: "utf8", timeout: 3_000, windowsHide: true },
-    );
-    const rows = JSON.parse(output);
-    return (Array.isArray(rows) ? rows : [rows]).map((entry) => ({
-      ...entry,
-      started: BigInt(entry.identity),
-    }));
-  }
   const output = NodeChildProcess.execFileSync("ps", ["-axo", "pid=,ppid=,pgid=,lstart="], {
     encoding: "utf8",
     timeout: 3_000,
@@ -114,7 +341,7 @@ function remainingProcesses() {
   const snapshot = processSnapshot();
   const byPid = new Map(snapshot.map((entry) => [entry.pid, entry]));
   const owned = new Map();
-  const now = isWindows ? BigInt(Date.now()) * 10_000n + 621355968000000000n : BigInt(Date.now());
+  const now = BigInt(Date.now());
   for (const entry of snapshot) {
     if (entry.tagged || trackedProcesses.get(entry.pid)?.identity === entry.identity) {
       owned.set(entry.pid, entry);
@@ -123,10 +350,8 @@ function remainingProcesses() {
   if (trackedProcesses.size === 0) {
     const root = byPid.get(child.pid);
     if (root) {
-      const createdAt = isWindows
-        ? Number((root.started - 621355968000000000n) / 10_000n)
-        : Number(root.started);
-      const tolerance = isWindows ? 1 : 1_000;
+      const createdAt = Number(root.started);
+      const tolerance = 1_000;
       if (
         root.tagged ||
         (!isLinux &&
@@ -139,6 +364,8 @@ function remainingProcesses() {
     if (owned.size === 0) throw new Error("Could not establish the launched process identity");
   }
   for (const [pid, tracked] of trackedProcesses) {
+    const current = byPid.get(pid);
+    if (current && current.identity !== tracked.identity) tracked.ancestryRetired = true;
     if (!byPid.has(pid) && tracked.missingAfter === undefined) tracked.missingAfter = now;
   }
   let added;
@@ -152,6 +379,7 @@ function remainingProcesses() {
         !isLinux &&
         !byPid.has(entry.parent) &&
         historicalParent?.missingAfter !== undefined &&
+        !historicalParent.ancestryRetired &&
         entry.started <= historicalParent.missingAfter
           ? historicalParent
           : undefined;
@@ -180,7 +408,7 @@ function remainingProcesses() {
           .toString()
           .split("\0");
         const isolatedEnvironment = environment.filter((value) =>
-          /^(HOME|XDG_RUNTIME_DIR|XDG_CURRENT_DESKTOP|DISPLAY|DBUS_SESSION_BUS_ADDRESS|T3CODE_HOME)=/.test(
+          /^(HOME|XDG_RUNTIME_DIR|XDG_CURRENT_DESKTOP|DISPLAY|DBUS_SESSION_BUS_ADDRESS|T3CODE_HOME|GVFS_DISABLE_FUSE)=/.test(
             value,
           ),
         );
@@ -204,59 +432,202 @@ function remainingProcesses() {
   return [...owned.values()];
 }
 
-function signalProcesses(remaining, signal) {
-  if (isWindows) {
-    // Re-check creation identity inside the terminating command. Never let
-    // taskkill /T traverse an unvalidated, reused PID.
-    const identities = remaining.map((entry) => `${entry.pid}='${entry.identity}'`).join(";");
-    NodeChildProcess.execFileSync(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        `$owned=@{${identities}}; Get-CimInstance Win32_Process | Where-Object { $_.CreationDate } | ForEach-Object { if ($owned.ContainsKey([int]$_.ProcessId) -and $owned[[int]$_.ProcessId] -eq $_.CreationDate.ToUniversalTime().Ticks.ToString()) { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }`,
-      ],
-      { stdio: "ignore", timeout: 3_000, windowsHide: true },
-    );
-    return;
+function inspectKnownProcess(pid, timeoutMs) {
+  if (isLinux) {
+    try {
+      const stat = NodeFS.readFileSync(`/proc/${pid}/stat`, "utf8");
+      const fields = stat
+        .slice(stat.lastIndexOf(")") + 2)
+        .trim()
+        .split(/\s+/);
+      return { identity: fields[19], group: Number(fields[2]) };
+    } catch (error) {
+      if (["ENOENT", "ESRCH"].includes(error.code)) return undefined;
+      throw error;
+    }
   }
+  try {
+    const output = NodeChildProcess.execFileSync("ps", ["-p", String(pid), "-o", "pgid=,lstart="], {
+      encoding: "utf8",
+      timeout: timeoutMs,
+      env: { ...process.env, LC_ALL: "C" },
+    }).trim();
+    if (!output) return undefined;
+    const [group, ...date] = output.split(/\s+/);
+    return { identity: date.join(" "), group: Number(group) };
+  } catch (error) {
+    if (error.status === 1 && !error.stdout?.trim() && !error.stderr?.trim()) return undefined;
+    throw error;
+  }
+}
+
+function signalProcesses(remaining, signal, deadline) {
+  let failure;
   const groups = new Set(remaining.map((entry) => entry.group));
   for (const group of groups) {
-    // The preceding group's termination may reap this group's leader.
-    // Require a still-live, identity-matching member immediately before signalling.
-    const fresh = new Map(processSnapshot().map((entry) => [entry.pid, entry]));
-    const anchored = remaining.some(
-      (entry) =>
-        entry.group === group &&
-        fresh.get(entry.pid)?.identity === entry.identity &&
-        fresh.get(entry.pid)?.group === group,
-    );
+    let anchored = false;
+    for (const entry of remaining) {
+      if (entry.group !== group) continue;
+      if (Date.now() >= deadline) {
+        failure ??= new Error("Known-process validation exceeded cleanup deadline");
+        break;
+      }
+      try {
+        // Targeted lookup is independent of the full discovery snapshot.
+        const current = inspectKnownProcess(entry.pid, Math.min(500, deadline - Date.now()));
+        if (current?.identity === entry.identity && current.group === group) {
+          anchored = true;
+          break;
+        }
+      } catch (error) {
+        failure ??= error;
+      }
+    }
     if (!anchored) continue;
     try {
       process.kill(-group, signal);
     } catch (error) {
-      if (error.code !== "ESRCH") throw error;
+      if (error.code !== "ESRCH") failure ??= error;
     }
   }
+  if (failure) throw failure;
+}
+
+async function cleanupWindows(deadline) {
+  let failure;
+  try {
+    NodeFS.writeFileSync(windowsStopPath, "", { mode: 0o600 });
+  } catch (error) {
+    failure = error;
+    // The original supervisor handle closes its sole Job Object handle.
+    try {
+      child.kill("SIGKILL");
+    } catch (killError) {
+      failure = new AggregateError([error, killError], "Could not stop Windows smoke supervisor");
+    }
+  }
+  while (child.exitCode === null && child.signalCode === null && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if (child.exitCode === null && child.signalCode === null) {
+    failure ??= new Error("Windows smoke supervisor exceeded cleanup deadline");
+    try {
+      child.kill("SIGKILL");
+    } catch (error) {
+      failure = new AggregateError([failure, error], "Could not kill Windows smoke supervisor");
+    }
+  }
+  try {
+    const proof = JSON.parse(NodeFS.readFileSync(windowsProofPath, "utf8"));
+    if (proof.electronActiveProcesses !== 0) {
+      throw new Error("Windows Electron Job Object is not empty");
+    }
+    if (
+      proof.supervisorActiveProcesses !== 1 ||
+      proof.supervisorPid !== child.pid ||
+      proof.supervisorKillOnClose !== true
+    ) {
+      throw new Error("Windows supervisor/compiler Job Object teardown was not verified");
+    }
+  } catch (error) {
+    failure ??= error;
+    // Even a failed job query/proof must not leave the containment owner alive.
+    try {
+      child.kill("SIGKILL");
+    } catch (killError) {
+      failure = new AggregateError([failure, killError], "Windows smoke teardown failed");
+    }
+  }
+  if (failure) throw failure;
 }
 
 async function cleanup() {
   clearInterval(monitor);
   clearTimeout(observationTimer);
   if (!child?.pid) return;
-  const deadline = Date.now() + 8_000;
+  const deadline = Date.now() + cleanupTimeoutMs;
+  if (isWindows) return cleanupWindows(deadline);
   const escalateAt = Date.now() + 2_000;
-  let remaining = remainingProcesses();
-  while (remaining.length > 0 && Date.now() < deadline) {
-    signalProcesses(remaining, Date.now() < escalateAt ? "SIGTERM" : "SIGKILL");
+  let failure;
+  let discoveryFailed = false;
+  let verified = false;
+  let remaining = [...trackedProcesses.values()];
+  do {
+    const signal = Date.now() < escalateAt ? "SIGTERM" : "SIGKILL";
+    if (discoveryFailed) {
+      // Preserve best-effort teardown even when discovery cannot be repeated.
+      try {
+        child.kill(signal);
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    try {
+      remaining = remainingProcesses();
+      verified = true;
+    } catch (error) {
+      discoveryFailed = true;
+      verified = false;
+      failure ??= error;
+      remaining = [...trackedProcesses.values()];
+      try {
+        child.kill(signal);
+      } catch (killError) {
+        failure ??= killError;
+      }
+    }
+    try {
+      signalProcesses(remaining, signal, deadline);
+    } catch (error) {
+      failure ??= error;
+      try {
+        child.kill(signal);
+      } catch (killError) {
+        failure ??= killError;
+      }
+    }
+    if (verified && remaining.length === 0) break;
     await new Promise((resolve) => setTimeout(resolve, 100));
-    remaining = remainingProcesses();
-  }
-  if (remaining.length > 0) {
+  } while (Date.now() < deadline);
+  if (failure || !verified || remaining.length > 0) {
+    // Escalation remains reachable even if discovery failed during the first pass.
+    try {
+      child.kill("SIGKILL");
+    } catch (error) {
+      failure ??= error;
+    }
+    try {
+      signalProcesses([...trackedProcesses.values()], "SIGKILL", Date.now() + 500);
+    } catch (error) {
+      failure ??= error;
+    }
     throw new Error(
-      `Smoke cleanup left processes: ${remaining.map((entry) => entry.pid).join(", ")}`,
+      `Smoke cleanup verification failed${failure ? `: ${failure.message}` : `; remaining PIDs: ${remaining.map((entry) => entry.pid).join(", ")}`}`,
+      { cause: failure },
     );
+  }
+}
+
+function refuseMountedState() {
+  if (!isLinux) return;
+  const roots = [NodePath.resolve(stateDir)];
+  try {
+    roots.push(NodeFS.realpathSync(stateDir));
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  const mounts = NodeFS.readFileSync("/proc/self/mounts", "utf8");
+  for (const line of mounts.trim().split("\n")) {
+    const encoded = line.split(/\s+/)[1];
+    if (!encoded) throw new Error("Could not parse smoke mount inspection");
+    const mountpoint = NodePath.resolve(
+      encoded.replace(/\\([0-7]{3})/g, (_, octal) =>
+        String.fromCharCode(Number.parseInt(octal, 8)),
+      ),
+    );
+    if (roots.some((root) => mountpoint === root || mountpoint.startsWith(`${root}/`))) {
+      throw new Error(`Refusing to delete smoke state containing mount ${mountpoint}`);
+    }
   }
 }
 
@@ -307,6 +678,8 @@ try {
   if (isLinux) {
     // No inherited session address: dbus-run-session supplies a private bus.
     delete env.DBUS_SYSTEM_BUS_ADDRESS;
+    // Private-bus GVFS activation must not leave a stale FUSE mount in the runtime.
+    env.GVFS_DISABLE_FUSE = "1";
   }
   env.T3CODE_DESKTOP_SMOKE_ROOT = scratch;
 
@@ -337,11 +710,25 @@ try {
     }
     if (!sandboxConfigured) args.unshift("--no-sandbox");
   }
+  if (isWindows) {
+    env.T3CODE_SMOKE_WINDOWS_CONFIG = JSON.stringify({
+      executable: electronPath,
+      arguments: args,
+      directory: desktopDir,
+      stopPath: windowsStopPath,
+      proofPath: windowsProofPath,
+      maximumLifetimeMs: startupTimeoutMs + cleanupTimeoutMs + 2_000,
+    });
+  }
   logFd = NodeFS.openSync(logPath, "ax", 0o600);
   launchStartedAt = Date.now();
   child = NodeChildProcess.spawn(
-    isLinux ? "dbus-run-session" : electronPath,
-    isLinux ? ["--", "xvfb-run", "-a", electronPath, ...args] : args,
+    isLinux ? "dbus-run-session" : isWindows ? "powershell.exe" : electronPath,
+    isLinux
+      ? ["--", "xvfb-run", "-a", electronPath, ...args]
+      : isWindows
+        ? ["-NoProfile", "-NonInteractive", "-Command", windowsSupervisor]
+        : args,
     {
       cwd: desktopDir,
       stdio: ["ignore", logFd, logFd],
@@ -361,29 +748,38 @@ try {
         ),
       );
     });
-    observationTimer = setTimeout(resolve, 8_000);
+    // Includes xvfb-run's startup delay and cold private fontconfig cache creation.
+    observationTimer = setTimeout(
+      () => reject(new Error(`Electron did not report app ready within ${startupTimeoutMs}ms`)),
+      Math.max(0, launchStartedAt + startupTimeoutMs - Date.now()),
+    );
     const observe = () => {
       try {
-        remainingProcesses();
+        if (!isWindows) remainingProcesses();
+        const output = NodeFS.readFileSync(logPath, "utf8");
+        const failures = fatalPatterns.filter((pattern) => output.includes(pattern));
+        if (failures.length > 0) throw new Error(`Fatal smoke output: ${failures.join(", ")}`);
+        if (output.includes("app ready")) {
+          if (child.exitCode !== null || child.signalCode !== null) {
+            throw new Error("Smoke launcher exited before app-ready observation");
+          }
+          resolve();
+        }
       } catch (error) {
         reject(error);
       }
     };
     child.once("spawn", observe);
-    monitor = setInterval(observe, isWindows ? 500 : 200);
+    monitor = setInterval(observe, 200);
     if (interruptedSignal) onSignal(interruptedSignal);
   });
-  const output = NodeFS.readFileSync(logPath, "utf8");
-  const failures = fatalPatterns.filter((pattern) => output.includes(pattern));
-  if (failures.length > 0) throw new Error(`Fatal smoke output: ${failures.join(", ")}`);
-  if (!output.includes("app ready"))
-    throw new Error("Timed out before Electron reported app ready");
 } catch (error) {
   console.error(`\nDesktop smoke test failed: ${error.message}`);
   process.exitCode = 1;
 } finally {
   try {
     await cleanup();
+    refuseMountedState();
     // Retain output.log, but remove private application/profile state only after teardown.
     NodeFS.rmSync(stateDir, { recursive: true, force: true });
     console.log("Smoke process-tree cleanup verified.");
