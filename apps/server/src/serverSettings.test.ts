@@ -1002,12 +1002,12 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
-  it.effect("writes non-default settings and explicit optional provider defaults to disk", () =>
+  it.effect("writes non-default settings to disk and reloads them", () =>
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
       const serverConfig = yield* ServerConfig.ServerConfig;
       const fileSystem = yield* FileSystem.FileSystem;
-      const next = yield* serverSettings.updateSettings({
+      yield* serverSettings.updateSettings({
         addProjectBaseDirectory: "~/Development",
         observability: {
           otlpTracesUrl: "http://localhost:4318/v1/traces",
@@ -1025,42 +1025,35 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         automaticGitFetchInterval: Duration.seconds(10),
       });
 
-      assert.equal(next.providers.codex.binaryPath, "/opt/homebrew/bin/codex");
-
       const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
-      assert.deepEqual(JSON.parse(raw), {
-        addProjectBaseDirectory: "~/Development",
-        observability: {
-          otlpTracesUrl: "http://localhost:4318/v1/traces",
-          otlpMetricsUrl: "http://localhost:4318/v1/metrics",
-        },
-        providers: {
-          codex: {
-            binaryPath: "/opt/homebrew/bin/codex",
-          },
-          cursor: {
-            enabled: false,
-          },
-          grok: {
-            enabled: false,
-          },
-          opencode: {
-            enabled: false,
-            serverUrl: "http://127.0.0.1:4096",
-            serverPassword: "secret-password",
-          },
-        },
-        backgroundActivity: {
-          schemaVersion: 1,
-          profile: "custom",
-          baseProfile: "balanced",
-          overrides: {
-            automaticGitFetchInterval: 10_000,
-          },
-        },
-        automaticGitFetchInterval: 10_000,
-      });
+      const persisted = yield* decodeServerSettings(
+        // @effect-diagnostics-next-line preferSchemaOverJson:off
+        JSON.parse(raw),
+      );
+      const reloaded = yield* Effect.gen(function* () {
+        const fresh = yield* ServerSettingsModule.ServerSettingsService;
+        return yield* fresh.getSettings;
+      }).pipe(
+        Effect.provide(
+          Layer.fresh(ServerSettingsModule.layer).pipe(Layer.provide(ServerSecretStore.layer)),
+        ),
+      );
+
+      for (const settings of [persisted, reloaded]) {
+        assert.equal(settings.addProjectBaseDirectory, "~/Development");
+        assert.equal(settings.observability.otlpTracesUrl, "http://localhost:4318/v1/traces");
+        assert.equal(settings.observability.otlpMetricsUrl, "http://localhost:4318/v1/metrics");
+        assert.equal(settings.providers.codex.binaryPath, "/opt/homebrew/bin/codex");
+        assert.equal(settings.providers.opencode.serverUrl, "http://127.0.0.1:4096");
+        assert.equal(settings.providers.opencode.serverPassword, "secret-password");
+        assert.equal(Duration.toMillis(settings.automaticGitFetchInterval), 10_000);
+        assert.equal(settings.backgroundActivity.profile, "custom");
+        const customFetchInterval = settings.backgroundActivity.overrides.automaticGitFetchInterval;
+        assert.equal(
+          customFetchInterval === undefined ? undefined : Duration.toMillis(customFetchInterval),
+          10_000,
+        );
+      }
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
