@@ -54,7 +54,7 @@ export function projectNeoPiComposerUi(
 // component: navigation and provider switches must not replay old activities.
 const acknowledgedEditorByTarget = new Map<string, string | null>();
 
-export function consumeNeoPiEditorAction(
+function consumeNeoPiEditorAction(
   target: string,
   editor: NeoPiComposerUi["editor"],
   prompt: string,
@@ -69,7 +69,7 @@ export function consumeNeoPiEditorAction(
 }
 
 /** Provider-owned registrations; absent providers retain upstream composer behavior. */
-export const composerProviderCapabilities = {
+const composerProviderCapabilities = {
   neopi: {
     project: (activities: ReadonlyArray<OrchestrationThreadActivity>) => {
       const ui = projectNeoPiComposerUi(activities);
