@@ -113,8 +113,8 @@ void import("./linux.ts").then(({ result }) => process.emit("ready", result));`,
 it("loads the emitted packaged boot entry and backend cache preload", async () => {
   const directory = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-desktop-boot-"));
   try {
-    const entries = ["src/boot.ts", "src/compileCache.ts"];
-    await NodeFSP.mkdir(NodePath.join(directory, "src"));
+    const entries = ["src/boot.ts", "src/compileCache.ts", "src/neopi/NeoPiCli.ts"];
+    await NodeFSP.mkdir(NodePath.join(directory, "src/neopi"), { recursive: true });
     await Promise.all(
       entries.map((entry) =>
         NodeFSP.copyFile(new URL(`../${entry}`, import.meta.url), NodePath.join(directory, entry)),
