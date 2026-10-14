@@ -8,7 +8,7 @@ Issues and specs for this repo live in GitHub Issues at `PsychedelicShayna/neoco
 - Read: `gh issue view <number> --comments`, including labels.
 - List: `gh issue list --state <state> --json number,title,body,labels,comments` with the filters the task requires.
 - Apply or remove labels: `gh issue edit <number> --add-label "..."` or `--remove-label "..."`.
-- Close an issue when the fix merged, when it is a verified duplicate, or when the owner said so. Say why in the closing comment. `Fixes #<n>` closes an issue only when the commit reaches the default branch `main`, so after a merge into `nightly` close the issue by hand, citing the PR and merge commit.
+- Issues stay open until the fix is promoted to the default branch; label `ready-for-human` after the `nightly` merge.
 - Posting rules (comment identity block, labels) are the workspace policy in `~/source/github/PsychedelicShayna/AGENTS.md`. This guide is mechanics only.
 - Upstream `AGENTS.md` still applies: implementation plans and scratch notes stay out of the worktree; the issue owns the checklist, the merged PR is the record.
 
