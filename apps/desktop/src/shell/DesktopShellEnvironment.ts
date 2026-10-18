@@ -500,6 +500,11 @@ const installPosixEnvironment = Effect.fn("desktop.shellEnvironment.installPosix
 const installShellEnvironment = (
   config: ShellEnvironmentConfig,
 ): Effect.Effect<void, never, ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem> => {
+  // The owned diagnostic launcher supplies the complete isolated environment.
+  // Skip before any profile code or live-session bus discovery can undo it.
+  if (Option.isSome(trimNonEmpty(config.env.T3CODE_DESKTOP_SMOKE_ROOT))) {
+    return Effect.void;
+  }
   if (config.platform === "win32") {
     return installWindowsEnvironment(config);
   }
