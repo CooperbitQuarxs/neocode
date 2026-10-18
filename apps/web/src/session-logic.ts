@@ -1246,8 +1246,6 @@ function extractToolDetail(
   const command = commandPreview.command;
 
   if (commandTool && command) {
-    const displayOutput = asTrimmedString(asRecord(payload?.data)?.displayOutput);
-    if (displayOutput) return stripTrailingExitCode(displayOutput).output;
     const output = extractToolOutput(payload);
     if (output) return output;
   }
