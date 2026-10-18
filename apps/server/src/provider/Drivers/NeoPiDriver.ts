@@ -25,6 +25,10 @@ import { neoPiUsageProviderId } from "../neopi/NeoPiModelCatalog.ts";
 import { makeNeoPiDiscoveryProbe } from "../neopi/NeoPiDiscoveryProbe.ts";
 import { makeNeoPiHostToolBridge } from "../neopi/NeoPiHostToolBridge.ts";
 import {
+  registerNeoPiSessionCatalogSource,
+  unregisterNeoPiSessionCatalogSource,
+} from "../neopi/NeoPiSessionCatalogSource.ts";
+import {
   defaultProviderContinuationIdentity,
   type ProviderDriver,
   type ProviderInstance,
@@ -175,21 +179,33 @@ export const NeoPiDriver: ProviderDriver<NeoPiSettings, NeoPiDriverEnv> = {
             }),
         ),
       );
-      return {
-        instanceId,
-        driverKind: DRIVER_KIND,
-        continuationIdentity,
-        displayName,
-        accentColor,
-        enabled,
-        snapshot,
-        adapter,
-        textGeneration,
-        snapshotForCwd: (cwd) =>
-          Effect.flatMap(snapshot.getSnapshot, (base) =>
-            neoPiSnapshotForCwd(base, cwd, discovery, commandProbe),
-          ).pipe(Effect.provideService(FileSystem.FileSystem, fs)),
-        invalidateCaches: commandProbe.invalidate,
-      } satisfies ProviderInstance;
+      const instance = registerNeoPiSessionCatalogSource(
+        {
+          instanceId,
+          driverKind: DRIVER_KIND,
+          continuationIdentity,
+          displayName,
+          accentColor,
+          enabled,
+          snapshot,
+          adapter,
+          textGeneration,
+          snapshotForCwd: (cwd) =>
+            Effect.flatMap(snapshot.getSnapshot, (base) =>
+              neoPiSnapshotForCwd(base, cwd, discovery, commandProbe),
+            ).pipe(Effect.provideService(FileSystem.FileSystem, fs)),
+          invalidateCaches: commandProbe.invalidate,
+        } satisfies ProviderInstance,
+        {
+          binary,
+          env,
+          profile: config.profile,
+          capabilities: sharedSessionCapabilities,
+        },
+      );
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => unregisterNeoPiSessionCatalogSource(instance)),
+      );
+      return instance;
     }),
 };
