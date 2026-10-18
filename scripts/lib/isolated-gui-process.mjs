@@ -24,11 +24,20 @@ export async function runIsolatedGuiProcess({
   if (targetArgs.some((arg) => /^--(?:password-store|user-data-dir)(?:=|$)/i.test(arg))) {
     throw new Error("The isolated harness owns password-store and user-data-dir arguments");
   }
-  if (!Array.isArray(readinessPatterns) || readinessPatterns.length === 0 ||
-      [...readinessPatterns, ...fatalPatterns].some((pattern) => typeof pattern !== "string" || !pattern)) {
+  if (
+    !Array.isArray(readinessPatterns) ||
+    readinessPatterns.length === 0 ||
+    !Array.isArray(fatalPatterns) ||
+    [...readinessPatterns, ...fatalPatterns].some(
+      (pattern) => typeof pattern !== "string" || !pattern,
+    )
+  ) {
     throw new Error("Nonempty readiness patterns and string fatal patterns are required");
   }
-  for (const [value, maximum] of [[startupTimeoutMs, 300_000], [cleanupTimeoutMs, 30_000]]) {
+  for (const [value, maximum] of [
+    [startupTimeoutMs, 300_000],
+    [cleanupTimeoutMs, 30_000],
+  ]) {
     if (!Number.isInteger(value) || value < 1 || value > maximum) {
       throw new Error("Isolated process deadlines must be positive and bounded");
     }
@@ -38,12 +47,12 @@ export async function runIsolatedGuiProcess({
   const hostPlatform = NodeOS.platform();
   const isLinux = hostPlatform === "linux";
   const isWindows = hostPlatform === "win32";
-// Do not start any application descendants before the initial ownership snapshot.
-// exec preserves the detached launch PID/group once observation permits startup.
-const posixLaunchGate = 'IFS= read -r gate && [ "$gate" = launch ] || exit 1; exec "$@"';
-// A private child DACL cannot prevent a shared parent's delete-child access.
-// Validate the known-folder ancestry before atomically creating the private leaf.
-const windowsScratchSetup = String.raw`
+  // Do not start any application descendants before the initial ownership snapshot.
+  // exec preserves the detached launch PID/group once observation permits startup.
+  const posixLaunchGate = 'IFS= read -r gate && [ "$gate" = launch ] || exit 1; exec "$@"';
+  // A private child DACL cannot prevent a shared parent's delete-child access.
+  // Validate the known-folder ancestry before atomically creating the private leaf.
+  const windowsScratchSetup = String.raw`
 $ErrorActionPreference = 'Stop'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 try {
@@ -138,28 +147,28 @@ try {
   $identity.Dispose()
 }
 `;
-// Chromium's Unix socket paths must fit sun_path; inherited TMPDIR may be too long.
-const scratch = isWindows
-  ? NodeChildProcess.execFileSync(
-      "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-Command", windowsScratchSetup],
-      {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true,
-        timeout: 10_000,
-      },
-    ).trim()
-  : NodeFS.mkdtempSync(NodePath.join("/tmp", "t3-desktop-smoke-"));
-const stateDir = NodePath.join(scratch, "state");
-const logPath = NodePath.join(scratch, "output.log");
-const inspectionLogPath = NodePath.join(scratch, "processes.log");
-const windowsStopPath = NodePath.join(stateDir, "stop-windows-job");
-const windowsProofPath = NodePath.join(scratch, "windows-job-cleanup.json");
-// Atomically assign suspended Electron to a non-breakaway, kill-on-close Job
-// Object during creation. Kernel membership survives unobserved parent exits;
-// PowerShell/.NET are built into supported Windows installations.
-const windowsSupervisor = String.raw`
+  // Chromium's Unix socket paths must fit sun_path; inherited TMPDIR may be too long.
+  const scratch = isWindows
+    ? NodeChildProcess.execFileSync(
+        "powershell.exe",
+        ["-NoProfile", "-NonInteractive", "-Command", windowsScratchSetup],
+        {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
+          timeout: 10_000,
+        },
+      ).trim()
+    : NodeFS.mkdtempSync(NodePath.join("/tmp", "t3-desktop-smoke-"));
+  const stateDir = NodePath.join(scratch, "state");
+  const logPath = NodePath.join(scratch, "output.log");
+  const inspectionLogPath = NodePath.join(scratch, "processes.log");
+  const windowsStopPath = NodePath.join(stateDir, "stop-windows-job");
+  const windowsProofPath = NodePath.join(scratch, "windows-job-cleanup.json");
+  // Atomically assign suspended Electron to a non-breakaway, kill-on-close Job
+  // Object during creation. Kernel membership survives unobserved parent exits;
+  // PowerShell/.NET are built into supported Windows installations.
+  const windowsSupervisor = String.raw`
 $ErrorActionPreference = 'Stop'
 $config = $env:T3CODE_SMOKE_WINDOWS_CONFIG | ConvertFrom-Json
 Remove-Item Env:T3CODE_SMOKE_WINDOWS_CONFIG
@@ -396,10 +405,10 @@ if ($electronProof.activeProcesses -ne 0) { throw 'Electron Job Object is not em
 if ($supervisorActive -ne 1) { throw 'Supervisor Job Object still contains compiler/helper descendants' }
 exit $code
 `;
-// Built-in Ruby/Fiddle reads libproc directly: no compiler, Apple events or GUI.
-// Apple proc_info.h: PROC_PIDTBSDINFO=3, proc_bsdinfo=136 bytes on x64/arm64;
-// pid/ppid at 12/16, pgid at 100, full start seconds/microseconds at 120/128.
-const macProcessQuery = String.raw`
+  // Built-in Ruby/Fiddle reads libproc directly: no compiler, Apple events or GUI.
+  // Apple proc_info.h: PROC_PIDTBSDINFO=3, proc_bsdinfo=136 bytes on x64/arm64;
+  // pid/ppid at 12/16, pgid at 100, full start seconds/microseconds at 120/128.
+  const macProcessQuery = String.raw`
 require 'fiddle'
 abort 'Unsupported macOS process ABI' unless Fiddle::SIZEOF_INT == 4 &&
   Fiddle::SIZEOF_LONG_LONG == 8 && Fiddle::SIZEOF_VOIDP == 8
@@ -452,411 +461,420 @@ else
   puts entry.join("\t") if entry
 end
 `;
-const trackedProcesses = new Map();
-let child;
-let logFd;
-let observationTimer;
-let monitor;
-let launchStartedAt;
-let launchReturnedAt;
-let launchReleased = false;
-let stopObservation;
-let interruptedSignal;
+  const trackedProcesses = new Map();
+  let child;
+  let logFd;
+  let observationTimer;
+  let monitor;
+  let launchStartedAt;
+  let launchReturnedAt;
+  let launchReleased = false;
+  let stopObservation;
+  let interruptedSignal;
 
-function queryMacProcesses(pid, timeoutMs) {
-  if (hostPlatform !== "darwin") throw new Error("Native process identities require macOS");
-  const required = [...trackedProcesses.keys()];
-  if (child?.pid) required.push(child.pid);
-  const output = NodeChildProcess.execFileSync(
-    "/usr/bin/ruby",
-    [
-      "--disable=gems",
-      "-e",
-      macProcessQuery,
-      "--",
-      pid === undefined ? "all" : String(pid),
-      required.join(","),
-    ],
-    {
-      encoding: "utf8",
-      timeout: timeoutMs,
-      env: {
-        PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
-        HOME: NodePath.join(stateDir, "home"),
-        TMPDIR: NodePath.join(stateDir, "tmp"),
-        LC_ALL: "C",
+  function queryMacProcesses(pid, timeoutMs) {
+    if (hostPlatform !== "darwin") throw new Error("Native process identities require macOS");
+    const required = [...trackedProcesses.keys()];
+    if (child?.pid) required.push(child.pid);
+    const output = NodeChildProcess.execFileSync(
+      "/usr/bin/ruby",
+      [
+        "--disable=gems",
+        "-e",
+        macProcessQuery,
+        "--",
+        pid === undefined ? "all" : String(pid),
+        required.join(","),
+      ],
+      {
+        encoding: "utf8",
+        timeout: timeoutMs,
+        env: {
+          PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
+          HOME: NodePath.join(stateDir, "home"),
+          TMPDIR: NodePath.join(stateDir, "tmp"),
+          LC_ALL: "C",
+        },
       },
-    },
-  );
-  return output
-    .trim()
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => {
-      const fields = /^(\d+)\t(\d+)\t(\d+)\t(\d+)\t(\d+)$/.exec(line);
-      if (!fields) throw new Error("Invalid native macOS process identity response");
-      const [, processId, parent, group, seconds, microseconds] = fields;
-      return {
-        pid: Number(processId),
-        parent: Number(parent),
-        group: Number(group),
-        identity: `${seconds}:${microseconds}`,
-        started: BigInt(seconds) * 1_000n + BigInt(microseconds) / 1_000n,
-      };
-    });
-}
+    );
+    return output
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const fields = /^(\d+)\t(\d+)\t(\d+)\t(\d+)\t(\d+)$/.exec(line);
+        if (!fields) throw new Error("Invalid native macOS process identity response");
+        const [, processId, parent, group, seconds, microseconds] = fields;
+        return {
+          pid: Number(processId),
+          parent: Number(parent),
+          group: Number(group),
+          identity: `${seconds}:${microseconds}`,
+          started: BigInt(seconds) * 1_000n + BigInt(microseconds) / 1_000n,
+        };
+      });
+  }
 
-// The backend starts in a separate POSIX group. Retain creation identities
-// across ancestor exits instead of treating the outer group as an enclosure.
-function processSnapshot() {
-  if (isLinux) {
-    const snapshot = [];
-    for (const name of NodeFS.readdirSync("/proc")) {
-      if (!/^\d+$/.test(name)) continue;
+  // The backend starts in a separate POSIX group. Retain creation identities
+  // across ancestor exits instead of treating the outer group as an enclosure.
+  function processSnapshot() {
+    if (isLinux) {
+      const snapshot = [];
+      for (const name of NodeFS.readdirSync("/proc")) {
+        if (!/^\d+$/.test(name)) continue;
+        try {
+          const stat = NodeFS.readFileSync(`/proc/${name}/stat`, "utf8");
+          const fields = stat
+            .slice(stat.lastIndexOf(")") + 2)
+            .trim()
+            .split(/\s+/);
+          let tagged = false;
+          try {
+            tagged = NodeFS.readFileSync(`/proc/${name}/environ`)
+              .toString()
+              .split("\0")
+              .includes(`T3CODE_DESKTOP_SMOKE_ROOT=${scratch}`);
+          } catch (error) {
+            if (!["ENOENT", "ESRCH", "EACCES", "EPERM"].includes(error.code)) throw error;
+          }
+          snapshot.push({
+            pid: Number(name),
+            parent: Number(fields[1]),
+            group: Number(fields[2]),
+            identity: fields[19],
+            started: BigInt(fields[19]),
+            tagged,
+          });
+        } catch (error) {
+          if (!["ENOENT", "ESRCH", "EACCES", "EPERM"].includes(error.code)) throw error;
+        }
+      }
+      return snapshot;
+    }
+    return queryMacProcesses(undefined, 3_000);
+  }
+
+  function remainingProcesses() {
+    const snapshot = processSnapshot();
+    const byPid = new Map(snapshot.map((entry) => [entry.pid, entry]));
+    const owned = new Map();
+    const now = BigInt(Date.now());
+    for (const entry of snapshot) {
+      if (entry.tagged || trackedProcesses.get(entry.pid)?.identity === entry.identity) {
+        owned.set(entry.pid, entry);
+      }
+    }
+    if (trackedProcesses.size === 0) {
+      const root = byPid.get(child.pid);
+      if (root) {
+        const createdAt = Number(root.started);
+        const tolerance = 1_000;
+        if (
+          root.tagged ||
+          (!isLinux &&
+            createdAt >= launchStartedAt - tolerance &&
+            createdAt <= launchReturnedAt + tolerance)
+        ) {
+          owned.set(root.pid, root);
+        }
+      }
+      if (owned.size === 0) throw new Error("Could not establish the launched process identity");
+    }
+    for (const [pid, tracked] of trackedProcesses) {
+      const current = byPid.get(pid);
+      if (current && current.identity !== tracked.identity) tracked.ancestryRetired = true;
+      if (!byPid.has(pid) && tracked.missingAfter === undefined) tracked.missingAfter = now;
+    }
+    let added;
+    do {
+      added = false;
+      for (const entry of snapshot) {
+        if (owned.has(entry.pid)) continue;
+        const parent = owned.get(entry.parent);
+        const historicalParent = trackedProcesses.get(entry.parent);
+        const orphanParent =
+          !isLinux &&
+          !byPid.has(entry.parent) &&
+          historicalParent?.missingAfter !== undefined &&
+          !historicalParent.ancestryRetired &&
+          entry.started <= historicalParent.missingAfter
+            ? historicalParent
+            : undefined;
+        const ancestor = parent ?? orphanParent;
+        const inOwnedGroup =
+          !isWindows &&
+          [...owned.values()].some(
+            (member) => member.group === entry.group && entry.started >= member.started,
+          );
+        if ((ancestor && entry.started >= ancestor.started) || inOwnedGroup) {
+          owned.set(entry.pid, entry);
+          added = true;
+        }
+      }
+    } while (added);
+    for (const entry of owned.values()) {
+      if (
+        trackedProcesses.get(entry.pid)?.identity !== entry.identity &&
+        isLinux &&
+        logFd !== undefined
+      ) {
+        try {
+          // Inspect only launched processes, logging no inherited host-secret variables.
+          const args = NodeFS.readFileSync(`/proc/${entry.pid}/cmdline`).toString().split("\0");
+          const environment = NodeFS.readFileSync(`/proc/${entry.pid}/environ`)
+            .toString()
+            .split("\0");
+          const isolatedEnvironment = environment.filter((value) =>
+            /^(HOME|USERPROFILE|APPDATA|LOCALAPPDATA|XDG_CONFIG_HOME|XDG_DATA_HOME|XDG_CACHE_HOME|XDG_STATE_HOME|XDG_RUNTIME_DIR|XDG_CURRENT_DESKTOP|XDG_SESSION_DESKTOP|XDG_SESSION_TYPE|DESKTOP_SESSION|SESSION_MANAGER|DISPLAY|WAYLAND_DISPLAY|XAUTHORITY|DBUS_SESSION_BUS_ADDRESS|DBUS_SYSTEM_BUS_ADDRESS|DBUS_STARTER_ADDRESS|T3CODE_HOME|T3CODE_DESKTOP_SMOKE_ROOT|GVFS_DISABLE_FUSE|TMPDIR|TMP|TEMP)=/.test(
+              value,
+            ),
+          );
+          const stat = NodeFS.readFileSync(`/proc/${entry.pid}/stat`, "utf8");
+          const identity = stat
+            .slice(stat.lastIndexOf(")") + 2)
+            .trim()
+            .split(/\s+/)[19];
+          if (identity !== entry.identity) continue;
+          NodeFS.appendFileSync(
+            inspectionLogPath,
+            `${JSON.stringify({ pid: entry.pid, parent: entry.parent, group: entry.group, identity: entry.identity, args, initialEnvironment: isolatedEnvironment })}\n`,
+            { mode: 0o600 },
+          );
+        } catch (error) {
+          if (!["ENOENT", "ESRCH", "EACCES", "EPERM"].includes(error.code)) throw error;
+        }
+      }
+      trackedProcesses.set(entry.pid, entry);
+    }
+    return [...owned.values()];
+  }
+
+  function inspectKnownProcess(pid, timeoutMs) {
+    if (isLinux) {
       try {
-        const stat = NodeFS.readFileSync(`/proc/${name}/stat`, "utf8");
+        const stat = NodeFS.readFileSync(`/proc/${pid}/stat`, "utf8");
         const fields = stat
           .slice(stat.lastIndexOf(")") + 2)
           .trim()
           .split(/\s+/);
-        let tagged = false;
-        try {
-          tagged = NodeFS.readFileSync(`/proc/${name}/environ`)
-            .toString()
-            .split("\0")
-            .includes(`T3CODE_DESKTOP_SMOKE_ROOT=${scratch}`);
-        } catch (error) {
-          if (!["ENOENT", "ESRCH", "EACCES", "EPERM"].includes(error.code)) throw error;
-        }
-        snapshot.push({
-          pid: Number(name),
-          parent: Number(fields[1]),
-          group: Number(fields[2]),
-          identity: fields[19],
-          started: BigInt(fields[19]),
-          tagged,
-        });
+        return { identity: fields[19], group: Number(fields[2]) };
       } catch (error) {
-        if (!["ENOENT", "ESRCH", "EACCES", "EPERM"].includes(error.code)) throw error;
+        if (["ENOENT", "ESRCH"].includes(error.code)) return undefined;
+        throw error;
       }
     }
-    return snapshot;
+    return queryMacProcesses(pid, timeoutMs)[0];
   }
-  return queryMacProcesses(undefined, 3_000);
-}
 
-function remainingProcesses() {
-  const snapshot = processSnapshot();
-  const byPid = new Map(snapshot.map((entry) => [entry.pid, entry]));
-  const owned = new Map();
-  const now = BigInt(Date.now());
-  for (const entry of snapshot) {
-    if (entry.tagged || trackedProcesses.get(entry.pid)?.identity === entry.identity) {
-      owned.set(entry.pid, entry);
-    }
-  }
-  if (trackedProcesses.size === 0) {
-    const root = byPid.get(child.pid);
-    if (root) {
-      const createdAt = Number(root.started);
-      const tolerance = 1_000;
-      if (
-        root.tagged ||
-        (!isLinux &&
-          createdAt >= launchStartedAt - tolerance &&
-          createdAt <= launchReturnedAt + tolerance)
-      ) {
-        owned.set(root.pid, root);
-      }
-    }
-    if (owned.size === 0) throw new Error("Could not establish the launched process identity");
-  }
-  for (const [pid, tracked] of trackedProcesses) {
-    const current = byPid.get(pid);
-    if (current && current.identity !== tracked.identity) tracked.ancestryRetired = true;
-    if (!byPid.has(pid) && tracked.missingAfter === undefined) tracked.missingAfter = now;
-  }
-  let added;
-  do {
-    added = false;
-    for (const entry of snapshot) {
-      if (owned.has(entry.pid)) continue;
-      const parent = owned.get(entry.parent);
-      const historicalParent = trackedProcesses.get(entry.parent);
-      const orphanParent =
-        !isLinux &&
-        !byPid.has(entry.parent) &&
-        historicalParent?.missingAfter !== undefined &&
-        !historicalParent.ancestryRetired &&
-        entry.started <= historicalParent.missingAfter
-          ? historicalParent
-          : undefined;
-      const ancestor = parent ?? orphanParent;
-      const inOwnedGroup =
-        !isWindows &&
-        [...owned.values()].some(
-          (member) => member.group === entry.group && entry.started >= member.started,
-        );
-      if ((ancestor && entry.started >= ancestor.started) || inOwnedGroup) {
-        owned.set(entry.pid, entry);
-        added = true;
-      }
-    }
-  } while (added);
-  for (const entry of owned.values()) {
-    if (
-      trackedProcesses.get(entry.pid)?.identity !== entry.identity &&
-      isLinux &&
-      logFd !== undefined
-    ) {
-      try {
-        // Inspect only launched processes, logging no inherited host-secret variables.
-        const args = NodeFS.readFileSync(`/proc/${entry.pid}/cmdline`).toString().split("\0");
-        const environment = NodeFS.readFileSync(`/proc/${entry.pid}/environ`)
-          .toString()
-          .split("\0");
-        const isolatedEnvironment = environment.filter((value) =>
-          /^(HOME|USERPROFILE|APPDATA|LOCALAPPDATA|XDG_CONFIG_HOME|XDG_DATA_HOME|XDG_CACHE_HOME|XDG_STATE_HOME|XDG_RUNTIME_DIR|XDG_CURRENT_DESKTOP|XDG_SESSION_DESKTOP|XDG_SESSION_TYPE|DESKTOP_SESSION|SESSION_MANAGER|DISPLAY|WAYLAND_DISPLAY|XAUTHORITY|DBUS_SESSION_BUS_ADDRESS|DBUS_SYSTEM_BUS_ADDRESS|DBUS_STARTER_ADDRESS|T3CODE_HOME|T3CODE_DESKTOP_SMOKE_ROOT|GVFS_DISABLE_FUSE|TMPDIR|TMP|TEMP)=/.test(
-            value,
-          ),
-        );
-        const stat = NodeFS.readFileSync(`/proc/${entry.pid}/stat`, "utf8");
-        const identity = stat
-          .slice(stat.lastIndexOf(")") + 2)
-          .trim()
-          .split(/\s+/)[19];
-        if (identity !== entry.identity) continue;
-        NodeFS.appendFileSync(
-          inspectionLogPath,
-          `${JSON.stringify({ pid: entry.pid, parent: entry.parent, group: entry.group, identity: entry.identity, args, initialEnvironment: isolatedEnvironment })}\n`,
-          { mode: 0o600 },
-        );
-      } catch (error) {
-        if (!["ENOENT", "ESRCH", "EACCES", "EPERM"].includes(error.code)) throw error;
-      }
-    }
-    trackedProcesses.set(entry.pid, entry);
-  }
-  return [...owned.values()];
-}
-
-function inspectKnownProcess(pid, timeoutMs) {
-  if (isLinux) {
+  function killUnreapedLaunchGroup() {
+    // spawn(detached) creates this group. Its leader's captured PID cannot be
+    // reused before Node reaps it; never signal this fallback after child exit.
+    if (child.exitCode !== null || child.signalCode !== null) return;
     try {
-      const stat = NodeFS.readFileSync(`/proc/${pid}/stat`, "utf8");
-      const fields = stat
-        .slice(stat.lastIndexOf(")") + 2)
-        .trim()
-        .split(/\s+/);
-      return { identity: fields[19], group: Number(fields[2]) };
+      process.kill(-child.pid, "SIGKILL");
     } catch (error) {
-      if (["ENOENT", "ESRCH"].includes(error.code)) return undefined;
-      throw error;
+      if (error.code !== "ESRCH") throw error;
     }
   }
-  return queryMacProcesses(pid, timeoutMs)[0];
-}
 
-function killUnreapedLaunchGroup() {
-  // spawn(detached) creates this group. Its leader's captured PID cannot be
-  // reused before Node reaps it; never signal this fallback after child exit.
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  try {
-    process.kill(-child.pid, "SIGKILL");
-  } catch (error) {
-    if (error.code !== "ESRCH") throw error;
-  }
-}
-
-function signalProcesses(remaining, signal, deadline) {
-  let failure;
-  const groups = new Set(remaining.map((entry) => entry.group));
-  for (const group of groups) {
-    let anchored = false;
-    for (const entry of remaining) {
-      if (entry.group !== group) continue;
-      if (Date.now() >= deadline) {
-        failure ??= new Error("Known-process validation exceeded cleanup deadline");
-        break;
-      }
-      try {
-        // Targeted lookup is independent of the full discovery snapshot.
-        const current = inspectKnownProcess(entry.pid, Math.min(500, deadline - Date.now()));
-        if (current?.identity === entry.identity && current.group === group) {
-          anchored = true;
+  function signalProcesses(remaining, signal, deadline) {
+    let failure;
+    const groups = new Set(remaining.map((entry) => entry.group));
+    for (const group of groups) {
+      let anchored = false;
+      for (const entry of remaining) {
+        if (entry.group !== group) continue;
+        if (Date.now() >= deadline) {
+          failure ??= new Error("Known-process validation exceeded cleanup deadline");
           break;
         }
+        try {
+          // Targeted lookup is independent of the full discovery snapshot.
+          const current = inspectKnownProcess(entry.pid, Math.min(500, deadline - Date.now()));
+          if (current?.identity === entry.identity && current.group === group) {
+            anchored = true;
+            break;
+          }
+        } catch (error) {
+          failure ??= error;
+        }
+      }
+      if (!anchored) continue;
+      try {
+        process.kill(-group, signal);
+      } catch (error) {
+        if (error.code !== "ESRCH") failure ??= error;
+      }
+    }
+    if (failure) throw failure;
+  }
+
+  async function cleanupWindows(deadline) {
+    let failure;
+    try {
+      NodeFS.writeFileSync(windowsStopPath, "", { mode: 0o600 });
+    } catch (error) {
+      failure = error;
+      // The original supervisor handle closes its sole Job Object handle.
+      try {
+        child.kill("SIGKILL");
+      } catch (killError) {
+        failure = new AggregateError([error, killError], "Could not stop Windows smoke supervisor");
+      }
+    }
+    while (child.exitCode === null && child.signalCode === null && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    if (child.exitCode === null && child.signalCode === null) {
+      failure ??= new Error("Windows smoke supervisor exceeded cleanup deadline");
+      try {
+        child.kill("SIGKILL");
+      } catch (error) {
+        failure = new AggregateError([failure, error], "Could not kill Windows smoke supervisor");
+      }
+    }
+    try {
+      const proof = JSON.parse(NodeFS.readFileSync(windowsProofPath, "utf8"));
+      if (proof.electronActiveProcesses !== 0) {
+        throw new Error("Windows Electron Job Object is not empty");
+      }
+      if (
+        proof.supervisorActiveProcesses !== 1 ||
+        proof.supervisorPid !== child.pid ||
+        proof.supervisorKillOnClose !== true
+      ) {
+        throw new Error("Windows supervisor/compiler Job Object teardown was not verified");
+      }
+    } catch (error) {
+      failure ??= error;
+      // Even a failed job query/proof must not leave the containment owner alive.
+      try {
+        child.kill("SIGKILL");
+      } catch (killError) {
+        failure = new AggregateError([failure, killError], "Windows smoke teardown failed");
+      }
+    }
+    if (failure) throw failure;
+  }
+
+  async function cleanup() {
+    clearInterval(monitor);
+    clearTimeout(observationTimer);
+    if (!child?.pid) return;
+    const deadline = Date.now() + cleanupTimeoutMs;
+    if (isWindows) return cleanupWindows(deadline);
+    const escalateAt = Date.now() + 2_000;
+    let failure;
+    let discoveryFailed = false;
+    let verified = false;
+    let remaining = [...trackedProcesses.values()];
+    do {
+      const signal = Date.now() < escalateAt ? "SIGTERM" : "SIGKILL";
+      if (discoveryFailed) {
+        // Preserve best-effort teardown even when discovery cannot be repeated.
+        try {
+          killUnreapedLaunchGroup();
+          child.kill(signal);
+        } catch (error) {
+          failure ??= error;
+        }
+      }
+      try {
+        remaining = remainingProcesses();
+        verified = true;
+      } catch (error) {
+        discoveryFailed = true;
+        verified = false;
+        failure ??= error;
+        remaining = [...trackedProcesses.values()];
+        try {
+          killUnreapedLaunchGroup();
+          child.kill(signal);
+        } catch (killError) {
+          failure ??= killError;
+        }
+      }
+      try {
+        signalProcesses(remaining, signal, deadline);
+      } catch (error) {
+        failure ??= error;
+        try {
+          killUnreapedLaunchGroup();
+          child.kill(signal);
+        } catch (killError) {
+          failure ??= killError;
+        }
+      }
+      if (verified && remaining.length === 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    } while (Date.now() < deadline);
+    if (failure || !verified || remaining.length > 0) {
+      // Escalation remains reachable even if discovery failed during the first pass.
+      try {
+        killUnreapedLaunchGroup();
+        child.kill("SIGKILL");
       } catch (error) {
         failure ??= error;
       }
-    }
-    if (!anchored) continue;
-    try {
-      process.kill(-group, signal);
-    } catch (error) {
-      if (error.code !== "ESRCH") failure ??= error;
-    }
-  }
-  if (failure) throw failure;
-}
-
-async function cleanupWindows(deadline) {
-  let failure;
-  try {
-    NodeFS.writeFileSync(windowsStopPath, "", { mode: 0o600 });
-  } catch (error) {
-    failure = error;
-    // The original supervisor handle closes its sole Job Object handle.
-    try {
-      child.kill("SIGKILL");
-    } catch (killError) {
-      failure = new AggregateError([error, killError], "Could not stop Windows smoke supervisor");
-    }
-  }
-  while (child.exitCode === null && child.signalCode === null && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  if (child.exitCode === null && child.signalCode === null) {
-    failure ??= new Error("Windows smoke supervisor exceeded cleanup deadline");
-    try {
-      child.kill("SIGKILL");
-    } catch (error) {
-      failure = new AggregateError([failure, error], "Could not kill Windows smoke supervisor");
-    }
-  }
-  try {
-    const proof = JSON.parse(NodeFS.readFileSync(windowsProofPath, "utf8"));
-    if (proof.electronActiveProcesses !== 0) {
-      throw new Error("Windows Electron Job Object is not empty");
-    }
-    if (
-      proof.supervisorActiveProcesses !== 1 ||
-      proof.supervisorPid !== child.pid ||
-      proof.supervisorKillOnClose !== true
-    ) {
-      throw new Error("Windows supervisor/compiler Job Object teardown was not verified");
-    }
-  } catch (error) {
-    failure ??= error;
-    // Even a failed job query/proof must not leave the containment owner alive.
-    try {
-      child.kill("SIGKILL");
-    } catch (killError) {
-      failure = new AggregateError([failure, killError], "Windows smoke teardown failed");
-    }
-  }
-  if (failure) throw failure;
-}
-
-async function cleanup() {
-  clearInterval(monitor);
-  clearTimeout(observationTimer);
-  if (!child?.pid) return;
-  const deadline = Date.now() + cleanupTimeoutMs;
-  if (isWindows) return cleanupWindows(deadline);
-  const escalateAt = Date.now() + 2_000;
-  let failure;
-  let discoveryFailed = false;
-  let verified = false;
-  let remaining = [...trackedProcesses.values()];
-  do {
-    const signal = Date.now() < escalateAt ? "SIGTERM" : "SIGKILL";
-    if (discoveryFailed) {
-      // Preserve best-effort teardown even when discovery cannot be repeated.
       try {
-        killUnreapedLaunchGroup();
-        child.kill(signal);
+        signalProcesses([...trackedProcesses.values()], "SIGKILL", Date.now() + 500);
       } catch (error) {
         failure ??= error;
       }
+      throw new Error(
+        `Smoke cleanup verification failed${failure ? `: ${failure.message}` : `; remaining PIDs: ${remaining.map((entry) => entry.pid).join(", ")}`}`,
+        { cause: failure },
+      );
     }
+  }
+
+  function refuseMountedState() {
+    if (!isLinux) return;
+    const roots = [NodePath.resolve(stateDir)];
     try {
-      remaining = remainingProcesses();
-      verified = true;
+      roots.push(NodeFS.realpathSync(stateDir));
     } catch (error) {
-      discoveryFailed = true;
-      verified = false;
-      failure ??= error;
-      remaining = [...trackedProcesses.values()];
-      try {
-        killUnreapedLaunchGroup();
-        child.kill(signal);
-      } catch (killError) {
-        failure ??= killError;
+      if (error.code !== "ENOENT") throw error;
+    }
+    const mounts = NodeFS.readFileSync("/proc/self/mounts", "utf8");
+    for (const line of mounts.trim().split("\n")) {
+      const encoded = line.split(/\s+/)[1];
+      if (!encoded) throw new Error("Could not parse smoke mount inspection");
+      const mountpoint = NodePath.resolve(
+        encoded.replace(/\\([0-7]{3})/g, (_, octal) =>
+          String.fromCharCode(Number.parseInt(octal, 8)),
+        ),
+      );
+      if (roots.some((root) => mountpoint === root || mountpoint.startsWith(`${root}/`))) {
+        throw new Error(`Refusing to delete smoke state containing mount ${mountpoint}`);
       }
     }
-    try {
-      signalProcesses(remaining, signal, deadline);
-    } catch (error) {
-      failure ??= error;
-      try {
-        killUnreapedLaunchGroup();
-        child.kill(signal);
-      } catch (killError) {
-        failure ??= killError;
-      }
-    }
-    if (verified && remaining.length === 0) break;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  } while (Date.now() < deadline);
-  if (failure || !verified || remaining.length > 0) {
-    // Escalation remains reachable even if discovery failed during the first pass.
-    try {
-      killUnreapedLaunchGroup();
-      child.kill("SIGKILL");
-    } catch (error) {
-      failure ??= error;
-    }
-    try {
-      signalProcesses([...trackedProcesses.values()], "SIGKILL", Date.now() + 500);
-    } catch (error) {
-      failure ??= error;
-    }
-    throw new Error(
-      `Smoke cleanup verification failed${failure ? `: ${failure.message}` : `; remaining PIDs: ${remaining.map((entry) => entry.pid).join(", ")}`}`,
-      { cause: failure },
-    );
   }
-}
 
-function refuseMountedState() {
-  if (!isLinux) return;
-  const roots = [NodePath.resolve(stateDir)];
-  try {
-    roots.push(NodeFS.realpathSync(stateDir));
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
+  function onSignal(signal) {
+    interruptedSignal = signal;
+    stopObservation?.(new Error(`Smoke interrupted by ${signal}`));
   }
-  const mounts = NodeFS.readFileSync("/proc/self/mounts", "utf8");
-  for (const line of mounts.trim().split("\n")) {
-    const encoded = line.split(/\s+/)[1];
-    if (!encoded) throw new Error("Could not parse smoke mount inspection");
-    const mountpoint = NodePath.resolve(
-      encoded.replace(/\\([0-7]{3})/g, (_, octal) =>
-        String.fromCharCode(Number.parseInt(octal, 8)),
-      ),
-    );
-    if (roots.some((root) => mountpoint === root || mountpoint.startsWith(`${root}/`))) {
-      throw new Error(`Refusing to delete smoke state containing mount ${mountpoint}`);
-    }
-  }
-}
-
-function onSignal(signal) {
-  interruptedSignal = signal;
-  stopObservation?.(new Error(`Smoke interrupted by ${signal}`));
-}
-for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, onSignal);
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, onSignal);
 
   let failure;
   let cleanupFailure;
   let cleanupVerified = false;
   try {
     const directories = {
-      HOME: "home", USERPROFILE: "home", APPDATA: "config", LOCALAPPDATA: "data",
-      XDG_CONFIG_HOME: "config", XDG_DATA_HOME: "data", XDG_CACHE_HOME: "cache",
-      XDG_STATE_HOME: "local-state", XDG_RUNTIME_DIR: "runtime", T3CODE_HOME: "t3",
-      TMPDIR: "tmp", TMP: "tmp", TEMP: "tmp",
+      HOME: "home",
+      USERPROFILE: "home",
+      APPDATA: "config",
+      LOCALAPPDATA: "data",
+      XDG_CONFIG_HOME: "config",
+      XDG_DATA_HOME: "data",
+      XDG_CACHE_HOME: "cache",
+      XDG_STATE_HOME: "local-state",
+      XDG_RUNTIME_DIR: "runtime",
+      T3CODE_HOME: "t3",
+      TMPDIR: "tmp",
+      TMP: "tmp",
+      TEMP: "tmp",
     };
     const env = { ...process.env, ...additions };
     for (const [name, directory] of Object.entries(directories)) {
@@ -864,10 +882,20 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, onSigna
       NodeFS.mkdirSync(env[name], { recursive: true, mode: 0o700 });
     }
     for (const name of [
-      "DBUS_SESSION_BUS_ADDRESS", "DBUS_STARTER_ADDRESS", "DBUS_STARTER_BUS_TYPE",
-      "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "DESKTOP_SESSION",
-      "SESSION_MANAGER", "WAYLAND_DISPLAY", "DISPLAY", "XAUTHORITY", "ELECTRON_RUN_AS_NODE",
-    ]) delete env[name];
+      "DBUS_SESSION_BUS_ADDRESS",
+      "DBUS_STARTER_ADDRESS",
+      "DBUS_STARTER_BUS_TYPE",
+      "XDG_CURRENT_DESKTOP",
+      "XDG_SESSION_DESKTOP",
+      "XDG_SESSION_TYPE",
+      "DESKTOP_SESSION",
+      "SESSION_MANAGER",
+      "WAYLAND_DISPLAY",
+      "DISPLAY",
+      "XAUTHORITY",
+      "ELECTRON_RUN_AS_NODE",
+    ])
+      delete env[name];
     if (isLinux) {
       delete env.DBUS_SYSTEM_BUS_ADDRESS;
       env.GVFS_DISABLE_FUSE = "1";
@@ -882,8 +910,11 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, onSigna
     ];
     if (isWindows) {
       env.T3CODE_SMOKE_WINDOWS_CONFIG = JSON.stringify({
-        executable, arguments: args, directory: cwd,
-        stopPath: windowsStopPath, proofPath: windowsProofPath,
+        executable,
+        arguments: args,
+        directory: cwd,
+        stopPath: windowsStopPath,
+        proofPath: windowsProofPath,
         maximumLifetimeMs: startupTimeoutMs + cleanupTimeoutMs + 2_000,
       });
     }
@@ -893,12 +924,19 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, onSigna
       isWindows ? "powershell.exe" : "/bin/sh",
       isWindows
         ? ["-NoProfile", "-NonInteractive", "-Command", windowsSupervisor]
-        : ["-c", posixLaunchGate, "t3-desktop-smoke",
+        : [
+            "-c",
+            posixLaunchGate,
+            "t3-desktop-smoke",
             ...(isLinux ? ["dbus-run-session", "--", "xvfb-run", "-a", executable] : [executable]),
-            ...args],
+            ...args,
+          ],
       {
-        cwd, stdio: [isWindows ? "ignore" : "pipe", logFd, logFd],
-        env, detached: !isWindows, windowsHide: true,
+        cwd,
+        stdio: [isWindows ? "ignore" : "pipe", logFd, logFd],
+        env,
+        detached: !isWindows,
+        windowsHide: true,
       },
     );
     launchReturnedAt = Date.now();
@@ -907,7 +945,11 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, onSigna
       child.once("error", reject);
       if (!isWindows) child.stdin.once("error", reject);
       child.once("exit", (code, signal) => {
-        reject(new Error(`Diagnostic exited before observation completed (code=${code}, signal=${signal})`));
+        reject(
+          new Error(
+            `Diagnostic exited before observation completed (code=${code}, signal=${signal})`,
+          ),
+        );
       });
       // Include private bus/display startup and cold fontconfig work in the deadline.
       observationTimer = setTimeout(
@@ -925,7 +967,8 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, onSigna
           }
           const output = NodeFS.readFileSync(logPath, "utf8");
           const failures = fatalPatterns.filter((pattern) => output.includes(pattern));
-          if (failures.length > 0) throw new Error(`Fatal diagnostic output: ${failures.join(", ")}`);
+          if (failures.length > 0)
+            throw new Error(`Fatal diagnostic output: ${failures.join(", ")}`);
           if (readinessPatterns.every((pattern) => output.includes(pattern))) {
             if (child.exitCode !== null || child.signalCode !== null) {
               throw new Error("Diagnostic launcher exited before readiness observation");
@@ -951,16 +994,34 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, onSigna
     } catch (error) {
       cleanupFailure = error;
     } finally {
-      if (logFd !== undefined) NodeFS.closeSync(logFd);
-      child?.unref();
-      for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.removeListener(signal, onSignal);
+      try {
+        if (logFd !== undefined) NodeFS.closeSync(logFd);
+      } catch (error) {
+        cleanupFailure ??= error;
+      } finally {
+        child?.unref();
+        for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"])
+          process.removeListener(signal, onSignal);
+      }
     }
   }
   const exitCode = interruptedSignal
-    ? interruptedSignal === "SIGINT" ? 130 : interruptedSignal === "SIGTERM" ? 143 : 129
-    : failure || cleanupFailure ? 1 : 0;
+    ? interruptedSignal === "SIGINT"
+      ? 130
+      : interruptedSignal === "SIGTERM"
+        ? 143
+        : 129
+    : failure || cleanupFailure
+      ? 1
+      : 0;
   return {
-    exitCode, failure, cleanupFailure, cleanupVerified,
-    scratch, stateDir, logPath, inspectionLogPath,
+    exitCode,
+    failure,
+    cleanupFailure,
+    cleanupVerified,
+    scratch,
+    stateDir,
+    logPath,
+    inspectionLogPath,
   };
 }

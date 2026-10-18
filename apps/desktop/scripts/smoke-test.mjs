@@ -8,8 +8,13 @@ import { runIsolatedGuiProcess } from "../../../scripts/lib/isolated-gui-process
 const desktopDir = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "..");
 const mainJs = NodePath.resolve(desktopDir, "dist-electron/boot.cjs");
 const fatalPatterns = [
-  "Cannot find module", "MODULE_NOT_FOUND", "Refused to execute", "Uncaught Error",
-  "Uncaught TypeError", "Uncaught ReferenceError", "fatal startup",
+  "Cannot find module",
+  "MODULE_NOT_FOUND",
+  "Refused to execute",
+  "Uncaught Error",
+  "Uncaught TypeError",
+  "Uncaught ReferenceError",
+  "fatal startup",
 ];
 // App-ready precedes menu, URL registration and backend/window bootstrap.
 const readinessPatterns = ["app ready", "desktop app control socket ready", "main window created"];
@@ -43,7 +48,8 @@ try {
   console.log(`Smoke stdout/stderr: ${outcome.logPath}`);
   console.log(`Smoke process inspection: ${outcome.inspectionLogPath}`);
   if (outcome.failure) console.error(`Desktop smoke test failed: ${outcome.failure.message}`);
-  if (outcome.cleanupFailure) console.error(`Desktop smoke cleanup failed: ${outcome.cleanupFailure.message}`);
+  if (outcome.cleanupFailure)
+    console.error(`Desktop smoke cleanup failed: ${outcome.cleanupFailure.message}`);
   if (outcome.cleanupVerified) console.log("Smoke process-tree cleanup verified.");
   if (outcome.exitCode === 0) console.log("Desktop smoke test passed.");
   process.exitCode = outcome.exitCode;
