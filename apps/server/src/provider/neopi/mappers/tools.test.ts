@@ -365,6 +365,25 @@ describe("NeoPi tool output at the T3 consumer boundary", () => {
     expect(wire?.rawOutput?.content).toBe("first");
   });
 
+  it.each([
+    { suffixLength: 2022, retainedCharacter: "" },
+    { suffixLength: 2021, retainedCharacter: "\u{1F600}" },
+  ])(
+    "does not split a code point in the omitted-output tail ($suffixLength)",
+    ({ suffixLength, retainedCharacter }) => {
+      const suffix = "z".repeat(suffixLength);
+      const { events } = run([
+        bashStart("bash-unicode"),
+        bashEnd("bash-unicode", `${"x".repeat(100)}\u{1F600}${suffix}`),
+      ]);
+      const [activity] = runtimeEventToActivities(events[1]!);
+      const projected = projectActivityPayload(activity!);
+      expect((projected.payload as { data: { displayOutput: string } }).data.displayOutput).toBe(
+        `[earlier output omitted]\n${retainedCharacter}${suffix}`,
+      );
+    },
+  );
+
   it("surfaces an edit diff and a viewed image through projection and the work log", () => {
     const imagePath = "/workspace/diagram.png";
     const { events } = run([

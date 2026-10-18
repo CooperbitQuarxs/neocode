@@ -251,6 +251,8 @@ function commandResultContent(value: unknown): string | null {
 /** Returns provider command output before it is formatted for a work-log row. */
 export function extractCommandOutputText(dataValue: unknown): string | null {
   const data = asRecord(dataValue);
+  const displayOutput = nonEmptyString(data?.displayOutput);
+  if (displayOutput) return displayOutput.trim();
   const item = asRecord(data?.item);
   const itemResult = asRecord(item?.result);
   const rawOutput = asRecord(data?.rawOutput);

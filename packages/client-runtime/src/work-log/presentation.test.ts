@@ -423,6 +423,29 @@ describe("browser group summaries", () => {
 });
 
 describe("command work-log details", () => {
+  it("prefers an opt-in multiline display tail over compact provider summaries", () => {
+    expect(
+      extractCommandOutputText({
+        displayOutput: "  [earlier output omitted]\nsecond\nlast\n",
+        item: { aggregatedOutput: "first" },
+        rawOutput: { content: "first" },
+      }),
+    ).toBe("[earlier output omitted]\nsecond\nlast");
+  });
+
+  it.each([undefined, " \n "])(
+    "retains provider output when the display snippet is %j",
+    (displayOutput) => {
+      expect(
+        extractCommandOutputText({
+          displayOutput,
+          item: { aggregatedOutput: "full provider output" },
+          rawOutput: { content: "compact summary" },
+        }),
+      ).toBe("full provider output");
+    },
+  );
+
   it("extracts Claude result blocks and projected output", () => {
     expect(
       extractCommandOutputText({
