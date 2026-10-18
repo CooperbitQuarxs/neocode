@@ -22,6 +22,23 @@ and posting rules still apply.
   waiver or local substitute for the security pass. Report the exact blocker
   to the coordinator or Captain and keep the PR unmerged.
 
+## Terms
+
+- **Round**: one bot's complete response to one request on one head commit.
+  For Codex, both code review and security review must finish on that commit.
+- **Finding**: one issue a bot raises, normally as an inline review thread.
+- **Severity**: `P0` to `P3`. Severity prioritizes fixes; every finding,
+  including P2/P3 and nits, requires a fix or evidenced disproof in its thread.
+
+## Configured bots
+
+| Bot             | Author login (REST / GraphQL)                              | Request a round                                                                       | Round complete when                                                                                                                                                                                                                                                                                                                               | Severity marker                                                                                                                             |
+| --------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex connector | `chatgpt-codex-connector[bot]` / `chatgpt-codex-connector` | PR comment `@codex review`. `@codex security review` requests only the security pass. | The summary comment (`<!-- codex-pull-request-review-summary -->`) shows both **Code Review** and **Security Review** completed on the head commit. A 👍 reaction means both finished with no findings; a 👀 reaction means a pass is still running. Verify the head and pass state as required by the merge gate; reactions alone are not proof. | A `P<n>` badge opens each inline finding. Security findings start with `<!-- codex-security-review-finding:v1 -->` and a `Security:` title. |
+
+When a new reviewer is enabled, add a row with all five columns filled from
+observed behavior on a real PR. Keep the table directly under this heading.
+
 ## Request and inspect a round
 
 1. After every push, request a new round with `@codex review`. Automatic
