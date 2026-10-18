@@ -10,7 +10,11 @@ import {
   ConnectionCatalogDocument as RuntimeConnectionCatalogDocument,
   type ConnectionCatalogDocument as RuntimeConnectionCatalogDocumentType,
 } from "@t3tools/client-runtime/platform";
-import type { PersistedSavedEnvironmentRecord } from "@t3tools/contracts";
+import {
+  type DesktopConnectionCatalogRead,
+  DesktopConnectionCatalogRecovery,
+  type PersistedSavedEnvironmentRecord,
+} from "@t3tools/contracts";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -21,6 +25,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 
 import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
 import * as DesktopSavedEnvironments from "../settings/DesktopSavedEnvironments.ts";
@@ -45,6 +50,25 @@ const RuntimeConnectionCatalogDocumentJson = Schema.fromJsonString(
 const encodeRuntimeConnectionCatalogDocumentJson = Schema.encodeEffect(
   RuntimeConnectionCatalogDocumentJson,
 );
+
+const RecoveryRecord = Schema.Struct({
+  version: Schema.Literal(1),
+  reason: DesktopConnectionCatalogRecovery.fields.reason,
+  preservedName: Schema.String.check(
+    Schema.isPattern(/^connection-catalog\.[a-f0-9]+\.unreadable\.json$/),
+  ),
+});
+const decodeRecoveryRecord = Schema.decodeEffect(Schema.fromJsonString(RecoveryRecord));
+const encodeRecoveryRecord = Schema.encodeEffect(Schema.fromJsonString(RecoveryRecord));
+
+export class DesktopConnectionCatalogStoreRecoveryError extends Schema.TaggedError<DesktopConnectionCatalogStoreRecoveryError>()(
+  "DesktopConnectionCatalogStoreRecoveryError",
+  { catalogPath: Schema.String },
+) {
+  override get message(): string {
+    return `Saved connections cannot be changed until the unreadable catalog at ${this.catalogPath} has been preserved. Check directory permissions and restart.`;
+  }
+}
 
 const DesktopConnectionCatalogStoreWriteOperation = Schema.Literals([
   "create-temporary-file-name",
@@ -150,7 +174,7 @@ export class DesktopConnectionCatalogStore extends Context.Service<
   DesktopConnectionCatalogStore,
   {
     readonly get: Effect.Effect<
-      Option.Option<string>,
+      DesktopConnectionCatalogRead,
       | DesktopConnectionCatalogStoreReadError
       | DesktopConnectionCatalogStoreDocumentDecodeError
       | DesktopConnectionCatalogStoreDecodeError
@@ -161,9 +185,24 @@ export class DesktopConnectionCatalogStore extends Context.Service<
       catalog: string,
     ) => Effect.Effect<
       boolean,
-      DesktopConnectionCatalogStoreWriteError | DesktopConnectionCatalogStoreProtectionError
+      | DesktopConnectionCatalogStoreWriteError
+      | DesktopConnectionCatalogStoreProtectionError
+      | DesktopConnectionCatalogStoreReadError
+      | DesktopConnectionCatalogStoreDocumentDecodeError
+      | DesktopConnectionCatalogStoreDecodeError
+      | DesktopConnectionCatalogStoreMigrationError
+      | DesktopConnectionCatalogStoreRecoveryError
     >;
-    readonly clear: Effect.Effect<void>;
+    readonly clear: Effect.Effect<
+      void,
+      | DesktopConnectionCatalogStoreReadError
+      | DesktopConnectionCatalogStoreDocumentDecodeError
+      | DesktopConnectionCatalogStoreDecodeError
+      | DesktopConnectionCatalogStoreMigrationError
+      | DesktopConnectionCatalogStoreProtectionError
+      | DesktopConnectionCatalogStoreRecoveryError
+      | DesktopConnectionCatalogStoreWriteError
+    >;
   }
 >()("@t3tools/desktop/app/DesktopConnectionCatalogStore") {}
 
@@ -385,6 +424,81 @@ export const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const savedEnvironments = yield* DesktopSavedEnvironments.DesktopSavedEnvironments;
   const catalogPath = path.join(environment.stateDir, "connection-catalog.json");
+  const recoveryPath = path.join(environment.stateDir, "connection-catalog-recovery.json");
+  const lock = yield* Semaphore.make(1);
+
+  const readRecovery = fileSystem.readFileString(recoveryPath).pipe(
+    Effect.catch((error) =>
+      error.reason._tag === "NotFound" ? Effect.succeed(null) : Effect.fail(error),
+    ),
+    Effect.flatMap((raw) => (raw === null ? Effect.succeed(null) : decodeRecoveryRecord(raw))),
+    Effect.mapError(
+      (cause) => new DesktopConnectionCatalogStoreReadError({ catalogPath: recoveryPath, cause }),
+    ),
+  );
+
+  const preserve = Effect.fn("desktop.connectionCatalogStore.preserve")(function* (
+    reason: DesktopConnectionCatalogRecovery["reason"],
+    previous: typeof RecoveryRecord.Type | null,
+  ): Effect.fn.Return<DesktopConnectionCatalogRecovery> {
+    const status = { reason, catalogPath };
+    return yield* Effect.gen(function* () {
+      let preservedPath: string | null = null;
+      if (previous !== null) {
+        const candidate = path.join(environment.stateDir, previous.preservedName);
+        const active = yield* fileSystem.readFile(catalogPath);
+        const saved = yield* fileSystem.readFile(candidate);
+        if (active.length === saved.length && active.every((byte, i) => byte === saved[i])) {
+          preservedPath = candidate;
+        }
+      }
+      if (preservedPath === null) {
+        // link is exclusive: a collision never overwrites an earlier preserved file.
+        // The active catalog is replaced by rename, never edited through this link.
+        while (preservedPath === null) {
+          const suffix = (yield* crypto.randomUUIDv4).replace(/-/g, "");
+          const candidate = path.join(
+            environment.stateDir,
+            `connection-catalog.${suffix}.unreadable.json`,
+          );
+          const linked = yield* fileSystem.link(catalogPath, candidate).pipe(
+            Effect.as(true),
+            Effect.catch((error) =>
+              error.reason._tag === "AlreadyExists" ? Effect.succeed(false) : Effect.fail(error),
+            ),
+          );
+          if (linked) preservedPath = candidate;
+        }
+      }
+      const record = yield* encodeRecoveryRecord({
+        version: 1,
+        reason,
+        preservedName: path.basename(preservedPath),
+      });
+      const temporaryPath = `${recoveryPath}.${yield* crypto.randomUUIDv4}.tmp`;
+      yield* Effect.gen(function* () {
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const file = yield* fileSystem.open(temporaryPath, { flag: "wx", mode: 0o600 });
+            yield* file.writeAll(new TextEncoder().encode(`${record}\n`));
+            yield* file.sync;
+          }),
+        );
+        yield* fileSystem.rename(temporaryPath, recoveryPath);
+      }).pipe(
+        Effect.ensuring(fileSystem.remove(temporaryPath, { force: true }).pipe(Effect.ignore)),
+      );
+      // Commit the discoverable record before removing the active name. A restart
+      // in between recognizes these same bytes and completes without duplicating them.
+      yield* fileSystem.remove(catalogPath);
+      return { ...status, status: "preserved", preservedPath } as const;
+    }).pipe(
+      Effect.catch(() =>
+        Effect.succeed({ ...status, status: "blocked", preservedPath: null } as const),
+      ),
+      Effect.uninterruptible,
+    );
+  });
   const encryptionAvailable = safeStorage.isEncryptionAvailable.pipe(
     Effect.mapError(
       (cause) =>
@@ -471,47 +585,74 @@ export const make = Effect.gen(function* () {
     return Option.some(encoded);
   });
 
+  const get = Effect.gen(function* () {
+    const record = yield* readRecovery;
+    const recovery: DesktopConnectionCatalogRecovery | null =
+      record === null
+        ? null
+        : {
+            reason: record.reason,
+            status: "preserved",
+            catalogPath,
+            preservedPath: path.join(environment.stateDir, record.preservedName),
+          };
+    const document = yield* readDocument(fileSystem, catalogPath);
+    if (Option.isNone(document)) {
+      return {
+        catalog: record === null ? Option.getOrNull(yield* migrateLegacyCatalog) : null,
+        recovery,
+      };
+    }
+    const encrypted = yield* decodeSecretBytes(catalogPath, document.value.encryptedCatalog);
+    if (!(yield* encryptionAvailable)) {
+      return { catalog: null, recovery: yield* preserve("encryption-unavailable", record) };
+    }
+    return yield* safeStorage.decryptString(encrypted).pipe(
+      Effect.map((catalog): DesktopConnectionCatalogRead => ({ catalog, recovery })),
+      Effect.catchTag("ElectronSafeStorageDecryptError", () =>
+        preserve("decrypt-failed", record).pipe(
+          Effect.map((recovery): DesktopConnectionCatalogRead => ({ catalog: null, recovery })),
+        ),
+      ),
+    );
+  });
+
+  const requirePreserved = Effect.gen(function* () {
+    const result = yield* get;
+    if (result.recovery?.status === "blocked") {
+      return yield* new DesktopConnectionCatalogStoreRecoveryError({ catalogPath });
+    }
+  });
+
   return DesktopConnectionCatalogStore.of({
-    get: Effect.gen(function* () {
-      const document = yield* readDocument(fileSystem, catalogPath);
-      if (Option.isNone(document)) {
-        return yield* migrateLegacyCatalog;
-      }
-      if (!(yield* encryptionAvailable)) {
-        return Option.none<string>();
-      }
-      const decrypted = yield* decodeSecretBytes(catalogPath, document.value.encryptedCatalog).pipe(
-        Effect.flatMap((encryptedCatalog) =>
-          safeStorage.decryptString(encryptedCatalog).pipe(
+    get: lock.withPermits(1)(get).pipe(Effect.withSpan("desktop.connectionCatalogStore.get")),
+    set: Effect.fn("desktop.connectionCatalogStore.set")(function* (catalog) {
+      return yield* lock.withPermits(1)(
+        Effect.gen(function* () {
+          yield* requirePreserved;
+          if (!(yield* encryptionAvailable)) return false;
+          yield* writeCatalog(catalog);
+          return true;
+        }),
+      );
+    }),
+    clear: lock
+      .withPermits(1)(
+        Effect.gen(function* () {
+          yield* requirePreserved;
+          yield* fileSystem.remove(catalogPath, { force: true }).pipe(
             Effect.mapError(
               (cause) =>
-                new DesktopConnectionCatalogStoreProtectionError({
-                  operation: "decrypt-catalog",
-                  catalogPath,
+                new DesktopConnectionCatalogStoreWriteError({
+                  operation: "replace-catalog-file",
+                  path: catalogPath,
                   cause,
                 }),
             ),
-          ),
-        ),
-      );
-      return Option.some(decrypted);
-    }).pipe(Effect.withSpan("desktop.connectionCatalogStore.get")),
-    set: Effect.fn("desktop.connectionCatalogStore.set")(function* (catalog) {
-      if (!(yield* encryptionAvailable)) {
-        return false;
-      }
-      yield* writeCatalog(catalog);
-      return true;
-    }),
-    clear: fileSystem.remove(catalogPath, { force: true }).pipe(
-      Effect.catch((error) =>
-        Effect.logWarning("Could not clear the desktop connection catalog.", {
-          catalogPath,
-          error,
+          );
         }),
-      ),
-      Effect.withSpan("desktop.connectionCatalogStore.clear"),
-    ),
+      )
+      .pipe(Effect.withSpan("desktop.connectionCatalogStore.clear")),
   });
 });
 

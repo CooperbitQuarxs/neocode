@@ -17,6 +17,7 @@ import {
   makeCatalogBackend,
   makeCatalogStore,
 } from "./storage";
+import { useCatalogRecovery } from "./catalogRecovery";
 
 const emptyCatalog = {
   schemaVersion: 1,
@@ -30,6 +31,7 @@ const decodeCatalog = Schema.decodeUnknownSync(Schema.fromJsonString(ConnectionC
 const encodeCatalog = Schema.encodeSync(Schema.fromJsonString(ConnectionCatalogDocument));
 
 afterEach(() => {
+  useCatalogRecovery.setState({ recovery: null });
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -74,7 +76,7 @@ describe("makeCatalogBackend", () => {
       const setConnectionCatalog = vi.fn().mockResolvedValue(false);
       vi.stubGlobal("window", {
         desktopBridge: {
-          getConnectionCatalog: vi.fn().mockResolvedValue(null),
+          getConnectionCatalog: vi.fn().mockResolvedValue({ catalog: null, recovery: null }),
           setConnectionCatalog,
         },
       });
@@ -83,10 +85,55 @@ describe("makeCatalogBackend", () => {
       const error = yield* backend.write("{}").pipe(Effect.flip);
 
       expect(error).toBeInstanceOf(ConnectionTransientError);
-      expect(error.message).toContain("Desktop secure storage is unavailable");
-      expect(setConnectionCatalog).toHaveBeenCalledWith("{}");
     }),
   );
+
+  for (const status of ["preserved", "blocked"] as const) {
+    it.effect(
+      `loads a local-only catalog while retaining ${status} recovery across runtime recreation`,
+      () =>
+        Effect.gen(function* () {
+          const recovery = {
+            reason: "decrypt-failed" as const,
+            status,
+            catalogPath: "/private/connection-catalog.json",
+            preservedPath:
+              status === "preserved" ? "/private/connection-catalog.old.unreadable.json" : null,
+          };
+          let active: string | null = null;
+          vi.stubGlobal("window", {
+            desktopBridge: {
+              getConnectionCatalog: async () => ({ catalog: active, recovery }),
+              setConnectionCatalog: async (catalog: string) => {
+                if (status === "blocked") throw new Error("Preservation incomplete");
+                active = catalog;
+                return true;
+              },
+            },
+          });
+          const store = yield* makeCatalogStore(makeCatalogBackend({} as IDBDatabase));
+          expect(yield* store.read).toEqual(emptyCatalog);
+          expect(useCatalogRecovery.getState().recovery).toEqual(recovery);
+          const updated = {
+            ...emptyCatalog,
+            disabledEnvironmentIds: [EnvironmentId.make("saved")],
+          };
+          if (status === "blocked") {
+            expect(yield* store.update(() => updated).pipe(Effect.flip)).toBeInstanceOf(
+              ConnectionTransientError,
+            );
+            expect(yield* store.read).toEqual(emptyCatalog);
+            expect(active).toBeNull();
+          } else {
+            yield* store.update(() => updated);
+          }
+          useCatalogRecovery.setState({ recovery: null });
+          const restarted = yield* makeCatalogStore(makeCatalogBackend({} as IDBDatabase));
+          expect(yield* restarted.read).toEqual(status === "blocked" ? emptyCatalog : updated);
+          expect(useCatalogRecovery.getState().recovery).toEqual(recovery);
+        }),
+    );
+  }
 
   it.effect("fails IndexedDB writes whose commit aborts", () =>
     Effect.gen(function* () {

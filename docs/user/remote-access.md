@@ -62,6 +62,22 @@ created in Settings can only be copied from the client that created them while
 its Connections page stays open. If you leave or reload that page, create
 another link to share.
 
+### Recover saved desktop connections
+
+If the desktop app cannot unlock its saved connections, your local workspace
+remains available. The recovery notice shows where the original encrypted
+catalog was preserved. Keep that file if you may need the old connections;
+recovery does not decrypt or restore their credentials.
+
+Re-add connections under **Settings → Connections** using fresh pairing links.
+The new catalog uses your current password store, and the preserved file is
+left unchanged. The recovery notice remains available after restarting.
+
+If preservation could not finish, saved-connection changes are blocked rather
+than overwriting the original. Check the reported directory's permissions and
+available space, then restart. If secure storage is unavailable, restore access
+to your password store before saving connections.
+
 ### Balance new threads across machines
 
 Auto balance is off by default. On web and desktop, enable it in
