@@ -46,6 +46,8 @@ const defaultReady = {
 const testPeer = Effect.fn("testPeer")(function* (
   handler: (cmd: Command, emit: Emitter) => Effect.Effect<void>,
   ready: unknown = defaultReady,
+  startup?: { stdout?: unknown; stderr?: unknown },
+  closeOnStdin: boolean = false,
 ) {
   const stdout = yield* Queue.unbounded<Uint8Array, Cause.Done<void>>();
   const stdin = yield* Queue.unbounded<Uint8Array, Cause.Done<void>>();
@@ -59,7 +61,7 @@ const testPeer = Effect.fn("testPeer")(function* (
       yield* Queue.end(stdout).pipe(Effect.ignore);
       yield* Deferred.succeed(exited, signal).pipe(Effect.ignore);
     });
-  yield* emit(ready);
+  if (!startup) yield* emit(ready);
   yield* Effect.gen(function* () {
     let pending = "";
     while (true) {
@@ -102,9 +104,18 @@ const testPeer = Effect.fn("testPeer")(function* (
           yield* finish("SIGKILL");
         } else yield* finish(options?.killSignal ?? "SIGTERM");
       }),
-    stdin: Sink.forEach((chunk: Uint8Array) => Queue.offer(stdin, chunk)),
-    stdout: Stream.fromQueue(stdout),
-    stderr: Stream.empty,
+    stdin: Sink.forEach((chunk: Uint8Array) => Queue.offer(stdin, chunk)).pipe(
+      Sink.ensuring(closeOnStdin ? finish(null) : Effect.void),
+    ),
+    stdout: startup
+      ? startup.stdout === undefined
+        ? Stream.empty
+        : Stream.make(new TextEncoder().encode(`${encodeCommand(startup.stdout)}\n`))
+      : Stream.fromQueue(stdout),
+    stderr:
+      startup?.stderr === undefined
+        ? Stream.empty
+        : Stream.make(new TextEncoder().encode(`${encodeCommand(startup.stderr)}\n`)),
     all: Stream.empty,
     getInputFd: () => Sink.drain,
     getOutputFd: () => Stream.empty,
@@ -162,6 +173,274 @@ const awaitOutcomes = (frames: Array<Record<string, unknown>>, count: number) =>
     );
   });
 
+const attachedCursor = {
+  v: 1 as const,
+  sessionId: "s1",
+  sessionFile: "/tmp/omp-sessions/session.jsonl",
+  sessionDir: "/tmp/omp-sessions",
+  sharedSession: true,
+  turnBoundaries: [] as [],
+};
+const attachCapabilities = new Set(["session_lease", "session_catalog", "control_pipe"]);
+const attachFixture = Effect.fn("attachFixture")(function* (
+  endpoint: boolean = true,
+  advertised: ReadonlySet<string> = attachCapabilities,
+) {
+  const busy = yield* testPeer(basicHandler, defaultReady, {
+    stderr: {
+      type: "startup_error",
+      code: "session_in_use",
+      pid: 42,
+      sessionFile: attachedCursor.sessionFile,
+    },
+  });
+  const catalog = yield* testPeer(basicHandler, defaultReady, {
+    stdout: {
+      version: 1,
+      sessions: [
+        {
+          path: attachedCursor.sessionFile,
+          inUse: { pid: 42 },
+          control: endpoint ? { instanceId: "owner-instance" } : null,
+        },
+      ],
+    },
+  });
+  const pipe = yield* testPeer(
+    (cmd, emit) =>
+      cmd.type === "negotiate_protocol"
+        ? answer(cmd, emit, { protocolVersion: 2 })
+        : cmd.type === "get_state"
+          ? answer(cmd, emit, {
+              sessionId: "s1",
+              sessionFile: attachedCursor.sessionFile,
+              messageCount: 3,
+            })
+          : basicHandler(cmd, emit),
+    {
+      ...defaultReady,
+      capabilities: ["rpc-ui", "control_v1", "tool_approval_request", "set_mode"],
+    },
+    undefined,
+    true,
+  );
+  const launches: string[][] = [];
+  const spawn: NeoPiRuntimeInput["spawn"] = (command) => {
+    if (!ChildProcess.isStandardCommand(command)) return Effect.die("Expected standard command");
+    launches.push([...command.args]);
+    if (command.args[0] === "sessions") return catalog.finish(null).pipe(Effect.as(catalog.handle));
+    return Effect.succeed(command.args[0] === "ctl" ? pipe.handle : busy.handle);
+  };
+  const runtime = yield* make(
+    spawn,
+    attachedCursor,
+    {
+      definitions: [{ name: "host-tool", description: "test", parameters: {} }],
+      handle: () => Effect.succeed({ content: [] }),
+    },
+    advertised,
+  );
+  return { runtime, launches, pipe, spawn };
+});
+
+it.live(
+  "attaches a leased shared session through its advertised control endpoint without owner mutations",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { runtime, launches, pipe } = yield* attachFixture();
+        const frames = yield* capture(runtime);
+        yield* runtime.start;
+        NodeAssert.deepEqual(launches[1], [
+          "sessions",
+          "list",
+          "--json",
+          "--session-dir",
+          attachedCursor.sessionDir,
+        ]);
+        NodeAssert.deepEqual(launches[2], ["ctl", "pipe", "owner-instance", "--label", "neocode"]);
+        NodeAssert.equal(runtime.capabilities.has("control_v1"), true);
+        NodeAssert.deepEqual(
+          pipe.commands.map((cmd) => cmd.type),
+          ["negotiate_protocol", "get_state"],
+        );
+        yield* runtime.setRuntimeMode("full-access");
+        const noTurn = yield* Effect.flip(runtime.interrupt);
+        NodeAssert.equal(noTurn.code, "not_running");
+        yield* runtime.stop;
+        NodeAssert.equal(
+          pipe.commands.some((cmd) => cmd.type === "abort"),
+          false,
+        );
+        NodeAssert.deepEqual(
+          pipe.signals,
+          [],
+          "Detaching closes stdin, not the owner or even the pipe process",
+        );
+        NodeAssert.equal(
+          pipe.commands.some((cmd) => cmd.type.startsWith("set_")),
+          false,
+        );
+        NodeAssert.ok(frames.some((frame) => frame.type === "notice"));
+        NodeAssert.equal(
+          (yield* SubscriptionRef.get(runtime.cursor)).sessionFile,
+          attachedCursor.sessionFile,
+        );
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("names the lease holder when no control endpoint exists and never spawns a pipe", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { runtime, launches } = yield* attachFixture(false);
+      const error = yield* Effect.flip(runtime.start);
+      NodeAssert.equal(error.code, "session_in_use");
+      NodeAssert.match(error.message, /PID 42/);
+      NodeAssert.match(error.message, /open elsewhere without a control socket/);
+      NodeAssert.equal(launches.length, 2);
+      yield* runtime.stop;
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("retains the original lease error when the CLI does not advertise control pipes", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { runtime, launches } = yield* attachFixture(
+        true,
+        new Set(["session_lease", "session_catalog"]),
+      );
+      const error = yield* Effect.flip(runtime.start);
+      NodeAssert.equal(error.code, "session_in_use");
+      NodeAssert.match(error.message, /already in use.*PID 42/);
+      NodeAssert.equal(launches.length, 1);
+      yield* runtime.stop;
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("does not invoke session catalog commands unless the capability was advertised", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { runtime, launches } = yield* attachFixture(
+        true,
+        new Set(["session_lease", "control_pipe"]),
+      );
+      const error = yield* Effect.flip(runtime.start);
+      NodeAssert.match(error.message, /without a control socket/);
+      NodeAssert.match(error.message, /PID 42/);
+      NodeAssert.equal(launches.length, 1);
+      yield* runtime.stop;
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live(
+  "drops terminal-originated turns and relaunches the session file after the owner pipe exits",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* attachFixture();
+        const freePeer = yield* testPeer(
+          (cmd, emit) =>
+            cmd.type === "negotiate_protocol"
+              ? answer(cmd, emit, { protocolVersion: 2 })
+              : cmd.type === "get_state"
+                ? answer(cmd, emit, {
+                    sessionId: "s1",
+                    sessionFile: attachedCursor.sessionFile,
+                    messageCount: 3,
+                  })
+                : basicHandler(cmd, emit),
+          { ...defaultReady, capabilities: ["rpc-ui", "session_lease"] },
+        );
+        let normalLaunches = 0;
+        const runtime = yield* make(
+          (command) => {
+            if (ChildProcess.isStandardCommand(command) && command.args[0] === "--mode") {
+              normalLaunches++;
+              if (normalLaunches > 1) return Effect.succeed(freePeer.handle);
+            }
+            return fixture.spawn(command);
+          },
+          attachedCursor,
+          undefined,
+          attachCapabilities,
+        );
+        const exited = yield* Deferred.make<void>();
+        const frames: Array<Record<string, unknown>> = [];
+        yield* Stream.runForEach(runtime.frames, (frame) =>
+          Effect.gen(function* () {
+            frames.push(frame as Record<string, unknown>);
+            if (frame.type === "t3.session.exited") yield* Deferred.succeed(exited, undefined);
+          }),
+        ).pipe(Effect.forkScoped);
+        yield* runtime.start;
+        yield* fixture.pipe.emit({ type: "agent_start" });
+        yield* fixture.pipe.emit({ type: "agent_end", messages: [] });
+        yield* fixture.pipe.finish(null);
+        yield* Deferred.await(exited);
+        NodeAssert.equal(
+          frames.some(
+            (frame) =>
+              frame.type === "agent_start" ||
+              frame.type === "agent_end" ||
+              frame.type === "t3.turn.outcome",
+          ),
+          false,
+        );
+        NodeAssert.deepEqual((yield* SubscriptionRef.get(runtime.cursor)).turnBoundaries, []);
+        yield* runtime.start;
+        NodeAssert.equal(normalLaunches, 2);
+        NodeAssert.equal(runtime.capabilities.has("control_v1"), false);
+        yield* runtime.stop;
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("rejects rollback of an attached session before aborting or branching the owner", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { spawn, pipe } = yield* attachFixture();
+      const threadId = ThreadId.make("attached-thread");
+      const instanceId = ProviderInstanceId.make("attached-neopi");
+      const adapter = yield* makeNeoPiAdapter({
+        settings: {
+          enabled: true,
+          binaryPath: "npi",
+          profile: "",
+          launchArgs: "",
+          customModels: [],
+        },
+        instanceId,
+        binary: "npi",
+        cwd: "/tmp",
+        t3Home: root,
+        attachmentsDir: root,
+        environment: {},
+        spawn,
+        discovery: yield* makeNeoPiDiscoveryHub(),
+        sharedSessionCapabilities: attachCapabilities,
+      });
+      yield* adapter.startSession({
+        threadId,
+        provider: ProviderDriverKind.make("neopi"),
+        providerInstanceId: instanceId,
+        cwd: "/tmp",
+        runtimeMode: "approval-required",
+        resumeCursor: attachedCursor,
+      });
+      const error = yield* Effect.flip(adapter.rollbackThread(threadId, 1));
+      NodeAssert.match(error.message, /attached.*owned by another process/);
+      NodeAssert.equal(
+        pipe.commands.some((cmd) => cmd.type === "abort" || cmd.type === "branch"),
+        false,
+      );
+      yield* adapter.stopAll();
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
 it.live("uses shared files only with both lease and fresh-session capabilities", () =>
   Effect.scoped(
     Effect.gen(function* () {
