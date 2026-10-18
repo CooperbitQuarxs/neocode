@@ -2,8 +2,8 @@
 
 The workspace policy in `~/source/github/PsychedelicShayna/AGENTS.md` governs
 branches, commits, signing, pull requests, merging, labels, and GitHub
-posting. This file holds only the values that policy leaves to the repository.
-Nothing here adds a confirmation step.
+posting. This file holds repository-specific values and the mandatory review gate,
+which overrides the workspace docs-only bot exemption.
 
 ## Branches
 
@@ -20,7 +20,7 @@ Nothing here adds a confirmation step.
 ## Merging
 
 - Merge commits only (`gh pr merge --merge`). Subject: `Merge PR #<number>: <conventional PR subject> (@<author>)`.
-- The authoring agent merges its own PR into `nightly` once the workspace gates pass. Review bots (`docs/agents/pr-review-bots.md`) are advisory and are requested at the agent's discretion. Docs-only and config-only PRs skip the bot and get a local review.
+- The authoring agent merges its own PR into `nightly` only after the workspace gates and [mandatory Codex gate](../agents/pr-review-bots.md) pass: both Code Review and Security Review complete on the current head, with every finding fixed or disproved in its own thread. This applies to every PR, including docs, tests, configuration and mechanical changes. Missing review is a blocker, not permission; preserve any Captain merge hold.
 - Contributor heads (any author other than the owner) are never executed on the owner's machine; see `docs/agents/pr-review-bots.md` › Running PR code.
 
 ## CI

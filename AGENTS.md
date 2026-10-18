@@ -58,14 +58,14 @@ We need to be on the same page with terminology. When communicating, use this la
 
 ## Workspace policy comes first
 
-Branches, worktrees, commits, signing, pull requests, merging, labels, and anything posted to GitHub are governed by the workspace policy in `~/source/github/PsychedelicShayna/AGENTS.md`. This file adds only what is specific to this repository and never adds a confirmation step the workspace policy does not have. The sections below ("Pull requests", "Verifying") keep upstream's guidance where it does not conflict with it.
+Branches, worktrees, commits, signing, pull requests, merging, labels, and anything posted to GitHub are governed by the workspace policy in `~/source/github/PsychedelicShayna/AGENTS.md`. The repository's mandatory Codex gate below overrides the workspace docs-only bot exemption. Otherwise this file adds repository specifics, and the sections below ("Pull requests", "Verifying") retain upstream guidance where compatible.
 
 Repository specifics (`docs/policy/README.md` has the full table):
 
 - Default branch `main`; integration branch `nightly`. Topic branches start from `origin/nightly` in a worktree named `../neocode-wt-<slug>`, and PRs target `nightly`. Both branches are protected: PR required, merge commits only, no force-push.
 - Merge commits read `Merge PR #<number>: <conventional PR subject> (@<author>)`.
 - `nightly` is promoted into `main` weekly by `.github/workflows/promote-nightly.yml`; promotion and `hotfix/` PRs into `main` are the owner's decision.
-- Review bots are advisory. The authoring agent decides whether a round is worth requesting; see `docs/agents/pr-review-bots.md`.
+- Every PR requires Codex Code Review and Security Review completed on its current head, with every finding fixed or disproved in its own thread. Read all rounds, requested or unsolicited. Before requesting review, handling findings or merging, read `docs/agents/pr-review-bots.md`; missing passes block merge, including for docs-only PRs.
 - Before integrating upstream or adding fork behavior, read `docs/agents/fork-maintenance.md` and `docs/agents/upstream-sync.md`.
 - Contributor PRs (any author other than the owner) are read-only on the owner's machine: never run their code locally.
 - Releases and tags: `docs/policy/README.md` › Releases.
@@ -234,4 +234,4 @@ Single-context: root `CONTEXT.md` + `docs/adr/`, extending `docs/internals/gloss
 
 ### PR review bots
 
-Advisory, never a merge gate. `docs/agents/pr-review-bots.md` has the bot table and the owner-head safety rule.
+Before any PR review or merge, read `docs/agents/pr-review-bots.md` for the mandatory head-commit gate, complete finding retrieval and owner-head execution safety.
