@@ -23,6 +23,7 @@ import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { SidebarInput, SidebarMenuButton } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { NeoPiSessionEntry } from "../neopi/NeoPiSessionEntry";
 
 export interface SidebarThreadHeaderProps {
   /** Lands on the search field so a popup can anchor to its width. */
@@ -132,6 +133,7 @@ export function SidebarThreadHeader({
             </SidebarHeaderIconButton>
           </>
         ) : null}
+        <NeoPiSessionEntry />
         <SidebarHeaderIconButton
           label="New thread"
           tooltip={
