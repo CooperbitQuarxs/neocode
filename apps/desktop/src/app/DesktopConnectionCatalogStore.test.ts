@@ -481,7 +481,84 @@ describe("DesktopConnectionCatalogStore", () => {
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
 
-  for (const failure of ["preservation", "record", "remove"] as const) {
+  it.effect(
+    "preserves a newly unreadable catalog when the previous recovery file was removed",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const base = yield* fs.makeTempDirectoryScoped({ prefix: "catalog-missing-recovery-" });
+        const fail = yield* Ref.make(false);
+        const store = yield* DesktopConnectionCatalogStore.make.pipe(
+          Effect.provide(makeLayer(base, true, fail)),
+        );
+        yield* store.set('{"old":true}');
+        yield* Ref.set(fail, true);
+        const old = (yield* store.get).recovery!.preservedPath!;
+        yield* Ref.set(fail, false);
+        yield* store.set('{"replacement":true}');
+        const original = yield* fs.readFile(`${base}/userdata/connection-catalog.json`);
+        yield* fs.remove(old);
+        yield* Ref.set(fail, true);
+        const recovered = yield* store.get;
+        assert.equal(recovered.recovery?.status, "preserved");
+        assert.notEqual(recovered.recovery?.preservedPath, old);
+        assert.isTrue(
+          Buffer.from(yield* fs.readFile(recovered.recovery!.preservedPath!)).equals(original),
+        );
+      }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
+
+  it.effect("makes preserved data and its directory durable before removing the active name", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const base = yield* fs.makeTempDirectoryScoped({ prefix: "catalog-durable-recovery-" });
+      const catalogPath = `${base}/userdata/connection-catalog.json`;
+      const initial = yield* DesktopConnectionCatalogStore.make.pipe(
+        Effect.provide(makeLayer(base)),
+      );
+      yield* initial.set("{}");
+      let preservedSynced = false;
+      let directorySynced = false;
+      const faultFs = Layer.succeed(FileSystem.FileSystem, {
+        ...fs,
+        open: (file, options) =>
+          fs.open(file, options).pipe(
+            Effect.map((handle) =>
+              file.endsWith(".unreadable.json") || file === `${base}/userdata`
+                ? {
+                    ...handle,
+                    sync: handle.sync.pipe(
+                      Effect.tap(() =>
+                        Effect.sync(() => {
+                          if (file.endsWith(".unreadable.json")) preservedSynced = true;
+                          if (file === `${base}/userdata`) directorySynced = true;
+                        }),
+                      ),
+                    ),
+                  }
+                : handle,
+            ),
+          ),
+        remove: (file, options) =>
+          Effect.gen(function* () {
+            if (file === catalogPath) {
+              assert.isTrue(preservedSynced);
+              assert.isTrue(directorySynced);
+              assert.isTrue(yield* fs.exists(`${base}/userdata/connection-catalog-recovery.json`));
+            }
+            yield* fs.remove(file, options);
+          }),
+      });
+      const fail = yield* Ref.make(true);
+      const store = yield* DesktopConnectionCatalogStore.make.pipe(
+        Effect.provide(makeLayer(base, true, fail, faultFs)),
+      );
+      assert.equal((yield* store.get).recovery?.status, "preserved");
+      assert.isFalse(yield* fs.exists(catalogPath));
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
+
+  for (const failure of ["preservation", "record", "directory-sync", "remove"] as const) {
     it.effect(`blocks destructive writes when ${failure} fails and resumes safely on restart`, () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
@@ -505,6 +582,16 @@ describe("DesktopConnectionCatalogStore", () => {
             failure === "record" && to.endsWith("connection-catalog-recovery.json")
               ? Effect.fail(permission)
               : fs.rename(from, to),
+          open: (file, options) =>
+            fs
+              .open(file, options)
+              .pipe(
+                Effect.map((handle) =>
+                  failure === "directory-sync" && file === `${base}/userdata`
+                    ? { ...handle, sync: Effect.fail(permission) }
+                    : handle,
+                ),
+              ),
           remove: (file, options) =>
             failure === "remove" && file === catalogPath
               ? Effect.fail(permission)
@@ -528,6 +615,12 @@ describe("DesktopConnectionCatalogStore", () => {
         );
         assert.isTrue(Buffer.from(yield* fs.readFile(catalogPath)).equals(original));
         const filesBefore = yield* fs.readDirectory(`${base}/userdata`);
+        if (failure === "record" || failure === "preservation") {
+          assert.deepEqual(
+            filesBefore.filter((name) => name.endsWith(".unreadable.json")),
+            [],
+          );
+        }
         const restarted = yield* DesktopConnectionCatalogStore.make.pipe(
           Effect.provide(makeLayer(base, true, failDecrypt)),
         );
@@ -537,7 +630,7 @@ describe("DesktopConnectionCatalogStore", () => {
           Buffer.from(yield* fs.readFile(result.recovery!.preservedPath!)).equals(original),
         );
         assert.isFalse(yield* fs.exists(catalogPath));
-        if (failure === "remove") {
+        if (failure === "remove" || failure === "directory-sync") {
           const filesAfter = yield* fs.readDirectory(`${base}/userdata`);
           assert.deepEqual(
             filesAfter.filter((name) => name.endsWith(".unreadable.json")),

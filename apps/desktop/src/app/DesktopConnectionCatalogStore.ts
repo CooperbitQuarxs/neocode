@@ -442,13 +442,25 @@ export const make = Effect.gen(function* () {
     previous: typeof RecoveryRecord.Type | null,
   ): Effect.fn.Return<DesktopConnectionCatalogRecovery> {
     const status = { reason, catalogPath };
+    let createdPath: string | null = null;
+    let recordCommitted = false;
     return yield* Effect.gen(function* () {
       let preservedPath: string | null = null;
       if (previous !== null) {
         const candidate = path.join(environment.stateDir, previous.preservedName);
         const active = yield* fileSystem.readFile(catalogPath);
-        const saved = yield* fileSystem.readFile(candidate);
-        if (active.length === saved.length && active.every((byte, i) => byte === saved[i])) {
+        const saved = yield* fileSystem
+          .readFile(candidate)
+          .pipe(
+            Effect.catch((error) =>
+              error.reason._tag === "NotFound" ? Effect.succeed(null) : Effect.fail(error),
+            ),
+          );
+        if (
+          saved !== null &&
+          active.length === saved.length &&
+          active.every((byte, i) => byte === saved[i])
+        ) {
           preservedPath = candidate;
         }
       }
@@ -467,7 +479,10 @@ export const make = Effect.gen(function* () {
               error.reason._tag === "AlreadyExists" ? Effect.succeed(false) : Effect.fail(error),
             ),
           );
-          if (linked) preservedPath = candidate;
+          if (linked) {
+            preservedPath = candidate;
+            createdPath = candidate;
+          }
         }
       }
       const record = yield* encodeRecoveryRecord({
@@ -485,14 +500,28 @@ export const make = Effect.gen(function* () {
           }),
         );
         yield* fileSystem.rename(temporaryPath, recoveryPath);
+        recordCommitted = true;
       }).pipe(
         Effect.ensuring(fileSystem.remove(temporaryPath, { force: true }).pipe(Effect.ignore)),
       );
-      // Commit the discoverable record before removing the active name. A restart
-      // in between recognizes these same bytes and completes without duplicating them.
+      // File sync alone does not commit link/rename directory entries. Persist both
+      // names before unlinking the original; an unsupported/failed sync stays blocked.
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const preserved = yield* fileSystem.open(preservedPath, { flag: "r" });
+          yield* preserved.sync;
+          const directory = yield* fileSystem.open(environment.stateDir, { flag: "r" });
+          yield* directory.sync;
+        }),
+      );
       yield* fileSystem.remove(catalogPath);
       return { ...status, status: "preserved", preservedPath } as const;
     }).pipe(
+      Effect.onError(() =>
+        createdPath !== null && !recordCommitted
+          ? fileSystem.remove(createdPath, { force: true }).pipe(Effect.ignore)
+          : Effect.void,
+      ),
       Effect.catch(() =>
         Effect.succeed({ ...status, status: "blocked", preservedPath: null } as const),
       ),
