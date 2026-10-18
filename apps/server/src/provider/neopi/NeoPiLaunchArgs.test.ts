@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off
-import { strict as assert } from "node:assert";
+import * as NodeAssert from "node:assert/strict";
 import { describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { buildNeoPiLaunchPlan, isSharedNeoPiCursor } from "./NeoPiLaunchArgs.ts";
@@ -17,7 +17,7 @@ describe("NeoPi launch plan", () => {
   it.effect("isolates fresh sessions and resumes the exact file", () =>
     Effect.gen(function* () {
       const fresh = yield* buildNeoPiLaunchPlan(input);
-      assert.deepEqual(fresh.args, [
+      NodeAssert.deepEqual(fresh.args, [
         "--mode",
         "rpc-ui",
         "--cwd",
@@ -28,7 +28,7 @@ describe("NeoPi launch plan", () => {
         "--approval-mode",
         "always-ask",
       ]);
-      assert.equal(fresh.env.OMP_PROFILE, "work");
+      NodeAssert.equal(fresh.env.OMP_PROFILE, "work");
       const resume = yield* buildNeoPiLaunchPlan({
         ...input,
         cursor: {
@@ -39,8 +39,8 @@ describe("NeoPi launch plan", () => {
           turnBoundaries: [],
         },
       });
-      assert.deepEqual(resume.args.slice(-2), ["--approval-mode", "always-ask"]);
-      assert.equal(
+      NodeAssert.deepEqual(resume.args.slice(-2), ["--approval-mode", "always-ask"]);
+      NodeAssert.equal(
         resume.args[resume.args.indexOf("--session") + 1],
         `${fresh.sessionDir}/file.jsonl`,
       );
@@ -52,7 +52,7 @@ describe("NeoPi launch plan", () => {
       Effect.gen(function* () {
         for (const runtimeMode of ["auto", "full-access"] as const) {
           const plan = yield* buildNeoPiLaunchPlan({ ...input, runtimeMode });
-          assert.equal(plan.args[plan.args.indexOf("--approval-mode") + 1], "yolo");
+          NodeAssert.equal(plan.args[plan.args.indexOf("--approval-mode") + 1], "yolo");
         }
         for (const flag of [
           "--session=evil",
@@ -76,8 +76,8 @@ describe("NeoPi launch plan", () => {
             ...input,
             launchArgs: `${flag} value`,
           }).pipe(Effect.flip);
-          assert.equal(result.code, "settings");
-          assert.ok(result.message.includes(result.flag!));
+          NodeAssert.equal(result.code, "settings");
+          NodeAssert.ok(result.message.includes(result.flag!));
         }
       }),
   );
@@ -87,19 +87,19 @@ describe("NeoPi launch plan", () => {
         ...input,
         profile: "",
       });
-      assert.equal(isolated.identity.kind, "fresh");
-      assert.equal(isolated.sessionDir, "/tmp/t3home/neopi/sessions/default/project-1");
-      assert.equal(isolated.env.OMP_PROFILE, process.env.OMP_PROFILE);
-      assert.ok(isolated.args.includes("--session-dir"));
-      assert.ok(!isolated.args.includes("--new-session"));
+      NodeAssert.equal(isolated.identity.kind, "fresh");
+      NodeAssert.equal(isolated.sessionDir, "/tmp/t3home/neopi/sessions/default/project-1");
+      NodeAssert.equal(isolated.env.OMP_PROFILE, process.env.OMP_PROFILE);
+      NodeAssert.ok(isolated.args.includes("--session-dir"));
+      NodeAssert.ok(!isolated.args.includes("--new-session"));
     }),
   );
   it.effect("requires both cooperating capabilities and retains saved isolated cursors", () =>
     Effect.gen(function* () {
       const shared = yield* buildNeoPiLaunchPlan({ ...input, sharedSession: true });
-      assert.ok(shared.args.includes("--new-session"));
-      assert.ok(!shared.args.includes("--session-dir"));
-      assert.equal(shared.sessionDir, "");
+      NodeAssert.ok(shared.args.includes("--new-session"));
+      NodeAssert.ok(!shared.args.includes("--session-dir"));
+      NodeAssert.equal(shared.sessionDir, "");
       const resumed = yield* buildNeoPiLaunchPlan({
         ...input,
         sharedSession: true,
@@ -111,9 +111,9 @@ describe("NeoPi launch plan", () => {
           turnBoundaries: [],
         },
       });
-      assert.ok(!resumed.args.includes("--new-session"));
-      assert.ok(resumed.args.includes("--session-dir"));
-      assert.equal(resumed.identity.kind, "resume");
+      NodeAssert.ok(!resumed.args.includes("--new-session"));
+      NodeAssert.ok(resumed.args.includes("--session-dir"));
+      NodeAssert.equal(resumed.identity.kind, "resume");
     }),
   );
   it.effect("keeps legacy isolated cursors isolated but protects unmarked shared cursors", () =>
@@ -125,8 +125,8 @@ describe("NeoPi launch plan", () => {
         sessionFile: "/tmp/t3home/neopi/sessions/old-profile/old-project/session.jsonl",
         turnBoundaries: [],
       };
-      assert.equal(isSharedNeoPiCursor(cursor, input.t3Home), false);
-      assert.equal(
+      NodeAssert.equal(isSharedNeoPiCursor(cursor, input.t3Home), false);
+      NodeAssert.equal(
         isSharedNeoPiCursor(
           {
             ...cursor,
@@ -137,8 +137,8 @@ describe("NeoPi launch plan", () => {
         ),
         true,
       );
-      assert.equal(isSharedNeoPiCursor({ ...cursor, sharedSession: true }, input.t3Home), true);
-      assert.equal(
+      NodeAssert.equal(isSharedNeoPiCursor({ ...cursor, sharedSession: true }, input.t3Home), true);
+      NodeAssert.equal(
         isSharedNeoPiCursor(
           { ...cursor, sharedSession: false, sessionDir: "/tmp/omp-sessions" },
           input.t3Home,
@@ -159,16 +159,16 @@ describe("NeoPi launch plan", () => {
             CUSTOM_TOKEN: "instance",
           },
         });
-        assert.equal(planned.env.HOME, "/tmp/isolated-home");
-        assert.equal(planned.env.CUSTOM_TOKEN, "instance");
-        assert.equal(planned.env.OMP_PROFILE, "work");
-        assert.equal(planned.env.PATH, process.env.PATH);
+        NodeAssert.equal(planned.env.HOME, "/tmp/isolated-home");
+        NodeAssert.equal(planned.env.CUSTOM_TOKEN, "instance");
+        NodeAssert.equal(planned.env.OMP_PROFILE, "work");
+        NodeAssert.equal(planned.env.PATH, process.env.PATH);
         const noProfile = yield* buildNeoPiLaunchPlan({
           ...input,
           profile: "",
           env: { OMP_PROFILE: "environment-profile" },
         });
-        assert.equal(noProfile.env.OMP_PROFILE, "environment-profile");
+        NodeAssert.equal(noProfile.env.OMP_PROFILE, "environment-profile");
       }),
   );
 });

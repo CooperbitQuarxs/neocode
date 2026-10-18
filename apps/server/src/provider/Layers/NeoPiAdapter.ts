@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import * as NodeCrypto from "node:crypto";
 import {
   ApprovalRequestId,
   ProviderDriverKind,
@@ -146,7 +146,7 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
     PubSub.shutdown,
   );
   const sessions = new Map<ThreadId, Session>();
-  const incarnationId = randomUUID();
+  const incarnationId = NodeCrypto.randomUUID();
   let eventSequence = 0;
   const stamp = (now: string): Pick<MapCtx, "now" | "newEventId"> => ({
     now: () => now,
@@ -387,7 +387,7 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
         startupDialog,
         ...(hostBridge && mcpSession ? { mcpProviderSessionId: mcpSession.providerSessionId } : {}),
         scope: sessionScope,
-        sessionKey: randomUUID(),
+        sessionKey: NodeCrypto.randomUUID(),
         pending: new Map(),
         ui: emptyUiState(),
         session: {
