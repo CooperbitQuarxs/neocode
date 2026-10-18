@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off -- compare branched session identities with Node path resolution.
-import { resolve } from "node:path";
+import * as NodePath from "node:path";
 import { TurnId } from "@t3tools/contracts";
 import type { NeoPiResumeCursor } from "./NeoPiRuntimeTypes.ts";
 
@@ -89,13 +89,13 @@ export async function rollbackNeoPiConversation(input: {
       !state.sessionFile ||
       typeof state.sessionId !== "string" ||
       !state.sessionId ||
-      resolve(state.sessionFile) === resolve(cursor.sessionFile) ||
+      NodePath.resolve(state.sessionFile) === NodePath.resolve(cursor.sessionFile) ||
       state.sessionId === cursor.sessionId
     )
       throw new NeoPiRollbackError("NeoPi/OMP did not report the branched session identity");
     const next = {
       ...cursor,
-      sessionFile: resolve(state.sessionFile),
+      sessionFile: NodePath.resolve(state.sessionFile),
       sessionId: state.sessionId,
       turnBoundaries: cursor.turnBoundaries.slice(0, -numTurns),
     };

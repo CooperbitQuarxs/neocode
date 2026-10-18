@@ -6994,13 +6994,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 >
                   {composerControlsInStrip ? null : composerControls}
                   {providerComposerUi?.displayState ? (
-                    <span
-                      data-provider-composer-state="true"
-                      className="shrink-0 truncate text-xs text-muted-foreground"
-                      title={providerComposerUi.displayState}
-                    >
-                      {providerComposerUi.displayState}
-                    </span>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <span
+                            data-provider-composer-state="true"
+                            className="shrink-0 truncate text-xs text-muted-foreground"
+                          >
+                            {providerComposerUi.displayState}
+                          </span>
+                        }
+                      />
+                      <TooltipPopup side="top">{providerComposerUi.displayState}</TooltipPopup>
+                    </Tooltip>
                   ) : null}
                 </div>
 

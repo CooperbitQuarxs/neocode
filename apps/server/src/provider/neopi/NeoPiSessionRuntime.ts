@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off -- compare session identities with Node path resolution.
-import { dirname, resolve, sep } from "node:path";
+import * as NodePath from "node:path";
 import type { ModelSelection, RuntimeMode, ThreadId, TurnId } from "@t3tools/contracts";
 import {
   make as makeClient,
@@ -683,13 +683,14 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
         Effect.provideService(Scope.Scope, scope),
       );
       const initial = yield* getState();
-      const file = typeof initial.sessionFile === "string" ? resolve(initial.sessionFile) : "";
-      const expected = launch.sessionDir ? resolve(launch.sessionDir) + sep : "";
+      const file =
+        typeof initial.sessionFile === "string" ? NodePath.resolve(initial.sessionFile) : "";
+      const expected = launch.sessionDir ? NodePath.resolve(launch.sessionDir) + NodePath.sep : "";
       if (
         !initial.sessionId ||
         !file ||
         (resume
-          ? initial.sessionId !== resume.sessionId || file !== resolve(resume.sessionFile)
+          ? initial.sessionId !== resume.sessionId || file !== NodePath.resolve(resume.sessionFile)
           : initial.messageCount !== 0 || (expected !== "" && !file.startsWith(expected)))
       ) {
         return yield* identityError(
@@ -703,7 +704,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
         v: 1 as const,
         sessionId: initial.sessionId,
         sessionFile: file,
-        sessionDir: launch.sessionDir || dirname(file),
+        sessionDir: launch.sessionDir || NodePath.dirname(file),
         sharedSession,
       });
       if (capabilities.has(NEOPI_CAPABILITIES.toolApprovalRequest)) {
@@ -1043,7 +1044,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     yield* SubscriptionRef.set(cursor, {
       ...previous,
       sessionId: fresh.sessionId,
-      sessionFile: resolve(fresh.sessionFile),
+      sessionFile: NodePath.resolve(fresh.sessionFile),
     });
     yield* emit({ type: "t3.state", state: fresh });
   });
