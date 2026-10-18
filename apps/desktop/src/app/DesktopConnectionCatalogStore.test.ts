@@ -54,11 +54,12 @@ function makeLayer(
   encryptionAvailable = true,
   failDecrypt: Ref.Ref<boolean> | null = null,
   fileSystemLayer: Layer.Layer<FileSystem.FileSystem> = NodeServices.layer,
+  platform: NodeJS.Platform = "darwin",
 ) {
   const environmentLayer = DesktopEnvironment.layer({
     dirname: "/repo/apps/desktop/src",
     homeDirectory: baseDir,
-    platform: "darwin",
+    platform,
     processArch: "arm64",
     appVersion: "1.2.3",
     appPath: "/repo",
@@ -557,6 +558,124 @@ describe("DesktopConnectionCatalogStore", () => {
       assert.isFalse(yield* fs.exists(catalogPath));
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
+
+  for (const available of [true, false]) {
+    it.effect(
+      `allows Windows recovery, re-add and restart when encryption is ${available ? "available" : "unavailable"}`,
+      () =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const base = yield* fs.makeTempDirectoryScoped({ prefix: "catalog-windows-sync-" });
+          const catalogPath = `${base}/userdata/connection-catalog.json`;
+          const initial = yield* DesktopConnectionCatalogStore.make.pipe(
+            Effect.provide(makeLayer(base)),
+          );
+          yield* initial.set('{"old":true}');
+          const original = yield* fs.readFile(catalogPath);
+          const denied = PlatformError.systemError({
+            _tag: "PermissionDenied",
+            module: "FileSystem",
+            method: "sync",
+            cause: Object.assign(new Error("operation not permitted"), { code: "EPERM" }),
+          });
+          const windowsFs = Layer.succeed(FileSystem.FileSystem, {
+            ...fs,
+            open: (file, options) =>
+              fs
+                .open(file, options)
+                .pipe(
+                  Effect.map((handle) =>
+                    file === `${base}/userdata` ||
+                    (file.endsWith(".unreadable.json") && options?.flag === "r")
+                      ? { ...handle, sync: Effect.fail(denied) }
+                      : handle,
+                  ),
+                ),
+          });
+          const failDecrypt = yield* Ref.make(true);
+          const store = yield* DesktopConnectionCatalogStore.make.pipe(
+            Effect.provide(makeLayer(base, available, failDecrypt, windowsFs, "win32")),
+          );
+          const recovered = yield* store.get;
+          assert.equal(recovered.recovery?.status, "preserved");
+          const preservedPath = recovered.recovery!.preservedPath!;
+          assert.isTrue(Buffer.from(yield* fs.readFile(preservedPath)).equals(original));
+          assert.isFalse(yield* fs.exists(catalogPath));
+          yield* Ref.set(failDecrypt, false);
+          const writable = yield* DesktopConnectionCatalogStore.make.pipe(
+            Effect.provide(makeLayer(base, true, failDecrypt, windowsFs, "win32")),
+          );
+          assert.isTrue(yield* writable.set('{"replacement":true}'));
+          const restarted = yield* DesktopConnectionCatalogStore.make.pipe(
+            Effect.provide(makeLayer(base, true, failDecrypt, windowsFs, "win32")),
+          );
+          assert.deepEqual(yield* restarted.get, {
+            catalog: '{"replacement":true}',
+            recovery: recovered.recovery,
+          });
+          yield* restarted.clear;
+          assert.isNull((yield* restarted.get).catalog);
+          assert.isTrue(Buffer.from(yield* fs.readFile(preservedPath)).equals(original));
+        }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+    );
+  }
+
+  for (const { platform, code, target } of [
+    { platform: "linux", code: "EPERM", target: "directory" },
+    { platform: "win32", code: "EACCES", target: "directory" },
+    { platform: "win32", code: "EIO", target: "directory" },
+    { platform: "win32", code: "EPERM", target: "file" },
+  ] as const) {
+    it.effect(`retains the active catalog on ${platform} ${target} sync ${code}`, () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const base = yield* fs.makeTempDirectoryScoped({ prefix: "catalog-sync-error-" });
+        const catalogPath = `${base}/userdata/connection-catalog.json`;
+        const initial = yield* DesktopConnectionCatalogStore.make.pipe(
+          Effect.provide(makeLayer(base)),
+        );
+        yield* initial.set('{"old":true}');
+        const original = yield* fs.readFile(catalogPath);
+        const failure = PlatformError.systemError({
+          _tag: code === "EIO" ? "Unknown" : "PermissionDenied",
+          module: "FileSystem",
+          method: "sync",
+          cause: Object.assign(new Error("injected filesystem error"), { code }),
+        });
+        const faultFs = Layer.succeed(FileSystem.FileSystem, {
+          ...fs,
+          open: (file, options) =>
+            fs
+              .open(file, options)
+              .pipe(
+                Effect.map((handle) =>
+                  (
+                    target === "directory"
+                      ? file === `${base}/userdata`
+                      : file.endsWith(".unreadable.json")
+                  )
+                    ? { ...handle, sync: Effect.fail(failure) }
+                    : handle,
+                ),
+              ),
+        });
+        const failDecrypt = yield* Ref.make(true);
+        const store = yield* DesktopConnectionCatalogStore.make.pipe(
+          Effect.provide(makeLayer(base, true, failDecrypt, faultFs, platform)),
+        );
+        assert.equal((yield* store.get).recovery?.status, "blocked");
+        assert.instanceOf(
+          yield* store.set('{"replacement":true}').pipe(Effect.flip),
+          DesktopConnectionCatalogStore.DesktopConnectionCatalogStoreRecoveryError,
+        );
+        assert.instanceOf(
+          yield* store.clear.pipe(Effect.flip),
+          DesktopConnectionCatalogStore.DesktopConnectionCatalogStoreRecoveryError,
+        );
+        assert.isTrue(Buffer.from(yield* fs.readFile(catalogPath)).equals(original));
+      }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+    );
+  }
 
   for (const failure of ["preservation", "record", "directory-sync", "remove"] as const) {
     it.effect(`blocks destructive writes when ${failure} fails and resumes safely on restart`, () =>

@@ -60,6 +60,7 @@ const RecoveryRecord = Schema.Struct({
 });
 const decodeRecoveryRecord = Schema.decodeEffect(Schema.fromJsonString(RecoveryRecord));
 const encodeRecoveryRecord = Schema.encodeEffect(Schema.fromJsonString(RecoveryRecord));
+const isEpermCause = Schema.is(Schema.Struct({ code: Schema.Literal("EPERM") }));
 
 export class DesktopConnectionCatalogStoreRecoveryError extends Schema.TaggedError<DesktopConnectionCatalogStoreRecoveryError>()(
   "DesktopConnectionCatalogStoreRecoveryError",
@@ -504,14 +505,20 @@ export const make = Effect.gen(function* () {
       }).pipe(
         Effect.ensuring(fileSystem.remove(temporaryPath, { force: true }).pipe(Effect.ignore)),
       );
-      // File sync alone does not commit link/rename directory entries. Persist both
-      // names before unlinking the original; an unsupported/failed sync stays blocked.
+      // Persist both names before unlinking the original. Windows needs a writable
+      // file handle and journals directory entries instead of supporting fsync.
       yield* Effect.scoped(
         Effect.gen(function* () {
-          const preserved = yield* fileSystem.open(preservedPath, { flag: "r" });
+          const preserved = yield* fileSystem.open(preservedPath, { flag: "r+" });
           yield* preserved.sync;
           const directory = yield* fileSystem.open(environment.stateDir, { flag: "r" });
-          yield* directory.sync;
+          yield* directory.sync.pipe(
+            Effect.catch((error) =>
+              environment.platform === "win32" && isEpermCause(error.reason.cause)
+                ? Effect.void
+                : Effect.fail(error),
+            ),
+          );
         }),
       );
       yield* fileSystem.remove(catalogPath);
