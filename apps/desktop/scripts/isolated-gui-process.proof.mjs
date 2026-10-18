@@ -85,23 +85,41 @@ const child = NodeChildProcess.spawn(
     stdio: ["ignore", stdout, stderr],
   },
 );
-// This is the captured Node harness runner, not a pattern-found process or a second tree cleaner.
-let deadlineExpired = false;
-const deadline = setTimeout(() => {
-  deadlineExpired = true;
-  child.kill("SIGTERM");
-}, 55_000);
+// Only the runner captured at spawn is signalled. This bounds the observer,
+// not descendant cleanup: a watchdog expiry is always a failed owner proof.
+function waitForRunner(runner, timeoutMs = 55_000, graceMs = 2_000) {
+  let terminate;
+  let kill;
+  let closed;
+  let deadlineExpired = false;
+  return new Promise((resolve, reject) => {
+    runner.once("error", reject);
+    runner.once("close", (code, signal) => resolve({ code, signal, deadlineExpired }));
+    terminate = setTimeout(() => {
+      deadlineExpired = true;
+      runner.kill("SIGTERM");
+      kill = setTimeout(() => {
+        runner.kill("SIGKILL");
+        closed = setTimeout(
+          () => reject(new Error("Captured proof runner did not close after SIGKILL")),
+          graceMs,
+        );
+      }, graceMs);
+    }, timeoutMs);
+  }).finally(() => {
+    clearTimeout(terminate);
+    clearTimeout(kill);
+    clearTimeout(closed);
+  });
+}
 let status;
 try {
-  status = await new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", (code, signal) => resolve({ code, signal }));
-  });
+  status = await waitForRunner(child);
 } finally {
-  clearTimeout(deadline);
   NodeFS.closeSync(stdout);
   NodeFS.closeSync(stderr);
 }
+const { deadlineExpired } = status;
 const expectedFailure = [
   "discfail",
   "latefatal",
