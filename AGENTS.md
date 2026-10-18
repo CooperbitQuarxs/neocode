@@ -58,14 +58,14 @@ We need to be on the same page with terminology. When communicating, use this la
 
 ## Workspace policy comes first
 
-Branches, worktrees, commits, signing, pull requests, merging, labels, and anything posted to GitHub are governed by the workspace policy in `~/source/github/PsychedelicShayna/AGENTS.md`. The repository's mandatory Codex gate below overrides the workspace docs-only bot exemption. Otherwise this file adds repository specifics, and the sections below ("Pull requests", "Verifying") retain upstream guidance where compatible.
+This repository follows `AGENTS.md` in the directory one level above it (the directory containing this repository) for branches, worktrees, commits, signing, pull requests and merging. The repository-specific review gate below applies to every PR. The remaining sections retain compatible upstream guidance.
 
 Repository specifics (`docs/policy/README.md` has the full table):
 
 - Default branch `main`; integration branch `nightly`. Topic branches start from `origin/nightly` in a worktree named `../neocode-wt-<slug>`, and PRs target `nightly`. Both branches are protected: PR required, merge commits only, no force-push.
 - Merge commits read `Merge PR #<number>: <conventional PR subject> (@<author>)`.
 - `nightly` is promoted into `main` weekly by `.github/workflows/promote-nightly.yml`; promotion and `hotfix/` PRs into `main` are the owner's decision.
-- Every PR requires Codex Code Review and Security Review completed on its current head, with every finding fixed or disproved in its own thread. Read all rounds, requested or unsolicited. Before requesting review, handling findings or merging, read `docs/agents/pr-review-bots.md`; missing passes block merge, including for docs-only PRs.
+- Every PR requires a complete, clean Codex Code Review on its final head and a factual disposition in every finding's thread, including unsolicited rounds. Do not request security rounds; already-posted security findings still require a fix or disproof. Before reviewing or merging, read `docs/agents/pr-review-bots.md`.
 - Before integrating upstream or adding fork behavior, read `docs/agents/fork-maintenance.md` and `docs/agents/upstream-sync.md`.
 - Contributor PRs (any author other than the owner) are read-only on the owner's machine: never run their code locally.
 - Releases and tags: `docs/policy/README.md` › Releases.
@@ -73,7 +73,7 @@ Repository specifics (`docs/policy/README.md` has the full table):
 ## The three ways to hurt yourself
 
 1. **Killing by pattern.** Never `pkill -f`, `pgrep | kill`, or `kill` a PID you found by matching a name, path, or worktree string. Your own agent process has this worktree's path in its argv, and this machine runs several other dev servers at once. Kill only a PID you captured at spawn, or the owner of your port from `ss -H -ltnp` after confirming `/proc/<pid>/cwd` is your worktree.
-2. **Writing to the live install.** `~/.t3/userdata` is the developer's real T3 Code database, in use while you work. Reading it and copying from it are fine, and a good way to get real test data (see Test data). Never start a server against it, never open it read-write, never clean it up.
+2. **Writing to the live install.** The `userdata` directory in the developer's live T3 home is the real database, in use while you work. Reading it and copying from it are fine, and a good way to get real test data (see Test data). Never start a server against it, never open it read-write, never clean it up.
 3. **Baking in origins.** Never set `VITE_HTTP_URL` or `VITE_WS_URL` for dev. Dev is single-origin and Vite proxies `/api`, `/ws`, `/oauth`, and `/.well-known`. Setting them bakes localhost into the bundle and silently breaks every remote browser.
 
 ## Hit every surface
@@ -101,13 +101,15 @@ The most common defect in this repo is a change that works on the path you teste
 
 An empty database is a bad test. Seed your worktree's `.t3` with a copy of real data instead of pointing at live state:
 
-- Copy from `~/.t3/userdata` (the developer's real data, the most realistic test set) or `~/.t3/dev`. Worktree state lives at `<worktree>/.t3/userdata`.
+- Copy from the developer's live T3 home `userdata` or existing dev state (the most realistic test sets). Worktree state lives at `<worktree>/.t3/userdata`.
 - Snapshot the database with `VACUUM INTO`, which is safe even while a server has the source open and yields one consistent file:
 
   ```bash
+  : "${LIVE_T3_DB:?Set LIVE_T3_DB to the verified live database path}"
+  export LIVE_T3_DB
   mkdir -p .t3/userdata
   rm -f .t3/userdata/state.sqlite*  # VACUUM INTO refuses to overwrite
-  bun -e "new (require('bun:sqlite').Database)(process.env.HOME + '/.t3/userdata/state.sqlite', { readonly: true }).run(\"VACUUM INTO '.t3/userdata/state.sqlite'\")"
+  bun -e "new (require('bun:sqlite').Database)(process.env.LIVE_T3_DB, { readonly: true }).run(\"VACUUM INTO '.t3/userdata/state.sqlite'\")"
   ```
 
   A plain `cp` is only safe when no server has the source open, and must bring the `-wal` and `-shm` siblings along. A live file copy is a corrupt copy.

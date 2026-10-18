@@ -1,16 +1,15 @@
 # Repository policy
 
-The workspace policy in `~/source/github/PsychedelicShayna/AGENTS.md` governs
-branches, commits, signing, pull requests, merging, labels, and GitHub
-posting. This file holds repository-specific values and the mandatory review gate,
-which overrides the workspace docs-only bot exemption.
+This repository follows `AGENTS.md` in the directory one level above it (the
+directory containing this repository) for branches, commits, signing, pull
+requests and merging. This file records repository-specific values.
 
 ## Branches
 
-| Role               | Branch    | Local checkout                                                                            | Ships as                                                                                                                                                                  |
-| ------------------ | --------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Default (promoted) | `main`    | `~/source/github/PsychedelicShayna/neocode`                                               | Releases are AppImage pre-releases (see [Releases](#releases)). The desktop entry `t3code-npi.desktop` runs `apps/desktop/scripts/start-electron.mjs` from this checkout. |
-| Integration        | `nightly` | a topic worktree, or `~/source/github/PsychedelicShayna/neocode-nightly` when one is kept | Nothing installs from it. It is the base for topic branches and the source of promotion.                                                                                  |
+| Role               | Branch    | Local checkout                                    | Ships as                                                                                                                                |
+| ------------------ | --------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Default (promoted) | `main`    | Main repository checkout                          | AppImage pre-releases (see [Releases](#releases)); the desktop entry runs `apps/desktop/scripts/start-electron.mjs` from this checkout. |
+| Integration        | `nightly` | Topic worktree or a separate integration checkout | Nothing installs from it; base for topic branches and source of promotion.                                                              |
 
 - Topic branches: `git fetch origin && git worktree add ../neocode-wt-<slug> -b <type>/<slug> origin/nightly`.
 - PRs target `nightly`. `hotfix/` PRs target `main` and are followed by a PR merging `main` back into `nightly`.
@@ -19,8 +18,8 @@ which overrides the workspace docs-only bot exemption.
 
 ## Merging
 
-- Merge commits only (`gh pr merge --merge`). Subject: `Merge PR #<number>: <conventional PR subject> (@<author>)`.
-- The authoring agent merges its own PR into `nightly` only after the workspace gates and [mandatory Codex gate](../agents/pr-review-bots.md) pass: both Code Review and Security Review complete on the current head, with every finding fixed or disproved in its own thread. This applies to every PR, including docs, tests, configuration and mechanical changes. Missing review is a blocker, not permission; preserve any Captain merge hold.
+- Merge commits only: `gh pr merge --merge --match-head-commit "$REVIEWED_SHA"`, binding the merge to the reviewed authoritative `headRefOid`. Subject: `Merge PR #<number>: <conventional PR subject> (@<author>)`.
+- The authoring agent merges its PR into `nightly` after the workspace gates and [Codex code-review gate](../agents/pr-review-bots.md) pass: a complete, clean Code Review on the final head and every finding answered in its own thread. Do not request security rounds; already-posted security findings must be fixed or disproved.
 - Contributor heads (any author other than the owner) are never executed on the owner's machine; see `docs/agents/pr-review-bots.md` › Running PR code.
 
 ## CI
