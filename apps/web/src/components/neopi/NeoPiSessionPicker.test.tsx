@@ -12,6 +12,8 @@ import {
   type NeoPiSessionSummary,
   type OrchestrationThread,
 } from "@t3tools/contracts";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { AsyncResult } from "effect/unstable/reactivity";
 import {
@@ -106,7 +108,7 @@ type ResumeResult = AtomCommandResult<NeoPiSessionResumeResult, unknown>;
 const environmentId = EnvironmentId.make("local");
 const projectId = ProjectId.make("project");
 const restoredId = ThreadId.make("restored-thread");
-let pendingResume = Promise.withResolvers<ResumeResult>();
+let pendingResume = Effect.runSync(Deferred.make<ResumeResult>());
 let renderer: ReactTestRenderer | null = null;
 
 function session(overrides: Partial<NeoPiSessionSummary> = {}): NeoPiSessionSummary {
@@ -181,7 +183,7 @@ async function select() {
 
 async function finishResume(threadId = restoredId, created = true) {
   await act(async () => {
-    pendingResume.resolve(AsyncResult.success({ threadId, created }));
+    Effect.runSync(Deferred.succeed(pendingResume, AsyncResult.success({ threadId, created })));
   });
 }
 
@@ -192,8 +194,8 @@ beforeEach(() => {
   fixture.threads.clear();
   fixture.listeners.clear();
   fixture.empty = EMPTY_ENVIRONMENT_THREAD_STATE;
-  pendingResume = Promise.withResolvers<ResumeResult>();
-  fixture.resume.mockReset().mockReturnValue(pendingResume.promise);
+  pendingResume = Effect.runSync(Deferred.make<ResumeResult>());
+  fixture.resume.mockReset().mockReturnValue(Effect.runPromise(Deferred.await(pendingResume)));
   fixture.refresh.mockReset();
   fixture.navigate.mockReset().mockResolvedValue(undefined);
   fixture.onClose.mockReset();
