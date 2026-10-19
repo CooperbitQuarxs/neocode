@@ -177,6 +177,9 @@ The explicit owner proof driver is
 `node apps/desktop/scripts/isolated-gui-process.proof.mjs --case real`.
 Its fault cases exercise the same lifecycle, not a separate cleanup implementation.
 These GUI cases are deliberately excluded from automatic test discovery.
+Knip registers the driver and its filename-loaded fixture/preload hook as explicit
+desktop entrypoints. That metadata does not run these GUI cases automatically or
+exempt them from static analysis.
 
 ### Linux AppImage prerequisites
 
