@@ -81,7 +81,7 @@ Do not create labels unless the Captain ordered that label.
 
 Do not mix presentation-plane work into delivery-plane issues.
 
-Missing NeoPi capabilities are filed in `PsychedelicShayna/neopi`, not here (see `AGENTS.md` › Fork rule). Follow its current tracker policy for new labels; the deselected-label list in [triage-labels.md](triage-labels.md#composable-meanings) is not a recommendation for new assignments.
+Missing NeoPi capabilities are filed in `PsychedelicShayna/neopi` with `downstream`, not here (see `AGENTS.md` › Fork rule). Follow its current tracker policy for other labels; the deselected-label list in [triage-labels.md](triage-labels.md#composable-meanings) is not a recommendation for new assignments.
 
 ## Style anti-patterns
 

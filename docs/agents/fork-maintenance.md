@@ -8,7 +8,7 @@ Before adding fork behavior, locate the upstream owner and inspect existing exte
 
 When NeoPi genuinely needs an upstream seam, the change must be provider-neutral (usable by any provider), minimal, default-off for existing providers, and covered by a test. Never branch on `neopi` in shared code, never change an existing provider's behavior, and never reformat or reorder upstream code. A new file alone does not provide isolation if it copies upstream internals or depends on their incidental order.
 
-For each upstream file the fork touches, record the reason in the table in `AGENTS.md` › Fork rule. Adding one means adding a line; removing the need means removing it. Missing capabilities belong in NeoPi's RPC (`PsychedelicShayna/neopi`), not in T3 workarounds; file them there following its current tracker policy, rather than copying historical label bundles.
+For each upstream file the fork touches, record the reason in the table in `AGENTS.md` › Fork rule. Adding one means adding a line; removing the need means removing it. Missing capabilities belong in NeoPi's RPC (`PsychedelicShayna/neopi`), not in T3 workarounds; file them there with `downstream` and other labels supported by its current tracker policy, rather than copying deselected historical bundles.
 
 Use shared utilities rather than duplicating their implementations. Avoid unrelated refactoring of upstream-owned code in the same change.
 
