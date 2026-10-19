@@ -49,6 +49,8 @@ An authorized tracker operator reviews the evidence-linked proposal and applies 
 
 At least daily, compare all open issues and PRs with current implementation, actor claims, review receipts, CI and merge state. Correct missing or stale labels, distinguish a new follow-up from reopened acceptance, and retain evidence of decisions. Publication authority for the funnel remains in [issue-funnel.md](issue-funnel.md); daily reconciliation alone grants no closure authority.
 
+During daily reconciliation, add `upstream` to a promotion proposal when its carried merge history contains a `sync/` upstream-release merge; the promotion workflow itself applies only participation and review labels.
+
 ## 6. Completion and promotion
 
 Verify every acceptance criterion before declaring an issue complete. A merged partial PR does not close its umbrella. `stale: identical` requires proof of essentially the specified implementation; `stale: similar` stays open for the remaining differences.
