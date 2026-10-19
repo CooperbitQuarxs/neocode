@@ -411,4 +411,26 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
       });
     }),
   );
+  it.effect("refuses a terminal command when stopping only detached from the lease holder", () =>
+    Effect.gen(function* () {
+      const binding = bound("free", "running");
+      const { catalog, commands, calls } = yield* harness({
+        bindings: [binding],
+        threads: [projectedThread(binding.threadId)],
+        rows: [session("free", { inUse: { pid: 123 }, control: { instanceId: "owner" } })],
+      });
+      const error = yield* Effect.flip(catalog.handoff({ threadId: binding.threadId }));
+      expect(error.operation).toBe("handoff");
+      expect(error.message).toContain("still open in the terminal process (PID 123)");
+      expect(error.message).toContain("NeoCode merely detached");
+      expect(commands.map((command) => command.type)).toEqual(["thread.session.stop"]);
+      expect(calls.at(-1)?.args).toEqual([
+        "sessions",
+        "list",
+        "--json",
+        "--session-dir",
+        "/tmp/neocode-catalog-sessions",
+      ]);
+    }),
+  );
 });

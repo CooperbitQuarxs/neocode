@@ -61,7 +61,7 @@ export function NeoPiTerminalHandoff({ threadRef }: { threadRef: ScopedThreadRef
         type: "error",
         title: "Could not continue in terminal",
         description:
-          cause instanceof Error ? cause.message : "Unable to release this NeoPi session.",
+          cause instanceof Error ? cause.message : "Unable to hand off this NeoPi session.",
       });
     } finally {
       setPending(false);

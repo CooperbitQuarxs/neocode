@@ -144,10 +144,14 @@ terminal. Resuming one creates a thread with its recent transcript. If the
 session is still open in a terminal, T3 Code attaches to that terminal's
 process instead of opening the session a second time: messages you send from
 T3 Code run there, while turns started in the terminal are not mirrored into
-the thread. To go the other way, use **Continue in terminal** in a NeoPi
-thread's header: T3 Code stops its NeoPi process and copies the command that
-reopens the session in `npi`. Session discovery and attaching need an `npi`
-that advertises `session_catalog` and `control_pipe`.
+the thread. While attached, use the terminal to change modes, model settings,
+or compact history; NeoCode cannot change those owner-controlled settings.
+To go the other way, use **Continue in terminal** in a NeoPi thread's header:
+T3 Code stops its NeoPi process and copies the command that reopens the
+session in `npi`. If the terminal still owns the session, NeoCode only detaches
+and explains which process keeps it open instead of offering a resume command.
+Session discovery and attaching need an `npi` that advertises `session_catalog`
+and `control_pipe`.
 
 Other provider CLIs must be on the server's `PATH`. If T3 Code cannot find one, set its
 **Binary path** in provider settings, especially when using a version manager.

@@ -467,6 +467,29 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
         }
       }).pipe(Effect.scoped);
       const { sessionFile, sessionId } = cursor.value;
+      // A stopped control connection only detached: its terminal owner still
+      // holds the native lease. Never offer a command that cannot acquire it.
+      const listed = yield* decodeListOutput(
+        yield* run({
+          source,
+          cwd,
+          args: [
+            "sessions",
+            "list",
+            "--json",
+            "--session-dir",
+            NodePath.dirname(NodePath.resolve(sessionFile)),
+          ],
+        }),
+      );
+      const owner = listed.sessions.find(
+        (row) => NodePath.resolve(row.path) === NodePath.resolve(sessionFile),
+      )?.inUse;
+      if (owner)
+        return yield* new NeoPiSessionError({
+          operation: "handoff",
+          message: `This session is still open in the terminal process (PID ${owner.pid}). NeoCode merely detached; close the session in that terminal before resuming it elsewhere.`,
+        });
       const profile = source.env.OMP_PROFILE;
       const command = `cd ${shellQuote(cwd)} && ${profile ? `OMP_PROFILE=${shellQuote(profile)} ` : ""}${shellQuote(source.binary)} --session ${shellQuote(sessionFile)}`;
       return { sessionFile, sessionId, cwd, command };
