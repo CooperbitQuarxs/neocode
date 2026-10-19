@@ -8,6 +8,11 @@ New reports enter with `needs-triage`. Read each body, comments, current labels,
 
 Record a first pass in a private file outside the worktree, so the classification survives context loss. For each record keep its number, observed update time, current labels, provisional additions/removals, evidence links, acceptance gaps and unresolved decisions. Assign a fitting kind, priority, difficulty, frame, relationships, review requirement and actor state only where supported. An `idea` remains undecided; headings alone do not make it a `spec`. An `experiment` may be investigated on an `experimental/` branch, not merged to `nightly` or `main` without a separate owner decision.
 
+A valid usage/configuration question may have no fitting kind in this iteration.
+Keep it unclassified with `needs-triage` after the pass and record the open
+category decision. A replacement category is still an open design item;
+inventing a kind or calling a valid question invalid would misstate the report.
+
 Use `needs-info` for a named missing prerequisite, stating what must arrive and from whom. Use `invalid` and close with an explanation for wrong-repository reports, missing required format/information or policy violations when the submission is rejected, rather than holding it for clarification. Use `wontfix` and an explanation for a valid request that will not be worked on. Automatic repair and reopening of malformed reports is not part of this procedure.
 
 ## 2. Compare against the whole tracker

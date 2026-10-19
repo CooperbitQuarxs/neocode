@@ -105,7 +105,7 @@ of `main` for that work, never the tag-pinned diagnosis clone.
 - Match the structure of the `via-triage` issue template
   (`.github/ISSUE_TEMPLATE/via-triage.yml` in the repo): what happened, diagnosis,
   repro steps, environment, evidence, related issues.
-- Label it `via-triage`. Use a plain, specific title with no prefix.
+- Label intake `needs-triage`. Use a plain, specific title with no prefix. Follow `docs/agents/triage.md` for repository classification and reconciliation.
 - Show the user the complete final issue text and get an explicit yes before
   posting. Never post without it.
 - Note at the end of the issue which model and agent produced it.
