@@ -147,8 +147,10 @@ options.
 
 After building with `vp run build:desktop`, `vp run test:desktop-smoke` uses the
 installed Electron runtime through the shared diagnostic process harness. Run GUI
-verification only with owner approval. On Linux it requires installed
-`dbus-run-session` and `xvfb-run`; it does not download a runtime or register a URL handler.
+verification only with owner approval. On Linux it requires installed `unshare`,
+`dbus-run-session` and `xvfb-run`, with permission to create user/PID/mount namespaces;
+it fails before launching the application if those namespaces are unavailable.
+It does not download a runtime or register a URL handler.
 
 The owned `test:desktop-smoke` launcher supplies `T3CODE_DESKTOP_SMOKE_ROOT` and a
 complete isolated environment. Desktop startup preserves that environment without
@@ -161,6 +163,15 @@ Every invocation owns its profile, state and process identities. Full output and
 process-inspection logs remain at the printed paths. State is removed only after
 verified teardown and a clear mount inspection. If either cannot be verified, state
 is retained for diagnosis; the harness never automatically unmounts anything.
+
+The selected cleanup policy is conservative: terminate diagnostic descendants,
+including those that detach from the launch process group. Linux runs the private
+bus, display and application in a PID namespace; terminating its init kills even
+unobserved detached descendants. Windows uses non-breakaway, kill-on-close Job
+Objects. POSIX group signals remain creation-identity checked. macOS has no kernel
+descendant container in this harness: discovery failure can leave unobserved
+detached descendants, so cleanup reports failure, retains state and requires owner
+recovery rather than claiming complete containment.
 
 The explicit owner proof driver is
 `node apps/desktop/scripts/isolated-gui-process.proof.mjs --case real`.

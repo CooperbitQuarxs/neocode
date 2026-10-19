@@ -48,7 +48,8 @@ export async function runIsolatedGuiProcess({
   const isLinux = hostPlatform === "linux";
   const isWindows = hostPlatform === "win32";
   // Do not start any application descendants before the initial ownership snapshot.
-  // exec preserves the detached launch PID/group once observation permits startup.
+  // Linux also contains unobserved detached descendants in a kernel-owned PID
+  // namespace: killing its init reaps every member, even when discovery fails.
   const posixLaunchGate = 'IFS= read -r gate && [ "$gate" = launch ] || exit 1; exec "$@"';
   // A private child DACL cannot prevent a shared parent's delete-child access.
   // Validate the known-folder ancestry before atomically creating the private leaf.
@@ -822,7 +823,7 @@ end
         failure ??= error;
       }
       throw new Error(
-        `Smoke cleanup verification failed${failure ? `: ${failure.message}` : `; remaining PIDs: ${remaining.map((entry) => entry.pid).join(", ")}`}`,
+        `Smoke cleanup verification failed${failure ? `: ${failure.message}` : `; remaining PIDs: ${remaining.map((entry) => entry.pid).join(", ")}`}${hostPlatform === "darwin" ? "; macOS has no kernel descendant container here: unobserved detached descendants may remain; owner recovery is required and state is retained" : ""}`,
         { cause: failure },
       );
     }
@@ -921,10 +922,22 @@ end
     logFd = NodeFS.openSync(logPath, "ax", 0o600);
     launchStartedAt = Date.now();
     child = NodeChildProcess.spawn(
-      isWindows ? "powershell.exe" : "/bin/sh",
+      isWindows ? "powershell.exe" : isLinux ? "unshare" : "/bin/sh",
       isWindows
         ? ["-NoProfile", "-NonInteractive", "-Command", windowsSupervisor]
         : [
+            ...(isLinux
+              ? [
+                  "--user",
+                  "--map-current-user",
+                  "--pid",
+                  "--fork",
+                  "--kill-child=KILL",
+                  "--mount-proc",
+                  "--",
+                  "/bin/sh",
+                ]
+              : []),
             "-c",
             posixLaunchGate,
             "t3-desktop-smoke",
