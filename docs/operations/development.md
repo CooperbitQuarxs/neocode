@@ -143,6 +143,13 @@ DMGs default to the host architecture. Use `--arch` to choose another target and
 to retain packaging files for inspection. Run `vp run dist:desktop:artifact --help` for other
 options.
 
+The owned `test:desktop-smoke` launcher supplies `T3CODE_DESKTOP_SMOKE_ROOT` and a
+complete isolated environment. Desktop startup preserves that environment without
+running shell profiles, `launchctl` or PowerShell probes, or rediscovering a live
+session bus. A private `HOME` alone cannot prevent system profiles from running.
+Do not use this context on ordinary desktop launches: they still need normal
+environment hydration. The context skips hydration; it does not create a sandbox.
+
 ### Linux AppImage prerequisites
 
 Build on Linux because the browser-secret helper links against the host's libsecret. Install

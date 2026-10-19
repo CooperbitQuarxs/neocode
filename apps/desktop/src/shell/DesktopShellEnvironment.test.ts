@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
 import * as PlatformError from "effect/PlatformError";
@@ -14,6 +15,7 @@ import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopShellEnvironment from "./DesktopShellEnvironment.ts";
 
 const textEncoder = new TextEncoder();
+const quoteString = Schema.encodeSync(Schema.fromJsonString(Schema.String));
 
 const isDesktopShellEnvironmentCommandError = Schema.is(
   DesktopShellEnvironment.DesktopShellEnvironmentCommandError,
@@ -99,7 +101,123 @@ function runShellEnvironment(input: {
   return withProcessEnv(input.env, program);
 }
 
+function runFixtureEnvironment(env: NodeJS.ProcessEnv, platform: NodeJS.Platform, fixture: string) {
+  return Effect.gen(function* () {
+    const nativeSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const fileSystem = yield* FileSystem.FileSystem;
+    const environmentLayer = Layer.succeed(
+      DesktopEnvironment.DesktopEnvironment,
+      DesktopEnvironment.DesktopEnvironment.of({
+        platform,
+      } as DesktopEnvironment.DesktopEnvironment["Service"]),
+    );
+    // Any attempted shell/launchctl/PowerShell probe runs this harmless real
+    // executable instead. No host profile or bus can run if the guard regresses.
+    const spawnerLayer = Layer.succeed(
+      ChildProcessSpawner.ChildProcessSpawner,
+      ChildProcessSpawner.make(() =>
+        nativeSpawner.spawn(
+          ChildProcess.make(process.execPath, [fixture], {
+            stdin: "ignore",
+            stdout: "pipe",
+            stderr: "pipe",
+          }),
+        ),
+      ),
+    );
+    const fileSystemLayer = Layer.succeed(FileSystem.FileSystem, {
+      ...fileSystem,
+      // Make live-bus rediscovery appear possible without accessing a real socket.
+      exists: () => Effect.succeed(true),
+    });
+    yield* withProcessEnv(
+      env,
+      Effect.gen(function* () {
+        const service = yield* DesktopShellEnvironment.DesktopShellEnvironment;
+        yield* service.installIntoProcess;
+      }).pipe(
+        Effect.provide(
+          DesktopShellEnvironment.layer.pipe(
+            Layer.provide(Layer.mergeAll(environmentLayer, fileSystemLayer, spawnerLayer)),
+          ),
+        ),
+      ),
+    );
+  });
+}
+
 describe("DesktopShellEnvironment", () => {
+  for (const platform of ["linux", "darwin", "win32"] as const) {
+    for (const suppliedBus of [true, false]) {
+      it.effect(
+        `runs no profile or bus discovery in ${platform} diagnostics with bus ${suppliedBus ? "supplied" : "absent"}`,
+        () =>
+          Effect.gen(function* () {
+            const fs = yield* FileSystem.FileSystem;
+            const root = yield* fs.makeTempDirectoryScoped({ prefix: "diagnostic-hydration-" });
+            const sentinel = `${root}/profile-ran`;
+            const fixture = `${root}/profile.mjs`;
+            yield* fs.writeFileString(
+              fixture,
+              [
+                'import * as fs from "node:fs";',
+                `fs.writeFileSync(${quoteString(sentinel)}, "ran");`,
+                `console.log(${quoteString(
+                  envOutput({
+                    PATH: "/host/bin",
+                    ...(suppliedBus ? { DBUS_SESSION_BUS_ADDRESS: "unix:path=/host/bus" } : {}),
+                    XDG_CURRENT_DESKTOP: "host-desktop",
+                    XDG_SESSION_DESKTOP: "host-session",
+                    XDG_SESSION_TYPE: "wayland",
+                    WAYLAND_DISPLAY: "host-wayland",
+                    DISPLAY: ":0",
+                  }),
+                )});`,
+              ].join("\n"),
+            );
+            const env: NodeJS.ProcessEnv = {
+              T3CODE_DESKTOP_SMOKE_ROOT: root,
+              SHELL: fixture,
+              PATH: "/private/bin",
+              HOME: `${root}/home`,
+              XDG_RUNTIME_DIR: `${root}/runtime`,
+              XDG_CONFIG_HOME: `${root}/config`,
+              XDG_DATA_HOME: `${root}/data`,
+              DISPLAY: ":97",
+              XDG_SESSION_TYPE: "x11",
+              ...(suppliedBus ? { DBUS_SESSION_BUS_ADDRESS: `unix:path=${root}/private-bus` } : {}),
+            };
+            const expected = { ...env };
+            yield* runFixtureEnvironment(env, platform, fixture);
+            assert.deepEqual(env, expected);
+            assert.isFalse(yield* fs.exists(sentinel));
+          }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+      );
+    }
+  }
+
+  it.effect("still executes ordinary profile hydration without diagnostic context", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "ordinary-hydration-" });
+      const sentinel = `${root}/profile-ran`;
+      const fixture = `${root}/profile.mjs`;
+      yield* fs.writeFileString(
+        fixture,
+        [
+          'import * as fs from "node:fs";',
+          `fs.writeFileSync(${quoteString(sentinel)}, "ran");`,
+          `console.log(${quoteString(envOutput({ PATH: "/profile/bin", DBUS_SESSION_BUS_ADDRESS: "unix:path=/profile/bus" }))});`,
+        ].join("\n"),
+      );
+      const env: NodeJS.ProcessEnv = { PATH: "/inherited/bin", SHELL: fixture };
+      yield* runFixtureEnvironment(env, "linux", fixture);
+      assert.equal(yield* fs.readFileString(sentinel), "ran");
+      assert.equal(env.PATH, "/profile/bin:/inherited/bin");
+      assert.equal(env.DBUS_SESSION_BUS_ADDRESS, "unix:path=/profile/bus");
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
+
   it.effect("hydrates PATH and missing SSH_AUTH_SOCK from the login shell on macOS", () =>
     Effect.gen(function* () {
       const env: NodeJS.ProcessEnv = {
