@@ -8,7 +8,7 @@ mechanics; [triage.md](triage.md) owns tracker reconciliation.
 
 | Role               | Branch    | Local checkout                                    | Ships as                                                                                                                                |
 | ------------------ | --------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Default (promoted) | `main`    | Main repository checkout                          | AppImage pre-releases (see [Releases](#releases)); the desktop entry runs `apps/desktop/scripts/start-electron.mjs` from this checkout. |
+| Default (promoted) | `main`    | Main repository checkout                          | Stable GitHub releases (see [Releases](#releases)); the desktop entry runs `apps/desktop/scripts/start-electron.mjs` from this checkout. |
 | Integration        | `nightly` | Topic worktree or a separate integration checkout | Built, installed and launch-checked after each merge or batch; source of owner-decided promotion. |
 
 - Topic branches: `git fetch origin && git worktree add ../neocode-wt-<slug> -b <type>/<slug> origin/nightly`.
@@ -39,9 +39,9 @@ PR validation and CI on `nightly` and `main` use GitHub-hosted runners:
 `ubuntu-24.04` for Linux and `macos-15` for mobile native static analysis.
 The fork has no Blacksmith runners; inheriting upstream's runner labels left
 every CI job queued instead of executing ([#23](https://github.com/PsychedelicShayna/neocode/issues/23)).
-PR preview workflows use hosted runners too. Release, production mobile,
-publish, and manual Windows lanes retain their existing runners; this decision
-does not enable those lanes.
+PR preview workflows use hosted runners too. The fork release lane packages
+Linux and unsigned Windows x64 on hosted runners. Upstream production mobile,
+publish, and manual Windows lanes retain their existing runners.
 
 CI and test suites never block `nightly`. Note suspected PR-caused failures in
 the merge note and fix them in a follow-up if they matter. Record observed
@@ -67,10 +67,11 @@ after it lands is a manual `nightly` into `main` merge by the owner.
 
 ## Releases
 
-- Tags and releases come from the release pipeline (`.github/workflows/release.yml`, which calls `release-desktop.yml` for packaging; `docs/operations/release.md`). A PR never creates a tag.
-- Fork AppImage pre-releases are tagged `v<version>-preview.<YYYYMMDD>.<n>`, for example `v0.1.0-preview.20260930.1`: `<version>` is the app version, `<YYYYMMDD>` the build date, `<n>` a counter within that date. They are GitHub pre-releases titled `T3 Code + NeoPi <version>-preview.<YYYYMMDD>.<n> (Linux x86_64)`.
-- Upstream's other channels keep their own schemes: stable `vX.Y.Z` and nightly `vX.Y.Z-nightly.<YYYYMMDD>.<run_number>` (see `docs/operations/release.md`).
-- Version bumps arrive through upstream syncs.
+- `.github/workflows/release.yml` publishes fork GitHub releases on every `nightly` push (prerelease, never latest), every `main` push (stable, latest), and manual dispatch (stable by default, from the chosen workflow ref or explicit `ref` input).
+- Stable branch/manual tags are `v<version>+build.<run_id>.<attempt>`; nightly tags are `v<version>-nightly.<YYYYMMDD>.<run_id>.<attempt>`. Existing releases and tags are retained; collisions fail.
+- Version-tag and scheduled triggers remain available. Scheduled runs check `nightly` for changes and the existing six-hour gap; branch pushes do not wait for it. Manual preview/nightly channels remain available.
+- Hosted Linux and Windows x64 builds reuse `release-desktop.yml` and attach AppImage, `.deb`, unsigned NSIS, CLI archives and checksums. Upstream publishers and production credentials are not used. See [release operations](../operations/release.md#neocode-fork-releases) for first-run behavior and installation limitations.
+- Version bumps arrive through upstream syncs. A PR never creates a tag.
 
 ## Labels
 

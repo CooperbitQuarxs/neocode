@@ -2,6 +2,9 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
+      - nightly
     tags:
       - "v*.*.*"
       - "!v*-nightly.*"
@@ -14,14 +17,18 @@ on:
       channel:
         description: "Release channel"
         required: false
-        default: preview
+        default: stable
         type: choice
         options:
           - preview
           - stable
           - nightly
+      ref:
+        description: "NeoCode stable source branch, tag, or commit (blank uses the selected workflow ref)"
+        required: false
+        type: string
       version:
-        description: "Stable version override (for example 1.2.3). Defaults to the version the latest nightly previewed."
+        description: "Stable version override (for example 1.2.3). NeoCode defaults to the chosen ref's app version."
         required: false
         type: string
 
@@ -32,7 +39,7 @@ on:
 # newest-wins single slot, so a queued stable tag can never be silently
 # dropped. Automatic nightlies recheck the release gap after leaving the queue.
 concurrency:
-  group: release-${{ (github.event_name == 'schedule' || inputs.channel == 'nightly' || inputs.channel == 'preview') && 'nightly' || 'stable' }}
+  group: release-${{ (github.event_name == 'schedule' || github.ref == 'refs/heads/nightly' && github.event_name == 'push' || inputs.channel == 'nightly' || inputs.channel == 'preview') && 'nightly' || 'stable' }}
   cancel-in-progress: false
   queue: max
 
@@ -41,12 +48,249 @@ permissions:
   id-token: none
 
 jobs:
+  # The fork uses hosted runners and the existing unsigned desktop packager.
+  # It never enters upstream's npm, relay, deployment or version-push jobs.
+  fork_metadata:
+    name: Resolve NeoCode release
+    if: github.repository == 'PsychedelicShayna/neocode'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.metadata.outputs.sha }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      version: ${{ steps.metadata.outputs.version }}
+      prerelease: ${{ steps.metadata.outputs.prerelease }}
+      publish: ${{ steps.schedule.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'nightly' || inputs.ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve immutable source and append-only tag
+        id: metadata
+        shell: bash
+        env:
+          DISPATCH_CHANNEL: ${{ inputs.channel }}
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          channel=stable
+          if [[ "$GITHUB_EVENT_NAME" == schedule || ( "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/nightly ) ]]; then
+            channel=nightly
+          elif [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            channel="${DISPATCH_CHANNEL:-stable}"
+            version="${DISPATCH_VERSION:-$version}"
+          fi
+          version="${version#v}"
+          version="${version%%[-+]*}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid release version: $version"
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="$GITHUB_REF_NAME"
+            version="${tag#v}"
+            prerelease=false
+            [[ "$version" != *-* ]] || prerelease=true
+          elif [[ "$channel" == stable ]]; then
+            tag="v${version}+build.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
+            prerelease=false
+          else
+            version="${version}-${channel}.$(date -u +%Y%m%d).${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
+            tag="v${version}"
+            prerelease=true
+          fi
+          {
+            echo "sha=$sha"
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check scheduled nightly gap
+        id: schedule
+        uses: actions/github-script@v8
+        env:
+          RELEASE_SHA: ${{ steps.metadata.outputs.sha }}
+        with:
+          script: |
+            let publish = true;
+            if (context.eventName === 'schedule') {
+              const { shouldReleaseNightly } = require('./.github/scripts/check-nightly-release.cjs');
+              publish = await shouldReleaseNightly({
+                github, core, context: { ...context, repo: context.repo, sha: process.env.RELEASE_SHA },
+              });
+            }
+            core.setOutput('publish', String(publish));
+
+      - name: Refuse existing release or generated tag
+        if: steps.schedule.outputs.publish == 'true'
+        uses: actions/github-script@v8
+        env:
+          RELEASE_TAG: ${{ steps.metadata.outputs.tag }}
+        with:
+          script: |
+            const tag = process.env.RELEASE_TAG;
+            const checks = [
+              () => github.rest.repos.getReleaseByTag({ ...context.repo, tag }),
+            ];
+            if (!(context.eventName === 'push' && context.ref.startsWith('refs/tags/'))) {
+              checks.push(() => github.rest.git.getRef({ ...context.repo, ref: `tags/${tag}` }));
+            }
+            for (const check of checks) {
+              try { await check(); } catch (error) {
+                if (error.status === 404) continue;
+                throw error;
+              }
+              throw new Error(`Refusing to overwrite existing release/tag ${tag}`);
+            }
+
+  fork_bundle:
+    name: Build NeoCode JS bundle
+    needs: fork_metadata
+    if: needs.fork_metadata.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.fork_metadata.outputs.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+      - name: Align packaged version
+        env:
+          RELEASE_VERSION: ${{ needs.fork_metadata.outputs.version }}
+        run: node scripts/update-release-package-versions.ts "$RELEASE_VERSION"
+      - name: Install native build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev pkg-config build-essential
+      - name: Build desktop bundle
+        run: vp run build:desktop
+      - uses: actions/upload-artifact@v7
+        with:
+          name: js-bundle
+          path: |
+            apps/server/dist
+            apps/desktop/dist-electron
+          if-no-files-found: error
+          retention-days: 1
+
+  fork_linux:
+    name: NeoCode Linux x64
+    needs: [fork_metadata, fork_bundle]
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      version: ${{ needs.fork_metadata.outputs.version }}
+      ref: ${{ needs.fork_metadata.outputs.sha }}
+      # Installer-only assets; fork releases do not publish updater manifests.
+      release_channel: preview
+      relay_client_tracing: false
+      clerk_publishable_key: ""
+      clerk_jwt_template: ""
+      clerk_cli_oauth_client_id: ""
+      relay_url: ""
+      label: Linux x64
+      runner: ubuntu-24.04
+      platform: linux
+      target: AppImage
+      arch: x64
+      rust_target: x86_64-unknown-linux-gnu
+      resource_key: linux-x64
+      cli_archive: true
+
+  fork_windows:
+    name: NeoCode Windows x64
+    needs: [fork_metadata, fork_bundle, fork_linux]
+    uses: ./.github/workflows/release-desktop.yml
+    with:
+      version: ${{ needs.fork_metadata.outputs.version }}
+      ref: ${{ needs.fork_metadata.outputs.sha }}
+      release_channel: preview
+      relay_client_tracing: false
+      clerk_publishable_key: ""
+      clerk_jwt_template: ""
+      clerk_cli_oauth_client_id: ""
+      relay_url: ""
+      label: Windows x64
+      runner: windows-2025
+      platform: win
+      target: nsis
+      arch: x64
+      rust_target: x86_64-pc-windows-msvc
+      resource_key: win32-x64
+      cli_archive: true
+
+  fork_release:
+    name: Publish NeoCode GitHub release
+    needs: [fork_metadata, fork_linux, fork_windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.fork_metadata.outputs.sha }}
+          persist-credentials: false
+          sparse-checkout: .github
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          path: release-assets
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: cli-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish without replacing any release or tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.fork_metadata.outputs.tag }}
+          RELEASE_SHA: ${{ needs.fork_metadata.outputs.sha }}
+          PRERELEASE: ${{ needs.fork_metadata.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          existing="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG")"
+          args=(--target "$RELEASE_SHA" --title "NeoCode $RELEASE_TAG" --generate-notes)
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/* ]]; then
+            args+=(--verify-tag)
+          elif [[ -n "$existing" ]]; then
+            echo "::error::Release tag already exists: $RELEASE_TAG"
+            exit 1
+          fi
+          if [[ "$PRERELEASE" == true ]]; then
+            args+=(--prerelease --latest=false)
+          else
+            args+=(--latest)
+          fi
+          cd release-assets
+          sha256sum ./* > SHA256SUMS
+          gh release create "$RELEASE_TAG" "${args[@]}" ./*
+
   # Picks the commit every later job builds. Nightlies and tag pushes build the
   # triggering commit. Manual stable releases build the commit of the latest
   # published nightly, so stable only ever ships a build that nightly users
   # have already run. Scheduled runs also decide here whether a nightly is due.
   resolve_commit:
     name: Resolve release commit
+    if: github.repository != 'PsychedelicShayna/neocode'
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 5
     outputs:
