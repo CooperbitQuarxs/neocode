@@ -44,6 +44,25 @@ describe("projectActivityPayload", () => {
     expect(data.somethingClientNeverReads).toBeUndefined();
   });
 
+  it.each([
+    { suffixLength: 2047, retainedCharacter: "" },
+    { suffixLength: 2046, retainedCharacter: "\u{1F600}" },
+  ])(
+    "preserves complete code points at the display limit ($suffixLength)",
+    ({ suffixLength, retainedCharacter }) => {
+      const suffix = "z".repeat(suffixLength);
+      const projected = projectActivityPayload(
+        activity({
+          itemType: "command_execution",
+          data: { displayOutput: `${"x".repeat(100)}\u{1F600}${suffix}` },
+        }),
+      );
+      expect((projected.payload as { data: { displayOutput: string } }).data.displayOutput).toBe(
+        retainedCharacter + suffix,
+      );
+    },
+  );
+
   it("keeps a bounded Codex command output summary", () => {
     const projected = projectActivityPayload(
       activity({

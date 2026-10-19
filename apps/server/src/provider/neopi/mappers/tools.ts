@@ -333,9 +333,10 @@ function completedData(call: InFlightTool, result: unknown): unknown {
         output.length <= MAX_COMMAND_DISPLAY_CHARS
           ? output
           : OMITTED_COMMAND_OUTPUT +
-            Array.from(
-              output.slice(OMITTED_COMMAND_OUTPUT.length - MAX_COMMAND_DISPLAY_CHARS),
-            ).join("");
+            // A UTF-16 tail may start halfway through a surrogate pair.
+            output
+              .slice(OMITTED_COMMAND_OUTPUT.length - MAX_COMMAND_DISPLAY_CHARS)
+              .replace(/^[\uDC00-\uDFFF]/u, "");
     }
   } else if (diff !== undefined) {
     data.diff = diff;

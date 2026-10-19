@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off -- launch builds this path before a Path service exists.
-import { resolve } from "node:path";
+import * as NodePath from "node:path";
 
 /**
  * Tier-1 NeoPi session root shared by launch and usage history.
@@ -30,7 +30,7 @@ function neopiSessionSegment(value: string): string {
 
 /** `<baseDir>/neopi/sessions`. This is the directory launch must pass to `--session-dir`'s parent. */
 export function neopiSessionRoot(input: { readonly baseDir: string }): string {
-  return resolve(input.baseDir, "neopi", "sessions");
+  return NodePath.resolve(input.baseDir, "neopi", "sessions");
 }
 
 /**
@@ -38,7 +38,7 @@ export function neopiSessionRoot(input: { readonly baseDir: string }): string {
  * Never pass it to `--session-dir`.
  */
 export function neopiLegacySessionRoot(input: { readonly stateDir: string }): string {
-  return resolve(input.stateDir, "neopi", "sessions");
+  return NodePath.resolve(input.stateDir, "neopi", "sessions");
 }
 
 export function resolveNeoPiSessionRoots(input: NeoPiServerPaths): NeoPiSessionRoots {
@@ -54,7 +54,7 @@ export function neopiProjectSessionDir(input: {
   readonly profile?: string;
   readonly projectId: string;
 }): string {
-  return resolve(
+  return NodePath.resolve(
     neopiSessionRoot(input),
     neopiSessionSegment(input.profile || "default"),
     neopiSessionSegment(input.projectId),

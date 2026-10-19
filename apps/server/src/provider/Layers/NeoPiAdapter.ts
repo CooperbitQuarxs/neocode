@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import * as NodeCrypto from "node:crypto";
 import {
   ApprovalRequestId,
   ProviderDriverKind,
@@ -146,7 +146,7 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
     PubSub.shutdown,
   );
   const sessions = new Map<ThreadId, Session>();
-  const incarnationId = randomUUID();
+  const incarnationId = NodeCrypto.randomUUID();
   let eventSequence = 0;
   const stamp = (now: string): Pick<MapCtx, "now" | "newEventId"> => ({
     now: () => now,
@@ -387,7 +387,7 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
         startupDialog,
         ...(hostBridge && mcpSession ? { mcpProviderSessionId: mcpSession.providerSessionId } : {}),
         scope: sessionScope,
-        sessionKey: randomUUID(),
+        sessionKey: NodeCrypto.randomUUID(),
         pending: new Map(),
         ui: emptyUiState(),
         session: {
@@ -644,6 +644,7 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
           Effect.mapError((cause) => rpcError(input.threadId, "prepareTurn", cause)),
         );
       if (
+        !session.runtime.capabilities.has(NEOPI_CAPABILITIES.controlAttached) &&
         session.runtime.capabilities.has(NEOPI_CAPABILITIES.setMode) &&
         input.interactionMode !== undefined &&
         (session.interactionMode !== input.interactionMode ||
@@ -833,6 +834,12 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
     rollbackThread: (threadId, numTurns) =>
       Effect.gen(function* () {
         const session = yield* requireSession(threadId);
+        if (session.runtime.capabilities.has(NEOPI_CAPABILITIES.controlAttached))
+          return yield* new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "rollbackThread",
+            detail: "Cannot roll back an attached NeoPi session owned by another process.",
+          });
         const status = yield* SubscriptionRef.get(session.runtime.state);
         if (status === "running")
           yield* session.runtime.interrupt.pipe(

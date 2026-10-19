@@ -4,5 +4,5 @@ contact_links:
     url: https://github.com/PsychedelicShayna/neocode/blob/main/docs/README.md
     about: Install, providers, and how the app works
   - name: Repository policy
-    url: https://github.com/PsychedelicShayna/neocode/blob/main/docs/policy/README.md
+    url: https://github.com/PsychedelicShayna/neocode/blob/main/docs/agents/policy.md
     about: Branches, pull requests, labels, and releases

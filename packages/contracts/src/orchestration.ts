@@ -1551,6 +1551,13 @@ const ThreadHistoryImportCommand = Schema.Struct({
   ).check(Schema.isNonEmpty()),
 });
 
+/** Append restored foreign history only while no provider turn can be active. */
+const ThreadHistoryAppendCommand = Schema.Struct({
+  ...ThreadHistoryImportCommand.fields,
+  type: Schema.Literal("thread.history.append"),
+  messages: ThreadHistoryImportCommand.fields.messages.check(Schema.isMaxLength(200)),
+});
+
 /**
  * Persists a user message without starting a turn. Used by worktree bootstraps
  * so the send is durable while the worktree is still being prepared; the
@@ -1668,6 +1675,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadMessageReasoningDeltaCommand,
   ThreadMessageReasoningCompleteCommand,
   ThreadHistoryImportCommand,
+  ThreadHistoryAppendCommand,
   ThreadMessageUserAppendCommand,
   ThreadProposedPlanUpsertCommand,
   ThreadTurnDiffCompleteCommand,

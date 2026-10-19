@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off -- launch args are constructed before any runtime Path service exists.
-import { resolve, sep } from "node:path";
+import * as NodePath from "node:path";
 import { tokenizeCliArgs } from "@t3tools/shared/cliArgs";
 import type { RuntimeMode } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -24,8 +24,8 @@ export interface NeoPiLaunchInput {
 /** Older cursors predate the marker: only the T3-owned root was ever isolated. */
 export function isSharedNeoPiCursor(cursor: NeoPiResumeCursor, t3Home: string): boolean {
   if (cursor.sharedSession === true) return true;
-  const root = neopiSessionRoot({ baseDir: t3Home }) + sep;
-  return !resolve(cursor.sessionDir).startsWith(root);
+  const root = neopiSessionRoot({ baseDir: t3Home }) + NodePath.sep;
+  return !NodePath.resolve(cursor.sessionDir).startsWith(root);
 }
 
 const approvalModes: Record<RuntimeMode, string> = {
@@ -86,7 +86,9 @@ export const buildNeoPiLaunchPlan = (
       if (
         !input.cursor.sessionFile ||
         !input.cursor.sessionId ||
-        !resolve(input.cursor.sessionFile).startsWith(resolve(sessionDir) + sep)
+        !NodePath.resolve(input.cursor.sessionFile).startsWith(
+          NodePath.resolve(sessionDir) + NodePath.sep,
+        )
       ) {
         return yield* new NeoPiRuntimeError({
           code: "settings",
