@@ -48,6 +48,7 @@ Default review policy: every PR requires Codex Code Review. Assign `review: code
 An authorized tracker operator reviews the evidence-linked proposal and applies the verified delta to each record's live labels. Re-read records updated since observation; preserve unrelated concurrent changes. Once both passes are complete, remove `triage: started` and apply the supported labels. Leave a named blocker rather than declaring unready work pending. An unresolved classification stays in triage with the open decision recorded.
 
 At least daily, compare all open issues and PRs with current implementation, actor claims, review receipts, CI and merge state. Correct missing or stale labels, distinguish a new follow-up from reopened acceptance, and retain evidence of decisions. Publication authority for the funnel remains in [issue-funnel.md](issue-funnel.md); daily reconciliation alone grants no closure authority.
+Daily, after fetching origin, list orphan topic branches from `git branch -r --no-merged origin/nightly`, excluding remote HEAD/default/integration refs and branches with an open PR (match the paginated open-PR inventory by head repository and branch).
 
 During daily reconciliation, add `upstream` to a promotion proposal when its carried merge history contains a `sync/` upstream-release merge; the promotion workflow does not classify upstream content.
 

@@ -18,9 +18,13 @@ mechanics; [triage.md](triage.md) owns tracker reconciliation.
 
 ## Merging
 
-- Merge commits only: `gh pr merge --merge --match-head-commit "$REVIEWED_SHA"`, binding the merge to the reviewed authoritative `headRefOid`. Subject: `Merge PR #<number>: <conventional PR subject> (@<author>)`.
+- Merge commits only: `gh pr merge --merge --match-head-commit "$GATE_HEAD"`, binding the merge to the final authoritative `headRefOid` evaluated under the review gate. Subject: `Merge PR #<number>: <conventional PR subject> (@<author>)`.
 - The authoring agent merges its PR into `nightly` after CI, acceptance, up-to-date base and the [Codex code-review gate](pr-review-bots.md) pass. Mark it `mergeable` only when these criteria hold. The owner alone decides promotion and hotfix merges into `main`.
 - Contributor heads (any author other than the owner) are never executed on the owner's machine; see `docs/agents/pr-review-bots.md` › Running PR code.
+
+Delegate every CI or review wait to a `openai-codex/gpt-6-luna` poller, which
+reports exact-head results and failures to the integrator. The integrator moves
+another actionable PR while the poller watches rather than blocking on a wait.
 
 ## CI
 
@@ -90,6 +94,9 @@ true checklist items and explain skipped ones. Declare dependencies as
 `Depends on #N` and merge in dependency order. Every issue and PR has a fitting
 kind, priority and state; unclassified intake uses `needs-triage`. PR review
 requirements and states follow the review manual rather than intake labels.
+
+A topic branch with commits gets a PR in the same turn it is declared done;
+[daily triage](triage.md#5-apply-and-reconcile) lists orphan branches.
 
 Every GitHub comment, issue body or review reply starts with:
 
