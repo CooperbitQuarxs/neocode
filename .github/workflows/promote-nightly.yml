@@ -82,4 +82,3 @@ jobs:
           number=${url##*/}
           [ -n "$number" ] || { echo "::error::could not determine the promotion PR number"; exit 1; }
           echo "number=$number" >> "$GITHUB_OUTPUT"
-
