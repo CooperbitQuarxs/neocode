@@ -2000,23 +2000,29 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.history.import": {
+    case "thread.history.import":
+    case "thread.history.append": {
       const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
+      const appending = command.type === "thread.history.append";
       if (
         thread.deletedAt !== null ||
         thread.archivedAt !== null ||
-        thread.messages.length > 0 ||
-        thread.latestTurn !== null ||
-        thread.session !== null ||
+        (!appending &&
+          (thread.messages.length > 0 || thread.latestTurn !== null || thread.session !== null)) ||
+        (appending && thread.session !== null && thread.session.status !== "stopped") ||
+        (appending && thread.latestTurn?.state === "running") ||
+        (appending && thread.messages.some((message) => message.streaming)) ||
         openRequests(thread).size > 0
       ) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
-          detail: `Thread '${command.threadId}' must be active and empty before history can be imported.`,
+          detail: appending
+            ? `Thread '${command.threadId}' must be stopped and idle before history can be appended.`
+            : `Thread '${command.threadId}' must be active and empty before history can be imported.`,
         });
       }
       const firstMessage = command.messages[0];
@@ -2028,7 +2034,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       }
 
       const events: Array<PlannedOrchestrationEvent> = [];
+      const messageIds = new Set(thread.messages.map((message) => message.id));
       for (const message of command.messages) {
+        if (appending && messageIds.has(message.messageId)) continue;
+        messageIds.add(message.messageId);
         events.push({
           ...(yield* withEventBase({
             aggregateKind: "thread",
@@ -2050,6 +2059,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           },
         });
       }
+      if (events.length === 0) return events;
       const settledAt = command.messages.reduce(
         (latest, message) =>
           compareDateTimeStrings(message.createdAt, latest) > 0 ? message.createdAt : latest,

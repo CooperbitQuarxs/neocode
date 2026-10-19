@@ -1,3 +1,9 @@
+# Repository navigation
+
+- Read `CONTEXT.md` for repository and tracker terminology before interpreting issues or policy.
+- Read `docs/agents/policy.md` before branch, commit, PR or merge work; `docs/agents/` holds agent policy and mechanics.
+- Read `README.md` for project context and user entry points, not additional instructions.
+
 # T3 Code
 
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web, desktop, and mobile clients.
@@ -56,19 +62,19 @@ We need to be on the same page with terminology. When communicating, use this la
 - **turn** means one user-to-agent cycle, including follow-up work such as checkpointing.
 - **T3 home** means the base data directory. Runtime state normally lives below its userdata directory.
 
-## Workspace policy comes first
+## Repository policy
 
-This repository follows `AGENTS.md` in the directory one level above it (the directory containing this repository) for branches, worktrees, commits, signing, pull requests and merging. The repository-specific review gate below applies to every PR. The remaining sections retain compatible upstream guidance.
-
-Repository specifics (`docs/policy/README.md` has the full table):
+`docs/agents/policy.md` owns branches, commits, signing, pull requests and
+merging. The repository-specific review gate applies to every PR. The
+remaining sections retain compatible upstream code guidance.
 
 - Default branch `main`; integration branch `nightly`. Topic branches start from `origin/nightly` in a worktree named `../neocode-wt-<slug>`, and PRs target `nightly`. Both branches are protected: PR required, merge commits only, no force-push.
 - Merge commits read `Merge PR #<number>: <conventional PR subject> (@<author>)`.
-- `nightly` is promoted into `main` weekly by `.github/workflows/promote-nightly.yml`; promotion and `hotfix/` PRs into `main` are the owner's decision.
+- Promotion opens a monthly PR for the owner to merge; promotion and `hotfix/` PRs into `main` are the owner's decision.
 - Every PR requires a complete, clean Codex Code Review on its final head and a factual disposition in every finding's thread, including unsolicited rounds. Do not request security rounds; already-posted security findings still require a fix or disproof. Before reviewing or merging, read `docs/agents/pr-review-bots.md`.
 - Before integrating upstream or adding fork behavior, read `docs/agents/fork-maintenance.md` and `docs/agents/upstream-sync.md`.
 - Contributor PRs (any author other than the owner) are read-only on the owner's machine: never run their code locally.
-- Releases and tags: `docs/policy/README.md` › Releases.
+- Releases and tags: `docs/agents/policy.md` › Releases.
 
 ## The three ways to hurt yourself
 
@@ -130,7 +136,7 @@ For authorized mobile verification, a missing or outdated native client is a bui
 
 ## Pull requests
 
-- Every change reaches `nightly` through a PR; nothing is pushed to `main` or `nightly`. Opening it is part of the assigned work, and the authoring agent merges it under the workspace policy (`docs/policy/README.md`). Never open a PR, issue, or comment on `pingdotgg/t3code`.
+- Every change reaches `nightly` through a PR; nothing is pushed to `main` or `nightly`. Opening it is part of the assigned work, and the authoring agent merges it under `docs/agents/policy.md`. Never open a PR, issue, or comment on `pingdotgg/t3code`.
 - Conventional commit titles, plain language: `fix(web): new threads no longer spike CPU`.
 - Body: use `.github/PULL_REQUEST_TEMPLATE.md` exactly, and say what was actually run. End with the model and harness that did the work.
 - UI changes need before/after images. Motion or timing needs a short video.
@@ -154,7 +160,7 @@ Most code changes do not need an internal documentation change. Agents can read 
 
 - Do not commit implementation plans, research notes, or agent scratch files. Keep temporary working material outside the worktree. `.plans/` is gitignored only as a safety net for legacy tooling.
 - Track active maintainer work in the GitHub issue or project item that owns it. External proposals for this fork use the feature request issue form on `PsychedelicShayna/neocode`; proposals for upstream T3 Code follow `CONTRIBUTING.md` and belong in Ideas discussions.
-- A merged PR is the implementation record. Close or update its tracking item when the work lands; do not preserve a second checklist in the repository.
+- A merged PR is the implementation record. Update the tracking issue after integration; close only after full acceptance and promotion to `main`, per `docs/agents/triage.md`.
 
 ## How it works
 
@@ -191,7 +197,7 @@ This repository is upstream T3 Code (`pingdotgg/t3code`) plus a NeoPi/OMP provid
 
 - New behavior lives in NeoPi-owned files (`apps/server/src/provider/neopi/`, `apps/server/src/provider/{Layers,Drivers,Services}/NeoPi*`, `packages/effect-neopi-rpc/`, `*neopi*` web files). Upstream files get registration lines only (driver lists, exhaustive provider maps, settings slots).
 - When NeoPi genuinely needs an upstream seam, the change must be provider-neutral (usable by any provider), minimal, default-off for existing providers, and covered by a test. Never branch on `neopi` inside shared code, never change an existing provider's behavior, and never reformat or reorder upstream code.
-- Missing capabilities belong in NeoPi's RPC (`PsychedelicShayna/neopi`), not in T3 workarounds. File them there with labels `rpc`, `downstream`, `t3c-npi`.
+- Missing capabilities belong in NeoPi's RPC (`PsychedelicShayna/neopi`), not in T3 workarounds. File them there with `downstream` and other labels supported by its tracker policy.
 - Every upstream file the fork touches is listed below with the reason. Adding one means adding a line. Fewer is better; remove lines when a seam can move back into NeoPi-owned code.
 
 | Upstream file                                                                                                                                                                                                                                                   | Why the fork touches it                                                                                                                                                                                                    |
@@ -200,6 +206,7 @@ This repository is upstream T3 Code (`pingdotgg/t3code`) plus a NeoPi/OMP provid
 | `apps/server/src/mcp/McpHttpServer.ts`, `McpSessionRegistry.ts`                                                                                                                                                                                                 | Provider-neutral in-process tool dispatcher and credential lookup for host tools; revoking a thread clears its config                                                                                                      |
 | `apps/server/src/server.ts`                                                                                                                                                                                                                                     | One shared `PreviewAutomationBroker` above routes and providers                                                                                                                                                            |
 | `apps/server/src/serverSettings.test.ts`                                                                                                                                                                                                                        | Provider-neutral disk-decode and fresh-reload persistence coverage without pinning the registered default-provider inventory                                                                                               |
+| `apps/web/src/components/usage/UsageProviderChart.test.ts`                                                                                                                                                                                                      | Provider-neutral absolute-cost regression without pinning optional zero-cost provider bands                                                                                                                                |
 | `apps/server/src/provider/Services/ProviderAdapter.ts`, `Layers/ClaudeAdapter.ts`                                                                                                                                                                               | Optional terminal cursor policy; Claude retains its existing refresh behavior                                                                                                                                              |
 | `apps/web/src/components/chat/ChatComposer.tsx`                                                                                                                                                                                                                 | Optional provider-owned composer projection, editor action, command label, and skill insertion hooks                                                                                                                       |
 | `packages/contracts/src/{settings,model,providerRuntime,server,usage}.ts`                                                                                                                                                                                       | Provider settings slot, display names, raw event source, optional slash-command `source`, usage provider                                                                                                                   |
@@ -215,13 +222,18 @@ This repository is upstream T3 Code (`pingdotgg/t3code`) plus a NeoPi/OMP provid
 | `.github/workflows/desktop-macos-preview.yml`                                                                                                                                                                                                                   | Run PR preview bundle builds on GitHub-hosted Ubuntu                                                                                                                                                                       |
 | `.github/workflows/desktop-macos-preview-publish.yml`                                                                                                                                                                                                           | Use hosted Ubuntu and macOS arm64 for the PR preview lifecycle; leave production release callers unchanged                                                                                                                 |
 | `.github/workflows/mobile-eas-preview.yml`                                                                                                                                                                                                                      | Run opt-in PR mobile previews on hosted Ubuntu                                                                                                                                                                             |
-| `.github/workflows/mobile-fingerprint-check.yml`                                                                                                                                                                                                                | Run PR native fingerprint detection on hosted Ubuntu                                                                                                                                                                       |
+| `.github/workflows/mobile-fingerprint-check.yml`                                                                                                                                                                                                                | Run native fingerprint detection on hosted Ubuntu and report changes in the job summary.                                                                                                                                   |
+| `.github/workflows/issue-labels.yml`                                                                                                                                                                                                                            | Maintain the composable issue and PR vocabulary instead of resetting it to upstream's intake defaults.                                                                                                                     |
+| `.github/workflows/pr-vouch.yml`                                                                                                                                                                                                                                | Keep the trust check without assigning tracker trust labels.                                                                                                                                                               |
+| `.github/workflows/promote-nightly.yml`                                                                                                                                                                                                                         | Open monthly promotion PRs for the owner's merge decision, using repository state labels.                                                                                                                                  |
 | `.github/workflows/web-preview.yml`                                                                                                                                                                                                                             | Run opt-in PR web previews on hosted Ubuntu                                                                                                                                                                                |
 | `.github/workflows/deploy-relay.yml`                                                                                                                                                                                                                            | Use hosted Ubuntu for the existing `main` deployment lane                                                                                                                                                                  |
 | `apps/desktop/scripts/smoke-test.mjs`                                                                                                                                                                                                                           | Isolate diagnostic Electron in short private state, profile, D-Bus and Xvfb; verify Windows owner-only ACLs, await bootstrap/window readiness, capture logs, and validate creation identities before process-tree teardown |
 | `apps/desktop/src/shell/DesktopShellEnvironment.ts`, `DesktopShellEnvironment.test.ts`                                                                                                                                                                          | Provider-neutral diagnostic-only pre-probe guard: preserve the owned smoke environment without running profiles or discovering the live session bus; ordinary desktop hydration is unchanged                               |
 | `packages/contracts/src/{index,rpc}.ts`, `apps/server/src/auth/RpcAuthorization.ts`, `apps/server/src/ws.ts`                                                                                                                                                    | Register the NeoPi-owned `neopiSessions.*` WS methods (session discovery, resume, terminal handoff): contract export, RPC group entries, scopes and delegating handlers                                                    |
 | `apps/web/src/components/{CommandPalette,sidebar/SidebarThreadHeader,chat/ChatHeader}.tsx`                                                                                                                                                                      | Mount the NeoPi-owned session picker entry, palette action and picker host, and the terminal handoff control                                                                                                               |
+| `packages/contracts/src/orchestration.ts`, `orchestration.test.ts`, `apps/server/src/orchestration/decider.ts`, `decider.import.test.ts`                                                                                                                        | Provider-neutral stopped-thread history append with stable-ID deduplication and history-import metadata; existing empty-thread import remains unchanged                                                                    |
+| `apps/server/src/provider/Services/ProviderSessionDirectory.ts`, `Layers/ProviderSessionDirectory.test.ts`, `apps/server/src/persistence/ProviderSessionRuntime.ts`                                                                                             | Provider-neutral stopped-only cursor updates that cannot insert or overwrite a concurrently running provider binding                                                                                                       |
 | Registration lists (`builtInDrivers.ts`, `serverSettings.ts`, `Icons.tsx`, `providerIconUtils.ts`, `providerDriverMeta.ts`, `usageProviders.ts`, mobile `ProviderIcon.tsx`, `model-manifest.json`, `UsageService.ts`, `knip.jsonc`, `apps/server/package.json`) | Add `neopi` entries                                                                                                                                                                                                        |
 
 ## Agent skills
@@ -232,11 +244,11 @@ Issues and specs live in `PsychedelicShayna/neocode` GitHub Issues (the fork, ne
 
 ### Triage labels
 
-Five canonical Matt triage labels, layered orthogonally over house type/effort/priority labels. See `docs/agents/triage-labels.md`.
+Before assigning labels or reconciling issues, read `docs/agents/triage.md` for the two-pass process and `docs/agents/triage-labels.md` for vocabulary.
 
 ### Domain docs
 
-Single-context: root `CONTEXT.md` + `docs/adr/`, extending `docs/internals/glossary.md`. See `docs/agents/domain.md`.
+Single-context: root `CONTEXT.md` + `docs/agents/adr/`, extending `docs/internals/glossary.md`. See `docs/agents/domain.md`.
 
 ### PR review bots
 
