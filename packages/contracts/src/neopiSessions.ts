@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 import { IsoDateTime, NonNegativeInt, ProjectId, ThreadId } from "./baseSchemas.ts";
+import { ProviderInstanceId } from "./providerInstance.ts";
 
 export const NeoPiSessionScope = Schema.Literals(["project", "all"]);
 export type NeoPiSessionScope = typeof NeoPiSessionScope.Type;
@@ -19,6 +20,7 @@ export const NeoPiSessionOwner = Schema.Union([
 ]);
 export type NeoPiSessionOwner = typeof NeoPiSessionOwner.Type;
 export const NeoPiSessionSummary = Schema.Struct({
+  providerInstanceId: ProviderInstanceId,
   sessionId: Schema.String,
   sessionFile: Schema.String,
   cwd: Schema.String,
@@ -41,6 +43,7 @@ export const NeoPiSessionListResult = Schema.Union([
 ]);
 export type NeoPiSessionListResult = typeof NeoPiSessionListResult.Type;
 export const NeoPiSessionResumeInput = Schema.Struct({
+  providerInstanceId: ProviderInstanceId,
   sessionFile: Schema.String,
   projectId: ProjectId,
 });

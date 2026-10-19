@@ -62,7 +62,11 @@ export function NeoPiSessionPicker({
         if (!session.projectId) return;
         const resumed = await resume({
           environmentId: target.environmentId,
-          input: { projectId: session.projectId, sessionFile: session.sessionFile },
+          input: {
+            projectId: session.projectId,
+            sessionFile: session.sessionFile,
+            providerInstanceId: session.providerInstanceId,
+          },
         });
         if (resumed._tag === "Failure") {
           if (!isAtomCommandInterrupted(resumed)) throw squashAtomCommandFailure(resumed);

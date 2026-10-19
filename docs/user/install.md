@@ -139,9 +139,11 @@ appear in `npi --resume`; older CLIs keep them isolated under T3's home director
 
 To continue a terminal session in T3 Code, use **Resume NeoPi session** (beside
 **New thread** in the sidebar, or in the command palette). It lists the
-project's NeoPi sessions, or every project's, and shows which are open in a
-terminal. Resuming one creates a thread with its recent transcript. If the
-session is still open in a terminal, T3 Code attaches to that terminal's
+project's NeoPi sessions, or every project's, across all enabled NeoPi instances
+that support discovery. Shared session files appear once, preferring your default
+instance, and resume with the instance that listed them. The list shows which
+sessions are open in a terminal. Resuming one creates a thread with its recent
+transcript. If the session is still open in a terminal, T3 Code attaches to that terminal's
 process instead of opening the session a second time: messages you send from
 T3 Code run there, while turns started in the terminal are not mirrored into
 the thread. While attached, use the terminal to change modes, model settings,

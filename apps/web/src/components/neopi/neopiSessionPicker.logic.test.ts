@@ -1,9 +1,15 @@
-import { ProjectId, ThreadId, type NeoPiSessionSummary } from "@t3tools/contracts";
+import {
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+  type NeoPiSessionSummary,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import { filterNeoPiSessions, neopiSessionRowState } from "./neopiSessionPicker.logic";
 
 function session(overrides: Partial<NeoPiSessionSummary> = {}): NeoPiSessionSummary {
   return {
+    providerInstanceId: ProviderInstanceId.make("neopi-personal"),
     sessionId: "session-1",
     sessionFile: "/sessions/session-1.jsonl",
     cwd: "/workspace/project",

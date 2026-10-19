@@ -104,6 +104,13 @@ const harness = (options?: {
   rows?: object[];
   bindings?: ProviderRuntimeBindingWithMetadata[];
   threads?: OrchestrationThread[];
+  defaultInstanceId?: ProviderInstanceId;
+  extraInstances?: {
+    instanceId: ProviderInstanceId;
+    capabilities: string[];
+    rows: object[];
+    enabled?: boolean;
+  }[];
 }) =>
   Effect.gen(function* () {
     const calls: NeoPiSessionCommandInput[] = [];
@@ -162,6 +169,18 @@ const harness = (options?: {
         capabilities: new Set(options?.capabilities ?? ["session_catalog", "control_pipe"]),
       },
     );
+    const extraInstances = (options?.extraInstances ?? []).map((entry) =>
+      registerNeoPiSessionCatalogSource(
+        { ...instance, instanceId: entry.instanceId, enabled: entry.enabled ?? true },
+        {
+          binary: `/opt/${entry.instanceId}/npi`,
+          env: { OMP_PROFILE: entry.instanceId },
+          profile: entry.instanceId,
+          capabilities: new Set(entry.capabilities),
+        },
+      ),
+    );
+    const allInstances = [instance, ...extraInstances];
     const catalog = yield* makeNeoPiSessionCatalog((input) =>
       Effect.sync(() => {
         calls.push(input);
@@ -175,14 +194,21 @@ const harness = (options?: {
               { role: "assistant", text: "Fixed it", timestamp: now },
             ],
           });
-        return encodeJson({ version: 1, sessions: options?.rows ?? [session("free")] });
+        const extra = options?.extraInstances?.find(
+          (entry) => entry.instanceId === input.source.profile,
+        );
+        return encodeJson({
+          version: 1,
+          sessions: extra?.rows ?? options?.rows ?? [session("free")],
+        });
       }),
     ).pipe(
       Effect.provide(
         Layer.mergeAll(
           Layer.mock(ProviderInstanceRegistry)({
-            listInstances: Effect.succeed([instance]),
-            getInstance: () => Effect.succeed(instance),
+            listInstances: Effect.succeed(allInstances),
+            getInstance: (id) =>
+              Effect.succeed(allInstances.find((entry) => entry.instanceId === id)),
           }),
           Layer.mock(ProjectionSnapshotQuery)({
             getProjectShellById: () => Effect.succeedSome(project),
@@ -251,7 +277,16 @@ const harness = (options?: {
                 return { sequence: commands.length };
               }),
           }),
-          settingsLayer(),
+          settingsLayer(
+            options?.defaultInstanceId
+              ? {
+                  defaultModelSelection: {
+                    instanceId: options.defaultInstanceId,
+                    model: "default-model",
+                  },
+                }
+              : {},
+          ),
           configLayer(cwd, { prefix: "neocode-catalog-test-" }),
         ),
       ),
@@ -320,13 +355,67 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
         expect(calls[0]?.args).toEqual(["sessions", "list", "--json", "--cwd", cwd]);
       }),
     );
+    it.effect("merges capable instances and keeps the default origin for duplicate paths", () =>
+      Effect.gen(function* () {
+        const otherId = ProviderInstanceId.make("neopi-work");
+        const { catalog } = yield* harness({
+          rows: [session("personal"), session("shared")],
+          defaultInstanceId: otherId,
+          extraInstances: [
+            {
+              instanceId: otherId,
+              capabilities: ["session_catalog"],
+              rows: [session("work"), session("shared")],
+            },
+          ],
+        });
+        const result = yield* catalog.list({ projectId, scope: "all" });
+        expect(result.status).toBe("available");
+        if (result.status !== "available") return;
+        expect(result.sessions.map((row) => [row.sessionId, row.providerInstanceId])).toEqual([
+          ["work", otherId],
+          ["shared", otherId],
+          ["personal", instanceId],
+        ]);
+      }),
+    );
+    it.effect("remains available when only a later enabled instance supports catalogs", () =>
+      Effect.gen(function* () {
+        const capableId = ProviderInstanceId.make("neopi-capable");
+        const { catalog, calls } = yield* harness({
+          capabilities: [],
+          extraInstances: [
+            {
+              instanceId: capableId,
+              capabilities: ["session_catalog"],
+              rows: [session("capable")],
+            },
+            {
+              instanceId: ProviderInstanceId.make("neopi-disabled"),
+              capabilities: ["session_catalog"],
+              rows: [session("disabled")],
+              enabled: false,
+            },
+          ],
+        });
+        const result = yield* catalog.list({ projectId, scope: "all" });
+        expect(
+          result.status === "available" && result.sessions.map((row) => row.providerInstanceId),
+        ).toEqual([capableId]);
+        expect(calls.every((call) => call.source.profile === capableId)).toBe(true);
+      }),
+    );
   });
   it.effect(
     "installs the cursor before creating the thread, imports text, and resumes idempotently",
     () =>
       Effect.gen(function* () {
         const { catalog, calls, commands, bindings, order } = yield* harness();
-        const first = yield* catalog.resume({ projectId, sessionFile: session("free").path });
+        const first = yield* catalog.resume({
+          projectId,
+          providerInstanceId: instanceId,
+          sessionFile: session("free").path,
+        });
         expect(first).toEqual({ threadId: `import:${instanceId}:free`, created: true });
         expect(order).toEqual(["binding", "thread.create", "thread.history.import"]);
         expect(bindings[0]?.resumeCursor).toEqual({
@@ -355,12 +444,40 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
           "--max-messages",
           "200",
         ]);
-        expect(yield* catalog.resume({ projectId, sessionFile: session("free").path })).toEqual({
+        expect(
+          yield* catalog.resume({
+            projectId,
+            providerInstanceId: instanceId,
+            sessionFile: session("free").path,
+          }),
+        ).toEqual({
           threadId: first.threadId,
           created: false,
         });
         expect(commands).toHaveLength(2);
       }),
+  );
+  it.effect("routes resume and terminal handoff through the row's originating instance", () =>
+    Effect.gen(function* () {
+      const otherId = ProviderInstanceId.make("neopi-work");
+      const { catalog, calls, bindings, commands } = yield* harness({
+        rows: [],
+        extraInstances: [
+          { instanceId: otherId, capabilities: ["session_catalog"], rows: [session("free")] },
+        ],
+      });
+      const result = yield* catalog.resume({
+        projectId,
+        providerInstanceId: otherId,
+        sessionFile: session("free").path,
+      });
+      expect(result.threadId).toBe(`import:${otherId}:free`);
+      expect(bindings[0]?.providerInstanceId).toBe(otherId);
+      expect(commands[0]).toMatchObject({ modelSelection: { instanceId: otherId } });
+      const handoff = yield* catalog.handoff({ threadId: result.threadId });
+      expect(handoff.command).toContain(`OMP_PROFILE='${otherId}' '/opt/${otherId}/npi'`);
+      expect(calls.every((call) => call.source.profile === otherId)).toBe(true);
+    }),
   );
   it.effect("rejects unlisted files and mismatched workspaces without creating threads", () =>
     Effect.gen(function* () {
@@ -368,10 +485,10 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
         rows: [session("foreign", { cwd: "/elsewhere" })],
       });
       const unlisted = yield* catalog
-        .resume({ projectId, sessionFile: "/etc/passwd" })
+        .resume({ projectId, providerInstanceId: instanceId, sessionFile: "/etc/passwd" })
         .pipe(Effect.result);
       const mismatch = yield* catalog
-        .resume({ projectId, sessionFile: session("foreign").path })
+        .resume({ projectId, providerInstanceId: instanceId, sessionFile: session("foreign").path })
         .pipe(Effect.result);
       expect(unlisted._tag).toBe("Failure");
       expect(mismatch._tag).toBe("Failure");

@@ -149,18 +149,20 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
         Effect.mapError(operationError("list")),
       ));
 
-  const resolveProvider = Effect.fn("NeoPiSessionCatalog.resolveProvider")(function* () {
+  const resolveProviders = Effect.fn("NeoPiSessionCatalog.resolveProviders")(function* () {
     const enabled = (yield* instances.listInstances).filter(
       (instance) => instance.enabled && instance.driverKind === "neopi",
     );
     const defaults = (yield* settings.getSettings).defaultModelSelection;
-    // Use the configured default when it is NeoPi, otherwise stable settings order.
-    const instance =
-      enabled.find((entry) => entry.instanceId === defaults?.instanceId) ?? enabled[0];
-    if (!instance) return null;
-    const source = neoPiSessionCatalogSource(instance);
-    if (!source || !source.capabilities.has(NEOPI_CAPABILITIES.sessionCatalog)) return null;
-    return { instance, source };
+    // Default first, then stable settings order: shared paths keep this origin.
+    const preferred = enabled.findIndex((entry) => entry.instanceId === defaults?.instanceId);
+    if (preferred > 0) enabled.unshift(...enabled.splice(preferred, 1));
+    return enabled.flatMap((instance) => {
+      const source = neoPiSessionCatalogSource(instance);
+      return source?.capabilities.has(NEOPI_CAPABILITIES.sessionCatalog)
+        ? [{ instance, source }]
+        : [];
+    });
   });
 
   const readProject = Effect.fn("NeoPiSessionCatalog.readProject")(function* (
@@ -237,8 +239,8 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
 
   const list = Effect.fn("NeoPiSessionCatalog.list")(
     function* (input: NeoPiSessionListInput): Effect.fn.Return<NeoPiSessionListResult, unknown> {
-      const provider = yield* resolveProvider();
-      if (!provider) {
+      const providers = yield* resolveProviders();
+      if (providers.length === 0) {
         const hasInstance = (yield* instances.listInstances).some(
           (instance) => instance.enabled && instance.driverKind === "neopi",
         );
@@ -249,42 +251,53 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
             : "Enable a NeoPi provider in Settings to discover sessions.",
         };
       }
-      const { shell, bindings, rows } = yield* catalog(input, provider.source);
-      const sessions: NeoPiSessionSummary[] = rows.map((row) => {
-        const binding = bindings.find((entry) => {
-          if (entry.provider !== "neopi") return false;
-          const cursor = decodeCursor(entry.resumeCursor);
-          return (
-            Option.isSome(cursor) &&
-            NodePath.resolve(cursor.value.sessionFile) === NodePath.resolve(row.path)
-          );
-        });
-        return {
-          sessionId: row.id,
-          sessionFile: row.path,
-          cwd: row.cwd,
-          title: row.title,
-          firstMessage: row.firstMessage,
-          createdAt: row.created,
-          modifiedAt: row.modified,
-          messageCount: row.messageCount,
-          threadId: binding?.threadId ?? null,
-          projectId:
-            shell.projects.find((entry) => sameCwd(entry.workspaceRoot, row.cwd))?.id ?? null,
-          owner: row.inUse
-            ? binding && binding.status !== "stopped"
-              ? { kind: "neocode", threadId: binding.threadId }
-              : {
-                  kind: "process",
-                  pid: row.inUse.pid,
-                  attachable:
-                    row.control !== null &&
-                    provider.source.capabilities.has(NEOPI_CAPABILITIES.controlPipe),
-                }
-            : { kind: "none" },
-        };
-      });
-      return { status: "available", sessions };
+      const unique = new Map<string, NeoPiSessionSummary>();
+      for (const provider of providers) {
+        const { shell, bindings, rows } = yield* catalog(input, provider.source);
+        for (const row of rows) {
+          const path = NodePath.resolve(row.path);
+          if (unique.has(path)) continue;
+          const binding = bindings.find((entry) => {
+            if (entry.provider !== "neopi") return false;
+            const cursor = decodeCursor(entry.resumeCursor);
+            return (
+              Option.isSome(cursor) &&
+              NodePath.resolve(cursor.value.sessionFile) === NodePath.resolve(row.path)
+            );
+          });
+          unique.set(path, {
+            providerInstanceId: provider.instance.instanceId,
+            sessionId: row.id,
+            sessionFile: row.path,
+            cwd: row.cwd,
+            title: row.title,
+            firstMessage: row.firstMessage,
+            createdAt: row.created,
+            modifiedAt: row.modified,
+            messageCount: row.messageCount,
+            threadId: binding?.threadId ?? null,
+            projectId:
+              shell.projects.find((entry) => sameCwd(entry.workspaceRoot, row.cwd))?.id ?? null,
+            owner: row.inUse
+              ? binding && binding.status !== "stopped"
+                ? { kind: "neocode", threadId: binding.threadId }
+                : {
+                    kind: "process",
+                    pid: row.inUse.pid,
+                    attachable:
+                      row.control !== null &&
+                      provider.source.capabilities.has(NEOPI_CAPABILITIES.controlPipe),
+                  }
+              : { kind: "none" },
+          });
+        }
+      }
+      return {
+        status: "available",
+        sessions: Array.from(unique.values()).sort((left, right) =>
+          right.modifiedAt.localeCompare(left.modifiedAt),
+        ),
+      };
     },
     Effect.mapError(operationError("list")),
   );
@@ -293,7 +306,9 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
     function* (
       input: NeoPiSessionResumeInput,
     ): Effect.fn.Return<NeoPiSessionResumeResult, unknown> {
-      const provider = yield* resolveProvider();
+      const provider = (yield* resolveProviders()).find(
+        (entry) => entry.instance.instanceId === input.providerInstanceId,
+      );
       if (!provider)
         return yield* new NeoPiSessionError({ operation: "resume", message: missingCapability });
       const project = yield* readProject(input.projectId);
