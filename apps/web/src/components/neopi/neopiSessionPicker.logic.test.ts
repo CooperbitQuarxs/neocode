@@ -45,7 +45,7 @@ describe("NeoPi session selection", () => {
     );
   });
 
-  it("opens a bound thread without requiring a project or taking over its owner", () => {
+  it("keeps a bound thread actionable when discovery has no project metadata", () => {
     const threadId = ThreadId.make("existing-thread");
     const state = neopiSessionRowState(
       session({
