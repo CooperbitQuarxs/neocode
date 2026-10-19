@@ -116,6 +116,11 @@ and enable the provider you want. Installation, login, and configuration belong
 to that environment's machine, even when you connect from a phone or another
 computer.
 
+NeoCode enables NeoPi by default and lists it first. New threads prefer a ready
+NeoPi instance when no saved provider/model choice applies; a ready alternative
+remains available when NeoPi is not usable. Existing explicit provider toggles,
+project defaults and saved selections are preserved.
+
 | Provider                        | Install and authenticate                                                                                                                                    |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Codex                           | Install [Codex CLI](https://developers.openai.com/codex/cli), then run `codex login`.                                                                       |
