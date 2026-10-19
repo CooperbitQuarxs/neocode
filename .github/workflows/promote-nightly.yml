@@ -44,10 +44,6 @@ jobs:
           date=$(date -u +%Y-%m-%d)
           branch="sync/promote-$date"
           labels="human: pending,review: codex"
-          merge_subjects=$(git log --merges --format=%s "origin/$BASE..origin/$SOURCE")
-          if [[ "$merge_subjects" =~ (^|[^[:alnum:]_])sync/ ]]; then
-             labels="$labels,upstream"
-          fi
           existing=$(gh pr list --base "$BASE" --state open --json number,headRefName,isCrossRepository \
             --jq '[.[] | select(.isCrossRepository == false) | select(.headRefName | startswith("sync/promote-"))][0].number // empty')
           if [ -n "$existing" ]; then
