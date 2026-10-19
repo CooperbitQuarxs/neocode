@@ -154,6 +154,18 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
   let mode = input.runtimeMode;
   let pendingMode = false;
   let attached = false;
+  const requireOwner = (operation: string) =>
+    Effect.suspend(() =>
+      attached
+        ? Effect.fail(
+            new NeoPiRpcError({
+              code: "attached_session",
+              command: operation,
+              message: `Cannot ${operation} on an attached NeoPi session owned by another process. Use the terminal owner instead.`,
+            }),
+          )
+        : Effect.void,
+    );
 
   const emit = (frame: NeoPiRuntimeFrame) =>
     Queue.offer(frames, frame).pipe(Effect.orDie, Effect.asVoid);
@@ -164,16 +176,28 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       : Effect.fail(
           new NeoPiRuntimeError({ code: "closed", message: "NeoPi/OMP session is not connected" }),
         );
+  // Only read operations and interrupting our own turn may cross an attached
+  // control connection. New mutating commands are refused by default.
+  const attachedReadCommands = new Set([
+    "get_state",
+    "get_entries",
+    "get_messages_page",
+    "get_usage",
+    "get_roles",
+    "get_commands",
+  ]);
   const request: NeoPiRpcClient["request"] = (cmd) =>
-    client
-      ? client.request(cmd)
-      : Effect.fail(
-          new NeoPiRpcError({
-            code: "closed",
-            message: "NeoPi/OMP session is not connected",
-            command: cmd.type,
-          }),
-        );
+    Effect.gen(function* () {
+      if (!attachedReadCommands.has(cmd.type) && !(cmd.type === "abort" && active))
+        yield* requireOwner(cmd.type);
+      if (!client)
+        return yield* new NeoPiRpcError({
+          code: "closed",
+          message: "NeoPi/OMP session is not connected",
+          command: cmd.type,
+        });
+      return yield* client.request(cmd);
+    });
   const getState = () =>
     request({ type: "get_state" }).pipe(
       Effect.map((data) => record(data) as SessionState),
@@ -843,6 +867,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
   });
   const applyModelSelection = (selection: ModelSelection) =>
     Effect.gen(function* () {
+      yield* requireOwner("change model or thinking settings").pipe(Effect.mapError(rpcError));
       const role = capabilities.has(NEOPI_CAPABILITIES.getRoles)
         ? neoPiRoleFromModelSlug(selection.model)
         : undefined;
@@ -879,6 +904,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     });
   const restart = (_reason: "runtime-mode-change") =>
     Effect.gen(function* () {
+      yield* requireOwner("restart").pipe(Effect.mapError(rpcError));
       if ((yield* SubscriptionRef.get(state)) !== "ready" || compacting)
         return yield* new NeoPiRuntimeError({
           code: "not_ready",
@@ -956,6 +982,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
   ) =>
     Effect.gen(function* () {
       const proposal = pendingProposal;
+      yield* requireOwner("respond to a plan proposal").pipe(Effect.mapError(rpcError));
       if (!proposal || proposal.resolving)
         return yield* new NeoPiRuntimeError({
           code: "not_ready",
@@ -1057,7 +1084,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
         code: "not_running",
         message: "NeoCode has no active turn to interrupt on the attached session",
       });
-    if (pendingProposal && !pendingProposal.resolving) {
+    if (!attached && pendingProposal && !pendingProposal.resolving) {
       pendingProposal.resolving = true;
       yield* (yield* current())
         .writeFrame({
@@ -1087,6 +1114,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
   });
   const compact = (customInstructions?: string) =>
     Effect.gen(function* () {
+      yield* requireOwner("compact").pipe(Effect.mapError(rpcError));
       if ((yield* SubscriptionRef.get(state)) !== "ready" || compacting)
         return yield* new NeoPiRuntimeError({
           code: "not_ready",
@@ -1151,15 +1179,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
   });
   const setRuntimeMode = (next: RuntimeMode) =>
     Effect.gen(function* () {
-      if (attached) {
-        yield* emit({
-          type: "notice",
-          level: "warning",
-          message:
-            "Runtime mode is controlled by the terminal owner while this session is attached.",
-        });
-        return;
-      }
+      yield* requireOwner("change runtime mode").pipe(Effect.mapError(rpcError));
       if (mode === next) return;
       mode = next;
       const status = yield* SubscriptionRef.get(state);
@@ -1189,11 +1209,18 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     compact,
     request,
     writeFrame: (frame) =>
-      client
-        ? client.writeFrame(frame)
-        : Effect.fail(
-            new NeoPiRpcError({ code: "closed", message: "NeoPi/OMP session is not connected" }),
-          ),
+      requireOwner("send an owner response").pipe(
+        Effect.andThen(() =>
+          client
+            ? client.writeFrame(frame)
+            : Effect.fail(
+                new NeoPiRpcError({
+                  code: "closed",
+                  message: "NeoPi/OMP session is not connected",
+                }),
+              ),
+        ),
+      ),
     frames: Stream.fromQueue(frames),
     restart,
     stop,
@@ -1202,6 +1229,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     applyModelSelection,
     respondUi: (response) =>
       Effect.gen(function* () {
+        yield* requireOwner("respond to owner UI");
         const channel = client ?? earlyUi;
         if (!channel)
           return yield* new NeoPiRpcError({

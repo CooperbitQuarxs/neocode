@@ -219,7 +219,7 @@ const attachFixture = Effect.fn("attachFixture")(function* (
           : basicHandler(cmd, emit),
     {
       ...defaultReady,
-      capabilities: ["rpc-ui", "control_v1", "tool_approval_request", "set_mode"],
+      capabilities: ["rpc-ui", "control_v1", "tool_approval_request", "set_mode", "set_chat_mode"],
     },
     undefined,
     true,
@@ -249,7 +249,7 @@ it.live(
     Effect.scoped(
       Effect.gen(function* () {
         const { runtime, launches, pipe } = yield* attachFixture();
-        const frames = yield* capture(runtime);
+        yield* capture(runtime);
         yield* runtime.start;
         NodeAssert.deepEqual(launches[1], [
           "sessions",
@@ -264,7 +264,8 @@ it.live(
           pipe.commands.map((cmd) => cmd.type),
           ["negotiate_protocol", "get_state"],
         );
-        yield* runtime.setRuntimeMode("full-access");
+        const modeError = yield* Effect.flip(runtime.setRuntimeMode("full-access"));
+        NodeAssert.match(modeError.message, /attached.*owned by another process/);
         const noTurn = yield* Effect.flip(runtime.interrupt);
         NodeAssert.equal(noTurn.code, "not_running");
         yield* runtime.stop;
@@ -281,13 +282,70 @@ it.live(
           pipe.commands.some((cmd) => cmd.type.startsWith("set_")),
           false,
         );
-        NodeAssert.ok(frames.some((frame) => frame.type === "notice"));
         NodeAssert.equal(
           (yield* SubscriptionRef.get(runtime.cursor)).sessionFile,
           attachedCursor.sessionFile,
         );
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("refuses every owner mutation through an attached runtime boundary", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { runtime, pipe } = yield* attachFixture();
+      yield* runtime.start;
+      for (const type of [
+        "set_chat_mode",
+        "set_mode",
+        "set_model",
+        "set_thinking_level",
+        "set_fast_mode",
+        "set_role",
+        "set_approval_handler",
+        "set_host_tools",
+        "set_interrupt_mode",
+        "set_subagent_subscription",
+        "compact",
+        "branch",
+        "steer",
+        "abort",
+      ]) {
+        const error = yield* Effect.flip(runtime.request({ type }).pipe(Effect.asVoid));
+        NodeAssert.match(error.message, /attached.*owned by another process/);
+      }
+      const compactError = yield* Effect.flip(runtime.compact());
+      NodeAssert.match(compactError.message, /attached.*owned by another process/);
+      const modelError = yield* Effect.flip(
+        runtime.applyModelSelection({
+          instanceId: ProviderInstanceId.make("neopi"),
+          model: "provider/model",
+        }),
+      );
+      NodeAssert.match(modelError.message, /attached.*owned by another process/);
+      const frameError = yield* Effect.flip(
+        runtime.writeFrame({
+          type: "plan_proposal_response",
+          id: "owner-plan",
+          decision: "approve",
+        }),
+      );
+      NodeAssert.match(frameError.message, /attached.*owned by another process/);
+      const uiError = yield* Effect.flip(runtime.respondUi({ id: "owner-ui", cancelled: true }));
+      NodeAssert.match(uiError.message, /attached.*owned by another process/);
+      NodeAssert.deepEqual(
+        pipe.commands.map((cmd) => cmd.type),
+        ["negotiate_protocol", "get_state"],
+      );
+      yield* runtime.startTurn(turn("attached-prompt"));
+      const steerError = yield* Effect.flip(runtime.steer(turn("attached-steer")));
+      NodeAssert.match(steerError.message, /attached.*owned by another process/);
+      yield* runtime.interrupt;
+      NodeAssert.equal(pipe.commands.filter((cmd) => cmd.type === "prompt").length, 1);
+      NodeAssert.equal(pipe.commands.filter((cmd) => cmd.type === "abort").length, 1);
+      yield* runtime.stop;
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
 );
 
 it.live("names the lease holder when no control endpoint exists and never spawns a pipe", () =>
@@ -399,47 +457,65 @@ it.live(
     ).pipe(Effect.provide(NodeServices.layer)),
 );
 
-it.live("rejects rollback of an attached session before aborting or branching the owner", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const { spawn, pipe } = yield* attachFixture();
-      const threadId = ThreadId.make("attached-thread");
-      const instanceId = ProviderInstanceId.make("attached-neopi");
-      const adapter = yield* makeNeoPiAdapter({
-        settings: {
-          enabled: true,
-          binaryPath: "npi",
-          profile: "",
-          launchArgs: "",
-          customModels: [],
-        },
-        instanceId,
-        binary: "npi",
-        cwd: "/tmp",
-        t3Home: root,
-        attachmentsDir: root,
-        environment: {},
-        spawn,
-        discovery: yield* makeNeoPiDiscoveryHub(),
-        sharedSessionCapabilities: attachCapabilities,
-      });
-      yield* adapter.startSession({
-        threadId,
-        provider: ProviderDriverKind.make("neopi"),
-        providerInstanceId: instanceId,
-        cwd: "/tmp",
-        runtimeMode: "approval-required",
-        resumeCursor: attachedCursor,
-      });
-      const error = yield* Effect.flip(adapter.rollbackThread(threadId, 1));
-      NodeAssert.match(error.message, /attached.*owned by another process/);
-      NodeAssert.equal(
-        pipe.commands.some((cmd) => cmd.type === "abort" || cmd.type === "branch"),
-        false,
-      );
-      yield* adapter.stopAll();
-    }),
-  ).pipe(Effect.provide(NodeServices.layer)),
+it.live(
+  "rejects attached rollback, chat mode changes and compaction before mutating the owner",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { spawn, pipe } = yield* attachFixture();
+        const threadId = ThreadId.make("attached-thread");
+        const instanceId = ProviderInstanceId.make("attached-neopi");
+        const adapter = yield* makeNeoPiAdapter({
+          settings: {
+            enabled: true,
+            binaryPath: "npi",
+            profile: "",
+            launchArgs: "",
+            customModels: [],
+          },
+          instanceId,
+          binary: "npi",
+          cwd: "/tmp",
+          t3Home: root,
+          attachmentsDir: root,
+          environment: {},
+          spawn,
+          discovery: yield* makeNeoPiDiscoveryHub(),
+          sharedSessionCapabilities: attachCapabilities,
+        });
+        yield* adapter.startSession({
+          threadId,
+          provider: ProviderDriverKind.make("neopi"),
+          providerInstanceId: instanceId,
+          cwd: "/tmp",
+          runtimeMode: "approval-required",
+          resumeCursor: attachedCursor,
+        });
+        const error = yield* Effect.flip(adapter.rollbackThread(threadId, 1));
+        NodeAssert.match(error.message, /attached.*owned by another process/);
+        const chatError = yield* Effect.flip(
+          adapter.sendTurn({
+            threadId,
+            input: "/chat raw",
+            interactionMode: "default",
+          }),
+        );
+        NodeAssert.match(chatError.message, /attached.*owned by another process/);
+        const compactError = yield* Effect.flip(adapter.compaction.start(threadId));
+        NodeAssert.match(compactError.message, /attached.*owned by another process/);
+        NodeAssert.equal(
+          pipe.commands.some(
+            (cmd) =>
+              cmd.type === "abort" ||
+              cmd.type === "branch" ||
+              cmd.type === "compact" ||
+              cmd.type.startsWith("set_"),
+          ),
+          false,
+        );
+        yield* adapter.stopAll();
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
 );
 it.live("uses shared files only with both lease and fresh-session capabilities", () =>
   Effect.scoped(
