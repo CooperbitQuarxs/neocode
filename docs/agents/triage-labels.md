@@ -19,7 +19,7 @@ Labels describe separate facts. Keep type, source/relationship, estimates, speci
 
 `experiment` was newly created here; NeoCode had no prior `experimental idea` label to rename.
 
-Deselected non-operational labels are not for new triage assignments: `rpc`, `t3c-npi`, `npi-deck`, `neopi-upstream`, `codex-review`, `sentinel-review-requested`, and the effort/size/vouch/wayfinder families. Preserve existing associations until reviewed cutover; do not bulk-remove them. Current required PR/readiness operational names remain in force until their replacements are decided.
+Deselected non-operational labels are not for new triage assignments: `question`, `good first issue`, `help wanted`, `rpc`, `t3c-npi`, `npi-deck`, `neopi-upstream`, `codex-review`, `sentinel-review-requested`, and the effort/size/vouch/wayfinder families. Preserve existing associations until reviewed cutover; do not bulk-remove them. Current required PR/readiness operational names remain in force until their replacements are decided.
 
 ### Estimates
 

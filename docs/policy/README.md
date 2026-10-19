@@ -64,7 +64,7 @@ after it lands is a manual `nightly` into `main` merge by the owner.
 
 The settled interim meanings and at-least-daily proposal/review/apply procedure are in [triage-labels.md](../agents/triage-labels.md). This is not the completed global policy or setup-skill migration; existing issue assignments have not been bulk-reconciled.
 
-- Composable type/context: `accessibility`, `bug`, `documentation`, `enhancement`, `idea`, `experiment`, `spec`, plus fitting existing repository labels such as `question`.
+- Composable type/context: `accessibility`, `bug`, `documentation`, `enhancement`, `idea`, `experiment`, `spec`. Existing `question` associations are retained pending reviewed cutover, not recommended for new assignments.
 - Priority: `priority: p0` … `priority: p3`. Difficulty: the eight `difficulty: 0.000-0.125` … `difficulty: 0.875-1.000` intervals. Frame: `frame: hours`, `frame: days`, `frame: weeks`, `frame: months`, `frame: years`. Historical `effort: tiny` … `effort: very large` associations are retained pending individual review, not assigned to new triage or automatically converted.
 - Issue triage: `needs-triage`, `needs-info`, `wontfix`; `ready-for-agent` and `ready-for-human` remain legacy markers pending evidence-based reconciliation. No replacement actor/reviewer names are selected.
 - PR state remains `needs-review`, `ready-for-merge`, `review-stalled`. Accepted target `mergeable` means the existing repository gates are met, not permission to merge `main`. It is not deployed; keep `ready-for-merge` until parent policy and literal consumers migrate together. Review gates are unchanged.

@@ -30,7 +30,7 @@ Each published issue carries a fitting type, a `priority: p0`–`priority: p3` a
 
 A merged PR is implementation evidence, not proof that the entire issue is complete. Verify every acceptance criterion and any explicit promotion condition against the implementation and actual PR merge state. A closed, unmerged PR is not a merged implementation.
 
-GitHub automatic closure normally waits for a default-branch merge. A `nightly` merge can therefore leave a completed issue open: an authorized integration owner may close it manually after verifying the full scope and recording the merge and acceptance proof. If the issue explicitly requires promotion to `main`, wait for that promotion. Do not automatically label a `nightly` merge `ready-for-human`, close an umbrella for a partial PR, or reopen a correctly completed issue merely because a new follow-up exists.
+GitHub automatic closure normally waits for a default-branch merge, so a `nightly` merge can leave implemented work open. **NeoCode's existing repository-wide condition remains: issues stay open until the fix is promoted to `main`, even if the issue body does not repeat that condition.** An authorized integration owner may close manually only after that promotion and complete acceptance verification, recording the merge, promotion and proof. Do not automatically label a `nightly` merge `ready-for-human`, close an umbrella for a partial PR, or reopen a correctly completed issue merely because a new follow-up exists.
 
 For stale or duplicate candidates, follow the evidence and proposal/review/apply procedure in [triage-labels.md](triage-labels.md#reconciliation).
 
