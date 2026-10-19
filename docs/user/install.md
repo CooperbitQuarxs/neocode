@@ -137,23 +137,40 @@ and fast mode are selected in the composer when the CLI advertises them. With a
 current `npi`, NeoPi threads use the CLI's normal session folders, so they also
 appear in `npi --resume`; older CLIs keep them isolated under T3's home directory.
 
-To continue a terminal session in T3 Code, use **Resume NeoPi session** (beside
+To continue a terminal session in NeoCode, use **Resume NeoPi session** (beside
 **New thread** in the sidebar, or in the command palette). It lists the
 project's NeoPi sessions, or every project's, across all enabled NeoPi instances
 that support discovery. Shared session files appear once, preferring your default
-instance, and resume with the instance that listed them. The list shows which
-sessions are open in a terminal. Resuming one creates a thread with its recent
-transcript. If the session is still open in a terminal, T3 Code attaches to that terminal's
-process instead of opening the session a second time: messages you send from
-T3 Code run there, while turns started in the terminal are not mirrored into
-the thread. While attached, use the terminal to change modes, model settings,
-or compact history; NeoCode cannot change those owner-controlled settings.
+instance for new imports. Bound sessions retain their saved provider instance.
+GUI-created worktree sessions appear in their owning project under the saved
+NeoCode thread title, even if the native file has no title or message preview.
+The list shows which sessions are open in a terminal. The picker waits for
+imported history before opening the thread. Reopening an already-bound, stopped
+thread restores new terminal turns into that same thread without duplicating
+earlier messages. An active NeoCode thread opens without replacing its history.
+
+If the session is still open in a terminal, NeoCode attaches to that terminal's
+process instead of opening a second writer: messages you send from NeoCode run
+there. Turns started directly in the terminal are not mirrored live; close the
+terminal session and reopen its bound row to restore them. While attached, use
+the terminal to change modes, model settings, or compact history; NeoCode cannot
+change those owner-controlled settings.
+
 To go the other way, use **Continue in terminal** in a NeoPi thread's header:
-T3 Code stops its NeoPi process and copies the command that reopens the
-session in `npi`. If the terminal still owns the session, NeoCode only detaches
-and explains which process keeps it open instead of offering a resume command.
-Session discovery and attaching need an `npi` that advertises `session_catalog`
-and `control_pipe`.
+NeoCode stops its NeoPi process and copies the command that reopens the same
+native session in `npi`. If the terminal still owns the session, NeoCode only
+detaches and explains which process keeps it open instead of offering a resume
+command. After terminal continuation, close that session and use **Resume NeoPi
+session** again to return to the same NeoCode thread with its new turns.
+
+Discovery and attachment need `session_catalog` and `control_pipe`; restoration
+and handoff also require `session_history_identity`. Update NeoPi if the app
+reports a missing capability. Older bindings without a saved history boundary
+can be restored only when their completed GUI turn and clean native shutdown
+prove an exact boundary. Diverged branches or ambiguous older histories are
+refused without replacing the thread; the error includes the native session path
+for continuing safely in NeoPi. Pre-v2 native journals must first be continued
+in NeoPi to persist durable entry identities.
 
 Other provider CLIs must be on the server's `PATH`. If T3 Code cannot find one, set its
 **Binary path** in provider settings, especially when using a version manager.

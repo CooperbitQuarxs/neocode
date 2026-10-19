@@ -1,11 +1,11 @@
 # Domain docs
 
-Single-context layout: one root `CONTEXT.md` plus root `docs/adr/`.
+Single-context layout: one root `CONTEXT.md` plus `docs/agents/adr/`.
 
 ## Before exploring
 
 - Read root `CONTEXT.md` when it exists.
-- Read `docs/adr/` entries that touch the area you are about to work in.
+- Read `docs/agents/adr/` entries that touch the area you are about to work in.
 - Upstream's own vocabulary lives in `docs/internals/glossary.md` and its decisions in `docs/internals/`. `CONTEXT.md` extends that glossary for fork-specific terms (NeoPi provider, RPC mode); it must not redefine upstream terms.
 
 If any of these files don't exist, proceed silently. `/domain-modeling` (via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.

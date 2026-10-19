@@ -15,9 +15,11 @@ Feature requests and proposals for T3 Code itself belong in [Ideas discussions](
 
 If that sounds annoying, that is because it is. This project is still early and we are trying to keep scope, quality, and direction under control.
 
-PRs are automatically labeled with a `vouch:*` trust status and a `size:*` diff size based on changed lines.
-
-If you are an external contributor, expect `vouch:unvouched` until we explicitly add you to [.github/VOUCHED.td](.github/VOUCHED.td).
+PR author trust is checked against repository permissions and
+[.github/VOUCHED.td](.github/VOUCHED.td). The vouch check remains a gate for
+desktop macOS previews; external contributors need explicit trust before
+those previews publish. Review and merge policy lives in
+[docs/agents/policy.md](docs/agents/policy.md).
 
 ## What We Are Most Likely To Accept
 
