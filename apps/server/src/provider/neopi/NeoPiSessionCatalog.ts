@@ -265,9 +265,9 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
       const decoded = yield* decodeListOutput(output);
       for (const row of decoded.sessions) unique.set(NodePath.resolve(row.path), row);
     }
-    const rows = Array.from(unique.values())
-      .filter((row) => input.scope === "all" || sameCwd(row.cwd, project.workspaceRoot))
-      .sort((left, right) => right.modified.localeCompare(left.modified));
+    const rows = Array.from(unique.values()).sort((left, right) =>
+      right.modified.localeCompare(left.modified),
+    );
     return { project, shell, bindings, rows };
   });
 
@@ -299,19 +299,26 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
               NodePath.resolve(cursor.value.sessionFile) === NodePath.resolve(row.path)
             );
           });
+          const boundThread = binding
+            ? shell.threads.find((entry) => entry.id === binding.threadId)
+            : undefined;
+          const projectId =
+            boundThread?.projectId ??
+            shell.projects.find((entry) => sameCwd(entry.workspaceRoot, row.cwd))?.id ??
+            null;
+          if (input.scope !== "all" && projectId !== input.projectId) continue;
           unique.set(path, {
             providerInstanceId: provider.instance.instanceId,
             sessionId: row.id,
             sessionFile: row.path,
             cwd: row.cwd,
-            title: row.title,
+            title: boundThread?.title ?? row.title,
             firstMessage: row.firstMessage,
             createdAt: row.created,
             modifiedAt: row.modified,
             messageCount: row.messageCount,
             threadId: binding?.threadId ?? null,
-            projectId:
-              shell.projects.find((entry) => sameCwd(entry.workspaceRoot, row.cwd))?.id ?? null,
+            projectId,
             owner: row.inUse
               ? binding && binding.status !== "stopped"
                 ? { kind: "neocode", threadId: binding.threadId }

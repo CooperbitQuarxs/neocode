@@ -229,7 +229,13 @@ const harness = (options?: {
               Effect.succeed({
                 snapshotSequence: 0,
                 projects: [project],
-                threads: [],
+                threads: Array.from(threads.values(), (thread) => ({
+                  ...thread,
+                  latestUserMessageAt: null,
+                  hasPendingApprovals: false,
+                  hasPendingUserInput: false,
+                  hasActionableProposedPlan: false,
+                })),
                 updatedAt: now,
               }),
             getThreadDetailById: (id) => Effect.sync(() => Option.fromUndefinedOr(threads.get(id))),
@@ -381,6 +387,34 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
           { kind: "process", pid: 1, attachable: false },
         ]);
         expect(calls[0]?.args).toEqual(["sessions", "list", "--json", "--cwd", cwd]);
+      }),
+    );
+    it.effect("finds a bound worktree by its GUI title and owning project", () =>
+      Effect.gen(function* () {
+        const worktreePath = `${cwd}-worktree`;
+        const binding = bound("gui");
+        const title = "Mercury Acceptance Check";
+        const { catalog } = yield* harness({
+          rows: [
+            session("gui", { cwd: worktreePath, title: null, firstMessage: "" }),
+            session("foreign", { cwd: "/elsewhere" }),
+          ],
+          bindings: [binding],
+          threads: [projectedThread(binding.threadId, { worktreePath, title })],
+        });
+        for (const scope of ["project", "all"] as const) {
+          const result = yield* catalog.list({ projectId, scope });
+          if (result.status !== "available") throw new Error(result.reason);
+          expect(result.sessions.find((row) => row.sessionId === "gui")).toMatchObject({
+            threadId: binding.threadId,
+            projectId,
+            title,
+            cwd: worktreePath,
+          });
+          expect(result.sessions.map((row) => row.sessionId).sort()).toEqual(
+            scope === "all" ? ["foreign", "gui"] : ["gui"],
+          );
+        }
       }),
     );
     it.effect("merges capable instances and keeps the default origin for duplicate paths", () =>

@@ -141,11 +141,13 @@ To continue a terminal session in NeoCode, use **Resume NeoPi session** (beside
 **New thread** in the sidebar, or in the command palette). It lists the
 project's NeoPi sessions, or every project's, across all enabled NeoPi instances
 that support discovery. Shared session files appear once, preferring your default
-instance, and resume with the instance that listed them. The list shows which
-sessions are open in a terminal. The picker waits for imported history before
-opening the thread. Reopening an already-bound, stopped thread restores new
-terminal turns into that same thread without duplicating earlier messages.
-An active NeoCode thread is opened without replacing its history.
+instance for new imports. Bound sessions retain their saved provider instance.
+GUI-created worktree sessions appear in their owning project under the saved
+NeoCode thread title, even if the native file has no title or message preview.
+The list shows which sessions are open in a terminal. The picker waits for
+imported history before opening the thread. Reopening an already-bound, stopped
+thread restores new terminal turns into that same thread without duplicating
+earlier messages. An active NeoCode thread opens without replacing its history.
 
 If the session is still open in a terminal, NeoCode attaches to that terminal's
 process instead of opening a second writer: messages you send from NeoCode run
