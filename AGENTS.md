@@ -4,19 +4,19 @@
 - Read `docs/agents/policy.md` before branch, commit, PR or merge work; `docs/agents/` holds agent policy and mechanics.
 - Read `README.md` for project context and user entry points, not additional instructions.
 
-# T3 Code
+# NeoCode
 
-T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web, desktop, and mobile clients.
+NeoCode is NeoPi's full graphical frontend, built from upstream T3 Code (`pingdotgg/t3code`). NeoPi is the primary harness, not an optional integration added to upstream's product. Other harnesses remain supported.
 
-You can think of T3 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.
+Keep NeoPi authoritative for session state and harness configuration. Extend its shared RPC/control capabilities rather than duplicating harness logic in the GUI. Preserve upstream copyright and attribution, existing data directories, protocol identifiers and saved user choices.
 
-## What makes T3 Code special?
+## Product constraints
 
-We have over 200,000 users who love T3 Code. It's important we maintain the things they love as we continue to iterate on the product. Here's a brief list of the things we can never compromise on.
+Preserve the useful upstream architecture and quality constraints below while building NeoCode as a distinct product.
 
 ### 1. Open at the core
 
-T3 Code is truly open. We share our roadmap, we share how we think about things, and of course we share all our code. A large number of our users run forks. We work in the open, and should strive to stay that way.
+NeoCode is open source. Work in the open, retain upstream attribution, and keep the fork's direction distinct from upstream's product claims.
 
 ### 2. Performance without compromise
 
@@ -50,11 +50,11 @@ Of note: Most T3 Code contributions will come from T3 Code itself, often control
 
 We need to be on the same page with terminology. When communicating, use this language:
 
-- **you** means the agent reading this file and changing T3 Code.
-- **we, us, and maintainers** mean Theo, Julius and the people building T3 Code. These are who you are talking to now.
-- **user** means the person using T3 Code to direct coding agents.
-- **agent** means the coding agent a user runs inside T3 Code. Depending on context, that may also include you.
-- **provider** means the agent runtime or harness T3 Code talks to, such as Codex, Claude, Cursor, or OpenCode.
+- **you** means the agent reading this file and changing NeoCode.
+- **we, us, and maintainers** mean PsychedelicShayna and the contributors building NeoCode; upstream authors maintain T3 Code.
+- **user** means the person using NeoCode to direct coding agents.
+- **agent** means the coding agent a user runs inside NeoCode. Depending on context, that may also include you.
+- **provider** means the agent runtime or harness NeoCode talks to: primarily NeoPi, with other harnesses available.
 - **client** means the web, desktop, or mobile UI.
 - **environment** means one running T3 server and the machine, filesystem, provider credentials, and state it owns.
 - **project** means an environment-local workspace record rooted at a directory.
@@ -191,13 +191,13 @@ Full glossary with file links: `docs/internals/glossary.md`
 - Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
 
-## Fork rule: additive only, upstream-compatible
+## Fork rule: NeoPi-first, upstream-aware
 
-This repository is upstream T3 Code (`pingdotgg/t3code`) plus a NeoPi/OMP provider. It must stay T3 Code: every upstream merge should be routine, and nothing here may take control of how T3 Code works for other providers or users. This is a hard rule and outranks convenience.
+NeoCode is a distinct product built from upstream T3 Code (`pingdotgg/t3code`), with NeoPi as its primary, enabled-by-default harness. Preserve upstream attribution and useful compatibility without treating upstream's product identity or defaults as the fork's mandate. Keep existing storage paths, protocol identifiers and explicit saved settings compatible.
 
-- New behavior lives in NeoPi-owned files (`apps/server/src/provider/neopi/`, `apps/server/src/provider/{Layers,Drivers,Services}/NeoPi*`, `packages/effect-neopi-rpc/`, `*neopi*` web files). Upstream files get registration lines only (driver lists, exhaustive provider maps, settings slots).
-- When NeoPi genuinely needs an upstream seam, the change must be provider-neutral (usable by any provider), minimal, default-off for existing providers, and covered by a test. Never branch on `neopi` inside shared code, never change an existing provider's behavior, and never reformat or reorder upstream code.
-- Missing capabilities belong in NeoPi's RPC (`PsychedelicShayna/neopi`), not in T3 workarounds. File them there with `downstream` and other labels supported by its tracker policy.
+- Keep provider mechanics in their existing owned files (`apps/server/src/provider/neopi/`, `apps/server/src/provider/{Layers,Drivers,Services}/NeoPi*`, `packages/effect-neopi-rpc/`, and `*neopi*` client files) when those express the complete behavior.
+- Shared product defaults, provider ordering and branding may directly express NeoCode's NeoPi-first identity. Reuse existing seams, preserve other harness support and explicit saved choices, and avoid unrelated refactors or generic machinery invented only to hide product policy.
+- Missing harness capabilities belong in NeoPi's RPC (`PsychedelicShayna/neopi`), not GUI workarounds. File them there with `downstream` and other labels supported by its tracker policy.
 - Every upstream file the fork touches is listed below with the reason. Adding one means adding a line. Fewer is better; remove lines when a seam can move back into NeoPi-owned code.
 
 | Upstream file                                                                                                                                                                                                                                                   | Why the fork touches it                                                                                                                                                                                                    |
@@ -209,7 +209,7 @@ This repository is upstream T3 Code (`pingdotgg/t3code`) plus a NeoPi/OMP provid
 | `apps/web/src/components/usage/UsageProviderChart.test.ts`                                                                                                                                                                                                      | Provider-neutral absolute-cost regression without pinning optional zero-cost provider bands                                                                                                                                |
 | `apps/server/src/provider/Services/ProviderAdapter.ts`, `Layers/ClaudeAdapter.ts`                                                                                                                                                                               | Optional terminal cursor policy; Claude retains its existing refresh behavior                                                                                                                                              |
 | `apps/web/src/components/chat/ChatComposer.tsx`                                                                                                                                                                                                                 | Optional provider-owned composer projection, editor action, command label, and skill insertion hooks                                                                                                                       |
-| `packages/contracts/src/{settings,model,providerRuntime,server,usage}.ts`                                                                                                                                                                                       | Provider settings slot, display names, raw event source, optional slash-command `source`, usage provider                                                                                                                   |
+| `packages/contracts/src/{settings,model,providerRuntime,server,usage}.ts`, `settings.test.ts` | Provider contracts and NeoPi's enabled-by-default configuration, with explicit opt-out and optional-provider boundaries preserved |
 | `apps/server/src/orchestration/ActivityPayloadProjection.ts`, `ActivityPayloadProjection.test.ts`                                                                                                                                                               | Provider-neutral opt-in bounded command output for expanded activity rows; preserve complete Unicode code points at the truncation boundary                                                                                |
 | `packages/client-runtime/src/work-log/presentation.ts`, `presentation.test.ts`                                                                                                                                                                                  | Provider-neutral opt-in expanded command output precedence shared by web, desktop, and mobile, with fallback regression coverage                                                                                           |
 | `apps/web/src/session-logic.command-output.test.ts`                                                                                                                                                                                                             | Regression for expanded command output through the web work-log consumer                                                                                                                                                   |
@@ -239,7 +239,11 @@ This repository is upstream T3 Code (`pingdotgg/t3code`) plus a NeoPi/OMP provid
 | `apps/web/src/components/{CommandPalette,sidebar/SidebarThreadHeader,chat/ChatHeader}.tsx`                                                                                                                                                                      | Mount the NeoPi-owned session picker entry, palette action and picker host, and the terminal handoff control                                                                                                               |
 | `packages/contracts/src/orchestration.ts`, `orchestration.test.ts`, `apps/server/src/orchestration/decider.ts`, `decider.import.test.ts`                                                                                                                        | Provider-neutral stopped-thread history append with stable-ID deduplication and history-import metadata; existing empty-thread import remains unchanged                                                                    |
 | `apps/server/src/provider/Services/ProviderSessionDirectory.ts`, `Layers/ProviderSessionDirectory.test.ts`, `apps/server/src/persistence/ProviderSessionRuntime.ts`                                                                                             | Provider-neutral stopped-only cursor updates that cannot insert or overwrite a concurrently running provider binding                                                                                                       |
-| Registration lists (`builtInDrivers.ts`, `serverSettings.ts`, `Icons.tsx`, `providerIconUtils.ts`, `providerDriverMeta.ts`, `usageProviders.ts`, mobile `ProviderIcon.tsx`, `model-manifest.json`, `UsageService.ts`, `knip.jsonc`, `apps/server/package.json`) | Add `neopi` entries                                                                                                                                                                                                        |
+| Registration lists (`builtInDrivers.ts`, `serverSettings.ts`, `Icons.tsx`, `providerIconUtils.ts`, `providerDriverMeta.ts`, `usageProviders.ts`, mobile `ProviderIcon.tsx`, `model-manifest.json`, `UsageService.ts`, `knip.jsonc`, `apps/server/package.json`) | Register NeoPi and put its built-in driver/settings choices first |
+| `apps/web/src/{providerInstances,providerModels,modelSelection}.ts` and their tests, `components/ChatView.logic.ts` and its test, `components/settings/AddProviderInstanceDialog.tsx` | Prefer usable NeoPi for fresh choices, preserve explicit selections and keep healthy fallback/model-instance routing coherent |
+| `apps/mobile/src/lib/modelOptions.ts` and its test, `features/threads/new-task-flow-provider.tsx` | NeoPi-first mobile groups and ready implicit defaults without replacing draft, project or sticky choices |
+| `apps/web/src/branding.ts` and its test, `apps/desktop/src/app/DesktopEnvironment.ts`, `DesktopAppIdentity.test.ts`, `DesktopPreReadyPlatform.test.ts` | NeoCode display branding while preserving storage, desktop-entry and protocol identities; remove literal-brand test pins |
+| `README.md`, `docs/user/install.md` | Identify NeoCode and upstream attribution, distinguish fork releases from upstream installers, and explain provider defaults |
 
 ## Agent skills
 

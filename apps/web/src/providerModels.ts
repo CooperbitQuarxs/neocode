@@ -9,11 +9,15 @@ import {
   type ServerProviderModel,
 } from "@t3tools/contracts";
 import { createModelCapabilities, resolveSelectableModel } from "@t3tools/shared/model";
+import {
+  deriveProviderInstanceEntries,
+  resolveSelectableProviderInstanceEntry,
+} from "./providerInstances";
 
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
 });
-const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
+const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("neopi");
 
 export function formatProviderDriverKindLabel(provider: ProviderDriverKind): string {
   return provider
@@ -38,18 +42,18 @@ function getProviderSnapshot(
   return providers.find((candidate) => candidate.instanceId === defaultInstanceId);
 }
 
-// Resolve an instance selection to the correlated live driver. If the
-// instance is absent, fall back to a live enabled provider instead of
-// inferring a driver from the missing instance id.
+// Resolve an instance selection to the correlated live driver, sharing the
+// readiness-aware NeoPi fallback used by instance-scoped selections.
 export function resolveSelectableProvider(
   providers: ReadonlyArray<ServerProvider>,
   provider: ProviderDriverKind | ProviderInstanceId | null | undefined,
 ): ProviderDriverKind {
-  const requestedEntry = providers.find((candidate) => candidate.instanceId === provider);
-  if (requestedEntry?.enabled) {
-    return requestedEntry.driver;
-  }
-  return providers.find((candidate) => candidate.enabled)?.driver ?? DEFAULT_DRIVER_KIND;
+  return (
+    resolveSelectableProviderInstanceEntry(
+      deriveProviderInstanceEntries(providers),
+      provider == null ? undefined : (provider as ProviderInstanceId),
+    )?.driverKind ?? DEFAULT_DRIVER_KIND
+  );
 }
 
 export function getProviderModelCapabilities(

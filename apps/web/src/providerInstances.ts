@@ -17,7 +17,7 @@ import {
   defaultInstanceIdForDriver,
   resolveProviderInstanceEnabled,
   type ModelSelection,
-  type ProviderDriverKind,
+  ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
   type ServerProviderModel,
@@ -179,20 +179,17 @@ export function applyProviderInstanceSettings(
 }
 
 /**
- * Sort instance entries so the default instance of each driver kind appears
- * before any custom instances of the same kind. Within a kind, custom
- * instances keep their settings-author order (which is how the server
- * emits them). Stable across kinds: entries retain the server's
- * cross-driver ordering.
+ * Sort NeoPi instances first, with the default instance of each driver kind
+ * before its custom instances. Custom instances keep their settings-author
+ * order; every other driver group keeps its first-appearance order.
  */
 export function sortProviderInstanceEntries(
   entries: ReadonlyArray<ProviderInstanceEntry>,
 ): ReadonlyArray<ProviderInstanceEntry> {
-  // Group by driver kind preserving first-appearance order, then emit
-  // default-first within each kind. Using a Map keeps the "first-seen"
-  // semantics for kinds whose default instance is absent (unusual but
-  // possible during the migration).
-  const byKind = new Map<ProviderDriverKind, ProviderInstanceEntry[]>();
+  // Seed NeoPi's group first without changing any other driver's order.
+  const byKind = new Map<ProviderDriverKind, ProviderInstanceEntry[]>([
+    [ProviderDriverKind.make("neopi"), []],
+  ]);
   for (const entry of entries) {
     const bucket = byKind.get(entry.driverKind);
     if (bucket) {
@@ -248,9 +245,9 @@ const isSelectableProviderInstanceEntry = (entry: ProviderInstanceEntry): boolea
 /**
  * Resolve an exact stored instance when it remains enabled and available.
  * Otherwise choose a deterministic fallback that can plausibly start now:
- * ready first, then a non-error probe result. An errored provider is retained
- * only when it was explicitly requested; it is never invented as a new-user
- * default.
+ * ready NeoPi first, then another ready instance, then a non-error probe result.
+ * An errored provider is retained only when it was explicitly requested;
+ * it is never invented as a new-user default.
  */
 export function resolveSelectableProviderInstanceEntry(
   entries: ReadonlyArray<ProviderInstanceEntry>,
@@ -262,10 +259,21 @@ export function resolveSelectableProviderInstanceEntry(
       return requested;
     }
   }
-  return (
-    entries.find(isProviderInstancePickerReady) ??
-    entries.find((entry) => isSelectableProviderInstanceEntry(entry) && entry.status !== "error")
-  );
+  const orderedEntries = sortProviderInstanceEntries(entries);
+  let fallback: ProviderInstanceEntry | undefined;
+  for (const entry of orderedEntries) {
+    if (
+      !isSelectableProviderInstanceEntry(entry) ||
+      entry.status === "error" ||
+      // NeoPi has no built-in model fallback for an empty discovered catalog.
+      (entry.driverKind === "neopi" && entry.models.length === 0)
+    ) {
+      continue;
+    }
+    if (entry.status === "ready") return entry;
+    fallback ??= entry;
+  }
+  return fallback;
 }
 
 /**

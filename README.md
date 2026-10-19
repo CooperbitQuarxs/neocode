@@ -1,16 +1,16 @@
-# T3 Code
+# NeoCode
 
-T3 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
+NeoCode is NeoPi's graphical frontend, built from upstream [T3 Code](https://github.com/pingdotgg/t3code). NeoPi is the primary harness, enabled by default and listed first; explicit saved provider and model choices remain authoritative.
 
-Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, and Google Antigravity. If they're set up on your computer, T3 Code can control them.
+Other harnesses remain available, including Claude Code, Codex, Cursor, Grok Build, OpenCode and Antigravity. NeoCode keeps upstream attribution and compatibility without adopting T3 Code's product identity.
 
-## "Wait, what are you selling me?"
+## Upstream
 
-Nothing. We built T3 Code because we wanted the best possible development experience with agents. We were inspired by existing solutions like the Codex desktop app, Conductor, Claude Desktop and Cursor Glass, but none met our bar.
-
-We wanted something performant, remote-ready, and truly open. If we ever go the wrong direction, we want you to have everything you need to fork and build the editor that you want.
+T3 Code provides the foundation for the web, desktop and mobile clients. Its authors retain their copyright and attribution; NeoCode develops as a distinct open-source project centered on NeoPi.
 
 ## Installation
+
+Use [NeoCode releases](https://github.com/PsychedelicShayna/neocode/releases) for this fork, or follow the [source development guide](docs/operations/development.md). The installation commands below are for upstream T3 Code, not NeoCode.
 
 > [!WARNING]
 > T3 Code currently supports Codex, Claude, Cursor, Grok Build, OpenCode, and Antigravity. Install and authenticate at least one provider before use:

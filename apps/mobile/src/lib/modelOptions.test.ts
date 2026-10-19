@@ -373,12 +373,182 @@ describe("mobile model options", () => {
     expect(resolveDefaultableModelSelection(null, legacy)).toBe(legacy);
   });
 
-  it("resolves new tasks from draft, project, sticky, then provider defaults", () => {
+  describe("NeoPi-first new tasks", () => {
+    const config = {
+      providers: [
+        {
+          instanceId: "codex",
+          driver: "codex",
+          status: "ready",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          models: [{ slug: "codex-default", name: "Codex Default", isDefault: true }],
+        },
+        {
+          instanceId: "claudeAgent",
+          driver: "claudeAgent",
+          status: "ready",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          models: [{ slug: "claude-default", name: "Claude Default", isDefault: true }],
+        },
+        {
+          instanceId: "neopi_work",
+          driver: "neopi",
+          status: "ready",
+          displayName: "NeoPi/OMP",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          availability: "available",
+          models: [
+            { slug: "neopi-other", name: "NeoPi Other" },
+            { slug: "neopi-default", name: "NeoPi Default", isDefault: true },
+          ],
+        },
+      ],
+    } as unknown as ServerConfig;
+    const neopiSelection = {
+      instanceId: ProviderInstanceId.make("neopi_work"),
+      model: "neopi-default",
+    };
+    const resolveImplicit = (serverConfig: ServerConfig, fallback: ModelSelection | null = null) =>
+      resolveNewTaskModelSelection({
+        draftSelection: null,
+        projectDefaultSelection: null,
+        stickySelection: null,
+        modelOptions: buildModelOptions(serverConfig, fallback),
+      });
+
+    it("shows NeoPi first while retaining the other groups and their model routing", () => {
+      expect(groupByProvider(buildModelOptions(config, null))).toMatchObject([
+        {
+          providerKey: "neopi_work",
+          models: [
+            { selection: { instanceId: "neopi_work", model: "neopi-other" } },
+            { selection: neopiSelection },
+          ],
+        },
+        { providerKey: "codex" },
+        { providerKey: "claudeAgent" },
+      ]);
+    });
+
+    it("prefers the ready NeoPi default over other providers' defaults", () => {
+      expect(resolveImplicit(config)).toEqual(neopiSelection);
+    });
+
+    it("prefers a ready NeoPi model even when only another provider declares a default", () => {
+      const noNeopiDefault = {
+        ...config,
+        providers: config.providers.map((provider) =>
+          provider.driver === "neopi"
+            ? {
+                ...provider,
+                models: provider.models.map((model) => ({ ...model, isDefault: false })),
+              }
+            : provider,
+        ),
+      };
+      expect(resolveImplicit(noNeopiDefault)).toEqual({
+        instanceId: "neopi_work",
+        model: "neopi-other",
+      });
+    });
+
+    it("uses a ready alternative before NeoPi with a warning, without replacing explicit choices", () => {
+      const warningConfig = {
+        ...config,
+        providers: config.providers.map((provider) =>
+          provider.driver === "neopi" ? { ...provider, status: "warning" as const } : provider,
+        ),
+      };
+      expect(resolveImplicit(warningConfig)).toEqual({
+        instanceId: "codex",
+        model: "codex-default",
+      });
+
+      const options = buildModelOptions(warningConfig, neopiSelection);
+      expect(
+        resolveNewTaskModelSelection({
+          draftSelection: null,
+          projectDefaultSelection: neopiSelection,
+          stickySelection: null,
+          modelOptions: options,
+        }),
+      ).toBe(neopiSelection);
+      expect(
+        resolveImplicit({
+          ...warningConfig,
+          providers: warningConfig.providers.map((provider) => ({
+            ...provider,
+            status: "warning" as const,
+          })),
+        }),
+      ).toEqual(neopiSelection);
+    });
+
+    it.each([
+      ["disabled", { enabled: false }],
+      ["uninstalled", { installed: false }],
+      ["signed out", { auth: { status: "unauthenticated" } }],
+      ["unavailable", { availability: "unavailable" }],
+      ["without models", { models: [] }],
+      ["broken", { status: "error" }],
+      ["disabled state", { status: "disabled" }],
+    ] as const)("keeps healthy alternatives when NeoPi is %s", (_state, update) => {
+      const unavailableConfig = {
+        ...config,
+        providers: config.providers.map((provider) =>
+          provider.driver === "neopi" ? { ...provider, ...update } : provider,
+        ),
+      };
+
+      expect(resolveImplicit(unavailableConfig)).toEqual({
+        instanceId: "codex",
+        model: "codex-default",
+      });
+      // A retained selection may still be shown, but must not become an implicit default.
+      expect(resolveImplicit(unavailableConfig, neopiSelection)).toEqual({
+        instanceId: "codex",
+        model: "codex-default",
+      });
+      expect(
+        buildModelOptions(unavailableConfig, neopiSelection).find(
+          (option) => option.selection.instanceId === neopiSelection.instanceId,
+        )?.isUnavailable,
+      ).toBe(true);
+    });
+
+    it("uses a healthy alternative when NeoPi status is missing", () => {
+      const missingConfig = {
+        ...config,
+        providers: config.providers.filter((provider) => provider.driver !== "neopi"),
+        settings: {
+          providerInstances: { neopi_work: { driver: "neopi" } },
+        },
+      } as unknown as ServerConfig;
+
+      expect(resolveImplicit(missingConfig, neopiSelection)).toEqual({
+        instanceId: "codex",
+        model: "codex-default",
+      });
+    });
+  });
+
+  it("keeps draft, project, and sticky choices ahead of ready NeoPi", () => {
     const draft = { instanceId: ProviderInstanceId.make("codex"), model: "draft" };
     const project = { instanceId: ProviderInstanceId.make("codex"), model: "project" };
     const sticky = { instanceId: ProviderInstanceId.make("codex"), model: "sticky" };
     const providerDefault = {
       selection: { instanceId: ProviderInstanceId.make("codex"), model: "default" },
+      isDefault: true,
+    } as ModelOption;
+    const neopiDefault = {
+      providerDriver: "neopi",
+      selection: { instanceId: ProviderInstanceId.make("neopi_work"), model: "neopi-default" },
       isDefault: true,
     } as ModelOption;
     const resolve = (
@@ -390,13 +560,13 @@ describe("mobile model options", () => {
         draftSelection,
         projectDefaultSelection,
         stickySelection,
-        modelOptions: [providerDefault],
+        modelOptions: [providerDefault, neopiDefault],
       });
 
     expect(resolve(draft, project, sticky)).toBe(draft);
     expect(resolve(null, project, sticky)).toBe(project);
     expect(resolve(null, null, sticky)).toBe(sticky);
-    expect(resolve(null, null, null)).toBe(providerDefault.selection);
+    expect(resolve(null, null, null)).toBe(neopiDefault.selection);
 
     const unavailable = { ...providerDefault, isUnavailable: true };
     expect(

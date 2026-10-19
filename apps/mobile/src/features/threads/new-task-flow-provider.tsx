@@ -506,7 +506,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   );
 
   // An unsent draft keeps its explicit pick. Fresh drafts resolve the project
-  // default before the last manual app-wide selection and provider default.
+  // default, then the last manual app-wide selection, then ready NeoPi.
   const selectedModel = resolveNewTaskModelSelection({
     draftSelection: draftModelSelection,
     projectDefaultSelection: projectDefaultModelSelection,
