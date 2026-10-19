@@ -6,6 +6,7 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
+  defaultInstanceIdForDriver,
   IsoDateTime,
   MessageId,
   NeoPiSessionError,
@@ -401,14 +402,22 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
     function* (
       input: NeoPiSessionResumeInput,
     ): Effect.fn.Return<NeoPiSessionResumeResult, unknown> {
-      const provider = (yield* resolveProviders()).find(
-        (entry) => entry.instance.instanceId === input.providerInstanceId,
-      );
-      if (!provider)
-        return yield* new NeoPiSessionError({ operation: "resume", message: missingCapability });
       const project = yield* readProject(input.projectId);
       const bindings = yield* directory.listBindings();
       const sessionFile = NodePath.resolve(input.sessionFile);
+      const existing = bindings.find((entry) => {
+        const cursor =
+          entry.provider === "neopi" ? decodeCursor(entry.resumeCursor) : Option.none();
+        return Option.isSome(cursor) && NodePath.resolve(cursor.value.sessionFile) === sessionFile;
+      });
+      const providerInstanceId = existing
+        ? (existing.providerInstanceId ?? defaultInstanceIdForDriver(existing.provider))
+        : input.providerInstanceId;
+      const provider = (yield* resolveProviders()).find(
+        (entry) => entry.instance.instanceId === providerInstanceId,
+      );
+      if (!provider)
+        return yield* new NeoPiSessionError({ operation: "resume", message: missingCapability });
       // Validate against NeoPi's own listing of that one directory: cheaper than
       // re-listing every project, and still refuses files NeoPi does not recognize.
       const listed = yield* decodeListOutput(
@@ -424,11 +433,6 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
           operation: "resume",
           message: "This file is not a listed NeoPi session. Refresh session discovery.",
         });
-      const existing = bindings.find((entry) => {
-        const cursor =
-          entry.provider === "neopi" ? decodeCursor(entry.resumeCursor) : Option.none();
-        return Option.isSome(cursor) && NodePath.resolve(cursor.value.sessionFile) === sessionFile;
-      });
       const threadId =
         existing?.threadId ?? ThreadId.make(`import:${provider.instance.instanceId}:${row.id}`);
       const thread = yield* snapshots.getThreadDetailById(threadId);

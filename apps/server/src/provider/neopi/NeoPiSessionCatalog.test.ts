@@ -752,6 +752,68 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
       }
     }),
   );
+  it.effect(
+    "restores through the bound instance when preferred discovery lacks history identity",
+    () =>
+      Effect.gen(function* () {
+        const boundInstanceId = ProviderInstanceId.make("neopi-work");
+        const binding = {
+          ...bound("free"),
+          providerInstanceId: boundInstanceId,
+          resumeCursor: {
+            sessionFile: session("free").path,
+            sessionId: "free",
+            historyLeafId: "gui-leaf",
+          },
+        };
+        const { catalog, commands, bindings } = yield* harness({
+          capabilities: ["session_catalog"],
+          defaultInstanceId: instanceId,
+          bindings: [binding],
+          threads: [projectedThread(binding.threadId)],
+          extraInstances: [
+            {
+              instanceId: boundInstanceId,
+              capabilities: ["session_catalog", "session_history_identity"],
+              rows: [session("free")],
+            },
+          ],
+          read: () => ({
+            version: 1,
+            session: session("free"),
+            truncated: false,
+            branchEntryIds: ["gui-leaf", "terminal-user"],
+            leafId: "terminal-user",
+            messages: [
+              {
+                entryId: "terminal-user",
+                role: "user",
+                text: "Bound profile continuation",
+                timestamp: now,
+              },
+            ],
+          }),
+        });
+        const listed = yield* catalog.list({ projectId, scope: "project" });
+        if (listed.status !== "available") throw new Error(listed.reason);
+        const selected = listed.sessions[0]!;
+        expect(
+          yield* catalog.resume({
+            projectId,
+            providerInstanceId: selected.providerInstanceId,
+            sessionFile: selected.sessionFile,
+          }),
+        ).toEqual({ threadId: binding.threadId, created: false });
+        expect(commands).toMatchObject([
+          {
+            type: "thread.history.append",
+            threadId: binding.threadId,
+            messages: [{ role: "user", text: "Bound profile continuation" }],
+          },
+        ]);
+        expect(bindings[0]?.resumeCursor).toMatchObject({ historyLeafId: "terminal-user" });
+      }),
+  );
   it.effect("refuses divergent ancestry and legacy cursors without altering their history", () =>
     Effect.gen(function* () {
       for (const historyLeafId of ["abandoned-leaf", undefined]) {
