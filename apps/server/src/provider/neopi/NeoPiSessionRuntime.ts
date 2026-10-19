@@ -18,6 +18,8 @@ import * as FileSystem from "effect/FileSystem";
 import * as Exit from "effect/Exit";
 import * as Queue from "effect/Queue";
 import * as Scope from "effect/Scope";
+import * as Schema from "effect/Schema";
+import { ChildProcess } from "effect/unstable/process";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { buildNeoPiLaunchPlan, isSharedNeoPiCursor } from "./NeoPiLaunchArgs.ts";
@@ -94,6 +96,20 @@ const identityError = (message: string) =>
   new NeoPiRuntimeError({ code: "identity_mismatch", message });
 const unknownCommand = (error: NeoPiRuntimeError) => /unknown command/i.test(error.message);
 const activeUiMethods = new Set(["select", "confirm", "input", "editor"]);
+const decodeOwnerCatalog = Schema.decodeUnknownSync(
+  Schema.fromJsonString(
+    Schema.Struct({
+      version: Schema.Literal(1),
+      sessions: Schema.Array(
+        Schema.Struct({
+          path: Schema.String,
+          inUse: Schema.NullOr(Schema.Struct({ pid: Schema.Number })),
+          control: Schema.NullOr(Schema.Struct({ instanceId: Schema.String })),
+        }),
+      ),
+    }),
+  ),
+);
 
 type ActiveTurn = {
   readonly id: TurnId;
@@ -137,6 +153,19 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     | undefined;
   let mode = input.runtimeMode;
   let pendingMode = false;
+  let attached = false;
+  const requireOwner = (operation: string) =>
+    Effect.suspend(() =>
+      attached
+        ? Effect.fail(
+            new NeoPiRpcError({
+              code: "attached_session",
+              command: operation,
+              message: `Cannot ${operation} on an attached NeoPi session owned by another process. Use the terminal owner instead.`,
+            }),
+          )
+        : Effect.void,
+    );
 
   const emit = (frame: NeoPiRuntimeFrame) =>
     Queue.offer(frames, frame).pipe(Effect.orDie, Effect.asVoid);
@@ -147,16 +176,28 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       : Effect.fail(
           new NeoPiRuntimeError({ code: "closed", message: "NeoPi/OMP session is not connected" }),
         );
+  // Only read operations and interrupting our own turn may cross an attached
+  // control connection. New mutating commands are refused by default.
+  const attachedReadCommands = new Set([
+    "get_state",
+    "get_entries",
+    "get_messages_page",
+    "get_usage",
+    "get_roles",
+    "get_commands",
+  ]);
   const request: NeoPiRpcClient["request"] = (cmd) =>
-    client
-      ? client.request(cmd)
-      : Effect.fail(
-          new NeoPiRpcError({
-            code: "closed",
-            message: "NeoPi/OMP session is not connected",
-            command: cmd.type,
-          }),
-        );
+    Effect.gen(function* () {
+      if (!attachedReadCommands.has(cmd.type) && !(cmd.type === "abort" && active))
+        yield* requireOwner(cmd.type);
+      if (!client)
+        return yield* new NeoPiRpcError({
+          code: "closed",
+          message: "NeoPi/OMP session is not connected",
+          command: cmd.type,
+        });
+      return yield* client.request(cmd);
+    });
   const getState = () =>
     request({ type: "get_state" }).pipe(
       Effect.map((data) => record(data) as SessionState),
@@ -166,7 +207,8 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     Effect.flatMap(getState(), (value) => emit({ type: "t3.state", state: value }));
   const cancelPending = Effect.gen(function* () {
     for (const id of uiPending) {
-      yield* client?.respondUi({ id, cancelled: true }).pipe(Effect.ignore) ?? Effect.void;
+      if (!attached)
+        yield* client?.respondUi({ id, cancelled: true }).pipe(Effect.ignore) ?? Effect.void;
       yield* emit({
         type: "extension_ui_request",
         id,
@@ -366,6 +408,10 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     });
   const handleEvent = (frame: NeoPiRuntimeFrame) =>
     Effect.gen(function* () {
+      // Control subscriptions include terminal-originated turns. They are not
+      // imported live: without a NeoCode-started turn there is no thread turn
+      // to correlate them with, so never let them create or settle turn state.
+      if (attached && !active) return;
       const turn = active;
       yield* emit({ ...frame, ...(turn ? { turnId: turn.id } : {}) });
       const rejected = pendingProposal;
@@ -484,6 +530,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
   const pumpHost = (peer: Pick<NeoPiRpcTransport, "hostToolCalls" | "hostToolResult">) =>
     Stream.runForEach(peer.hostToolCalls, (call) =>
       Effect.gen(function* () {
+        if (attached) return;
         if (call.type === "host_tool_cancel") {
           const requestScope = hostPending.get(call.targetId);
           if (requestScope) yield* Scope.close(requestScope, Exit.void);
@@ -589,56 +636,124 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     lifetime = scope;
     const begin = Effect.gen(function* () {
       if (launch.sessionDir) yield* fs.makeDirectory(launch.sessionDir, { recursive: true });
-      const peer = yield* makeClient({
-        spawn: input.spawn,
-        command: launch.command,
-        args: launch.args,
-        cwd: launch.cwd,
-        env: launch.env,
-        ...(input.requestTimeoutMs === undefined
-          ? {}
-          : { requestTimeoutMs: input.requestTimeoutMs }),
-        onTransportReady: (transport) =>
-          Effect.gen(function* () {
-            earlyUi = transport;
-            yield* transport.transportReady.pipe(
-              Effect.flatMap((ready) => emit({ ...ready, type: "ready" })),
-              Effect.ignore,
-              Effect.forkScoped,
-              Effect.provideService(Scope.Scope, scope),
-            );
-            yield* Stream.runForEach(transport.events, handleEvent).pipe(
-              Effect.forkScoped,
-              Effect.provideService(Scope.Scope, scope),
-            );
-            yield* Stream.runForEach(transport.uiRequests, (frame) =>
-              Effect.gen(function* () {
-                if (activeUiMethods.has(frame.method)) {
-                  if (
-                    (yield* SubscriptionRef.get(state)) === "failed" ||
-                    (yield* SubscriptionRef.get(state)) === "stopping"
-                  ) {
-                    yield* emit({
-                      type: "extension_ui_request",
-                      id: frame.id,
-                      method: "cancel",
-                      targetId: frame.id,
-                      ...(active ? { turnId: active.id } : {}),
-                    });
-                  } else uiPending.add(frame.id);
-                }
-                if (frame.method === "cancel" && typeof frame.targetId === "string")
-                  uiPending.delete(frame.targetId);
-                yield* emit({ ...frame, ...(active ? { turnId: active.id } : {}) });
-              }),
-            ).pipe(Effect.forkScoped, Effect.provideService(Scope.Scope, scope));
-            yield* pumpHost(transport).pipe(
-              Effect.forkScoped,
-              Effect.provideService(Scope.Scope, scope),
-            );
-          }),
-      }).pipe(Effect.provideService(Scope.Scope, scope));
+      attached = false;
+      const connect = (args: ReadonlyArray<string>) =>
+        makeClient({
+          spawn: input.spawn,
+          command: launch.command,
+          args,
+          cwd: launch.cwd,
+          env: launch.env,
+          ...(input.requestTimeoutMs === undefined
+            ? {}
+            : { requestTimeoutMs: input.requestTimeoutMs }),
+          onTransportReady: (transport) =>
+            Effect.gen(function* () {
+              earlyUi = transport;
+              yield* transport.transportReady.pipe(
+                Effect.flatMap((ready) => {
+                  attached =
+                    ready.capabilities?.includes(NEOPI_CAPABILITIES.controlAttached) === true;
+                  return emit({ ...ready, type: "ready" });
+                }),
+                Effect.ignore,
+                Effect.forkScoped,
+                Effect.provideService(Scope.Scope, scope),
+              );
+              yield* Stream.runForEach(transport.events, handleEvent).pipe(
+                Effect.forkScoped,
+                Effect.provideService(Scope.Scope, scope),
+              );
+              yield* Stream.runForEach(transport.uiRequests, (frame) =>
+                Effect.gen(function* () {
+                  if (attached && !active) return;
+                  if (activeUiMethods.has(frame.method)) {
+                    if (
+                      (yield* SubscriptionRef.get(state)) === "failed" ||
+                      (yield* SubscriptionRef.get(state)) === "stopping"
+                    ) {
+                      yield* emit({
+                        type: "extension_ui_request",
+                        id: frame.id,
+                        method: "cancel",
+                        targetId: frame.id,
+                        ...(active ? { turnId: active.id } : {}),
+                      });
+                    } else uiPending.add(frame.id);
+                  }
+                  if (frame.method === "cancel" && typeof frame.targetId === "string")
+                    uiPending.delete(frame.targetId);
+                  yield* emit({ ...frame, ...(active ? { turnId: active.id } : {}) });
+                }),
+              ).pipe(Effect.forkScoped, Effect.provideService(Scope.Scope, scope));
+              yield* pumpHost(transport).pipe(
+                Effect.forkScoped,
+                Effect.provideService(Scope.Scope, scope),
+              );
+            }),
+        }).pipe(Effect.provideService(Scope.Scope, scope));
+      const peer = yield* connect(launch.args).pipe(
+        Effect.catchIf(
+          (error) =>
+            error.code === "session_in_use" &&
+            sharedSession &&
+            resume !== undefined &&
+            input.sharedSessionCapabilities?.has(NEOPI_CAPABILITIES.controlPipe) === true,
+          (error) =>
+            Effect.gen(function* () {
+              let owner:
+                | { inUse: { pid: number } | null; control: { instanceId: string } | null }
+                | undefined;
+              if (input.sharedSessionCapabilities?.has(NEOPI_CAPABILITIES.sessionCatalog)) {
+                owner = yield* Effect.scoped(
+                  Effect.gen(function* () {
+                    const process = yield* input.spawn(
+                      ChildProcess.make(
+                        launch.command,
+                        [
+                          "sessions",
+                          "list",
+                          "--json",
+                          "--session-dir",
+                          NodePath.dirname(resume!.sessionFile),
+                        ],
+                        {
+                          cwd: launch.cwd,
+                          env: launch.env,
+                          stdin: "ignore",
+                          stdout: "pipe",
+                          stderr: "ignore",
+                        },
+                      ),
+                    );
+                    const text = yield* Stream.mkString(Stream.decodeText(process.stdout));
+                    const code = yield* process.exitCode;
+                    if (code !== 0) return undefined;
+                    const catalog = yield* Effect.try(() => decodeOwnerCatalog(text));
+                    return catalog.sessions.find(
+                      (row) => NodePath.resolve(row.path) === NodePath.resolve(resume!.sessionFile),
+                    );
+                  }),
+                ).pipe(Effect.timeout("10 seconds"), Effect.mapError(rpcError));
+              }
+              if (!owner?.control)
+                return yield* new NeoPiRuntimeError({
+                  code: "session_in_use",
+                  message: `${error.message}. The session is open elsewhere without a control socket${owner?.inUse ? ` (owner PID ${owner.inUse.pid})` : ""}.`,
+                });
+              attached = true;
+              return yield* connect([
+                "ctl",
+                "pipe",
+                owner.control.instanceId,
+                "--label",
+                "neocode",
+              ]);
+            }),
+        ),
+      );
       client = peer;
+      attached = peer.capabilities.has(NEOPI_CAPABILITIES.controlAttached);
       if (neopiCompatibility(peer.ready, peer.capabilities.has("v2")).status !== "supported") {
         return yield* new NeoPiRuntimeError({
           code: "startup",
@@ -646,6 +761,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
         });
       }
       if (
+        !attached &&
         sharedSession &&
         (!peer.capabilities.has(NEOPI_CAPABILITIES.sessionLease) ||
           (!resume && !peer.capabilities.has(NEOPI_CAPABILITIES.newSession)))
@@ -707,7 +823,9 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
         sessionDir: launch.sessionDir || NodePath.dirname(file),
         sharedSession,
       });
-      if (capabilities.has(NEOPI_CAPABILITIES.toolApprovalRequest)) {
+      // Attached startup is read-only: no approval handler, host tools,
+      // subagent subscription, or interrupt-mode mutations on the owner.
+      if (!attached && capabilities.has(NEOPI_CAPABILITIES.toolApprovalRequest)) {
         const configured = record(
           yield* peer
             .request({ type: "set_approval_handler", handler: "host" })
@@ -719,14 +837,16 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
             message: "NeoPi/OMP did not activate its host approval handler",
           });
       }
-      if (input.hostBridge)
+      if (!attached && input.hostBridge)
         yield* peer
           .request({ type: "set_host_tools", tools: input.hostBridge.definitions })
           .pipe(Effect.mapError(rpcError));
-      for (const command of [
-        { type: "set_subagent_subscription", level: "events" },
-        { type: "set_interrupt_mode", mode: "immediate" },
-      ] as const) {
+      for (const command of attached
+        ? []
+        : ([
+            { type: "set_subagent_subscription", level: "events" },
+            { type: "set_interrupt_mode", mode: "immediate" },
+          ] as const)) {
         yield* peer.request(command).pipe(
           Effect.mapError(rpcError),
           Effect.catchIf(unknownCommand, () => Effect.void),
@@ -747,6 +867,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
   });
   const applyModelSelection = (selection: ModelSelection) =>
     Effect.gen(function* () {
+      yield* requireOwner("change model or thinking settings").pipe(Effect.mapError(rpcError));
       const role = capabilities.has(NEOPI_CAPABILITIES.getRoles)
         ? neoPiRoleFromModelSlug(selection.model)
         : undefined;
@@ -783,6 +904,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     });
   const restart = (_reason: "runtime-mode-change") =>
     Effect.gen(function* () {
+      yield* requireOwner("restart").pipe(Effect.mapError(rpcError));
       if ((yield* SubscriptionRef.get(state)) !== "ready" || compacting)
         return yield* new NeoPiRuntimeError({
           code: "not_ready",
@@ -805,7 +927,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
           code: "not_ready",
           message: "NeoPi/OMP is not ready for a turn",
         });
-      if (turn.modelSelection) yield* applyModelSelection(turn.modelSelection);
+      if (!attached && turn.modelSelection) yield* applyModelSelection(turn.modelSelection);
       const peer = yield* current();
       const baseline = record(
         yield* request({ type: "get_entries" }).pipe(Effect.mapError(rpcError)),
@@ -860,6 +982,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
   ) =>
     Effect.gen(function* () {
       const proposal = pendingProposal;
+      yield* requireOwner("respond to a plan proposal").pipe(Effect.mapError(rpcError));
       if (!proposal || proposal.resolving)
         return yield* new NeoPiRuntimeError({
           code: "not_ready",
@@ -956,7 +1079,12 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       if (!continuation) yield* Deferred.await(proposal.done);
     });
   const interrupt = Effect.gen(function* () {
-    if (pendingProposal && !pendingProposal.resolving) {
+    if (attached && !active)
+      return yield* new NeoPiRuntimeError({
+        code: "not_running",
+        message: "NeoCode has no active turn to interrupt on the attached session",
+      });
+    if (!attached && pendingProposal && !pendingProposal.resolving) {
       pendingProposal.resolving = true;
       yield* (yield* current())
         .writeFrame({
@@ -986,6 +1114,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
   });
   const compact = (customInstructions?: string) =>
     Effect.gen(function* () {
+      yield* requireOwner("compact").pipe(Effect.mapError(rpcError));
       if ((yield* SubscriptionRef.get(state)) !== "ready" || compacting)
         return yield* new NeoPiRuntimeError({
           code: "not_ready",
@@ -1017,7 +1146,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
   const stop = Effect.gen(function* () {
     const previous = yield* SubscriptionRef.get(state);
     if (previous === "stopped") return;
-    if (pendingProposal && !pendingProposal.resolving) {
+    if (!attached && pendingProposal && !pendingProposal.resolving) {
       yield* (
         client
           ?.writeFrame({
@@ -1050,6 +1179,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
   });
   const setRuntimeMode = (next: RuntimeMode) =>
     Effect.gen(function* () {
+      yield* requireOwner("change runtime mode").pipe(Effect.mapError(rpcError));
       if (mode === next) return;
       mode = next;
       const status = yield* SubscriptionRef.get(state);
@@ -1079,11 +1209,18 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     compact,
     request,
     writeFrame: (frame) =>
-      client
-        ? client.writeFrame(frame)
-        : Effect.fail(
-            new NeoPiRpcError({ code: "closed", message: "NeoPi/OMP session is not connected" }),
-          ),
+      requireOwner("send an owner response").pipe(
+        Effect.andThen(() =>
+          client
+            ? client.writeFrame(frame)
+            : Effect.fail(
+                new NeoPiRpcError({
+                  code: "closed",
+                  message: "NeoPi/OMP session is not connected",
+                }),
+              ),
+        ),
+      ),
     frames: Stream.fromQueue(frames),
     restart,
     stop,
@@ -1092,6 +1229,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     applyModelSelection,
     respondUi: (response) =>
       Effect.gen(function* () {
+        yield* requireOwner("respond to owner UI");
         const channel = client ?? earlyUi;
         if (!channel)
           return yield* new NeoPiRpcError({

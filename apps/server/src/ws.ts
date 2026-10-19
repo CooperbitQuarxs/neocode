@@ -116,6 +116,7 @@ import * as ProviderSessionDirectory from "./provider/Services/ProviderSessionDi
 import * as ProviderMaintenanceRunner from "./provider/providerMaintenanceRunner.ts";
 import { ProviderAuthService } from "./provider/Services/ProviderAuthService.ts";
 import { ProviderInstanceRegistry } from "./provider/Services/ProviderInstanceRegistry.ts";
+import { makeNeoPiSessionCatalog } from "./provider/neopi/NeoPiSessionCatalog.ts";
 import { makeProviderInstallation } from "./provider/providerInstallation.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
@@ -628,6 +629,7 @@ const makeWsRpcLayer = (
         | WorkspacePaths.WorkspacePaths
       >();
       const agentSessionScanner = yield* AgentSessionScanner.AgentSessionScanner;
+      const neopiSessionCatalog = yield* makeNeoPiSessionCatalog();
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
       const rpcClientIds = yield* Ref.make(new Set<RpcClientId>());
@@ -3183,6 +3185,18 @@ const makeWsRpcLayer = (
             ),
             { "rpc.aggregate": "workspace" },
           ),
+        [WS_METHODS.neopiSessionsList]: (input) =>
+          observeRpcEffect(WS_METHODS.neopiSessionsList, neopiSessionCatalog.list(input), {
+            "rpc.aggregate": "workspace",
+          }),
+        [WS_METHODS.neopiSessionsResume]: (input) =>
+          observeRpcEffect(WS_METHODS.neopiSessionsResume, neopiSessionCatalog.resume(input), {
+            "rpc.aggregate": "workspace",
+          }),
+        [WS_METHODS.neopiSessionsHandoff]: (input) =>
+          observeRpcEffect(WS_METHODS.neopiSessionsHandoff, neopiSessionCatalog.handoff(input), {
+            "rpc.aggregate": "workspace",
+          }),
         [WS_METHODS.assetsCreateUrl]: (input) =>
           observeRpcEffect(
             WS_METHODS.assetsCreateUrl,

@@ -644,6 +644,7 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
           Effect.mapError((cause) => rpcError(input.threadId, "prepareTurn", cause)),
         );
       if (
+        !session.runtime.capabilities.has(NEOPI_CAPABILITIES.controlAttached) &&
         session.runtime.capabilities.has(NEOPI_CAPABILITIES.setMode) &&
         input.interactionMode !== undefined &&
         (session.interactionMode !== input.interactionMode ||
@@ -833,6 +834,12 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
     rollbackThread: (threadId, numTurns) =>
       Effect.gen(function* () {
         const session = yield* requireSession(threadId);
+        if (session.runtime.capabilities.has(NEOPI_CAPABILITIES.controlAttached))
+          return yield* new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "rollbackThread",
+            detail: "Cannot roll back an attached NeoPi session owned by another process.",
+          });
         const status = yield* SubscriptionRef.get(session.runtime.state);
         if (status === "running")
           yield* session.runtime.interrupt.pipe(
