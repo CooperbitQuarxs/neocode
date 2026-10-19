@@ -1594,6 +1594,27 @@ it.effect("rejects thread history imports without messages", () =>
   }),
 );
 
+it.effect("bounds restored history appends and rejects empty batches", () =>
+  Effect.gen(function* () {
+    for (const size of [0, 1, 200, 201]) {
+      const result = yield* Effect.exit(
+        decodeOrchestrationCommand({
+          type: "thread.history.append",
+          commandId: "restore",
+          threadId: "thread",
+          messages: Array.from({ length: size }, (_, index) => ({
+            messageId: `native:${index}`,
+            role: "user",
+            text: "same",
+            createdAt: "2026-10-19T05:00:00.000Z",
+          })),
+        }),
+      );
+      assert.strictEqual(result._tag, size === 1 || size === 200 ? "Success" : "Failure");
+    }
+  }),
+);
+
 it("isProviderSendTurnSupportedImageMimeType accepts raster formats and rejects svg", () => {
   assert.strictEqual(isProviderSendTurnSupportedImageMimeType("image/png"), true);
   assert.strictEqual(isProviderSendTurnSupportedImageMimeType("IMAGE/JPEG"), true);

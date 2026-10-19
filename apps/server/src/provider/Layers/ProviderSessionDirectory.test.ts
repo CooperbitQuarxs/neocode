@@ -178,6 +178,98 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
     }),
   );
 
+  it.effect("updates stopped history cursors without overwriting a newly running writer", () =>
+    Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory;
+      const binding = {
+        threadId: ThreadId.make("history-cursor-cas"),
+        provider: ProviderDriverKind.make("neopi"),
+        providerInstanceId: ProviderInstanceId.make("neopi"),
+        status: "stopped" as const,
+        resumeCursor: { historyLeafId: "old" },
+        runtimePayload: { model: "saved-model" },
+      };
+      yield* directory.upsert(binding);
+      yield* directory.upsert(
+        {
+          ...binding,
+          resumeCursor: { historyLeafId: "restored" },
+          runtimePayload: { model: "must-not-replace" },
+        },
+        { onlyUpdateStoppedCursor: true },
+      );
+      expect(Option.getOrThrow(yield* directory.getBinding(binding.threadId))).toMatchObject({
+        status: "stopped",
+        resumeCursor: { historyLeafId: "restored" },
+        runtimePayload: { model: "saved-model" },
+      });
+      yield* directory.upsert({
+        ...binding,
+        status: "running",
+        resumeCursor: { historyLeafId: "writer" },
+      });
+      yield* directory.upsert(
+        {
+          ...binding,
+          resumeCursor: { historyLeafId: "stale-restore" },
+        },
+        { onlyUpdateStoppedCursor: true },
+      );
+      expect(Option.getOrThrow(yield* directory.getBinding(binding.threadId))).toMatchObject({
+        status: "running",
+        resumeCursor: { historyLeafId: "writer" },
+        runtimePayload: { model: "saved-model" },
+      });
+      const missing = ThreadId.make("missing-history-cursor");
+      yield* directory.upsert({ ...binding, threadId: missing }, { onlyUpdateStoppedCursor: true });
+      expect(Option.isNone(yield* directory.getBinding(missing))).toBe(true);
+    }),
+  );
+
+  it.effect("updates only the promoted default instance of a stopped legacy binding", () =>
+    Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory;
+      const runtimeRepository = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository;
+      const threadId = ThreadId.make("legacy-null-history-cursor");
+      yield* runtimeRepository.upsert({
+        threadId,
+        providerName: "neopi",
+        providerInstanceId: null,
+        adapterKey: "neopi",
+        runtimeMode: "full-access",
+        status: "stopped",
+        lastSeenAt: "2026-10-19T00:00:00.000Z",
+        resumeCursor: { historyLeafId: "old" },
+        runtimePayload: { model: "saved-model" },
+      });
+      const binding = Option.getOrThrow(yield* directory.getBinding(threadId));
+      yield* directory.upsert(
+        {
+          ...binding,
+          providerInstanceId: ProviderInstanceId.make("neopi-other"),
+          resumeCursor: { historyLeafId: "wrong-instance" },
+        },
+        { onlyUpdateStoppedCursor: true },
+      );
+      expect(Option.getOrThrow(yield* directory.getBinding(threadId)).resumeCursor).toEqual({
+        historyLeafId: "old",
+      });
+      yield* directory.upsert(
+        {
+          ...binding,
+          resumeCursor: { historyLeafId: "restored" },
+          runtimePayload: { model: "must-not-replace" },
+        },
+        { onlyUpdateStoppedCursor: true },
+      );
+      expect(Option.getOrThrow(yield* directory.getBinding(threadId))).toMatchObject({
+        status: "stopped",
+        resumeCursor: { historyLeafId: "restored" },
+        runtimePayload: { model: "saved-model" },
+      });
+    }),
+  );
+
   it.effect("records source files without replacing the current provider session", () =>
     Effect.gen(function* () {
       const directory = yield* ProviderSessionDirectory;
