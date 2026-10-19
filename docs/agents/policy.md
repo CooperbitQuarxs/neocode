@@ -1,8 +1,8 @@
 # Repository policy
 
-This repository follows `AGENTS.md` in the directory one level above it (the
-directory containing this repository) for branches, commits, signing, pull
-requests and merging. This file records repository-specific values.
+This repository is self-contained: this file owns branches, commits, signing,
+publication and merging. [pr-review-bots.md](pr-review-bots.md) owns review
+mechanics; [triage.md](triage.md) owns tracker reconciliation.
 
 ## Branches
 
@@ -19,7 +19,7 @@ requests and merging. This file records repository-specific values.
 ## Merging
 
 - Merge commits only: `gh pr merge --merge --match-head-commit "$REVIEWED_SHA"`, binding the merge to the reviewed authoritative `headRefOid`. Subject: `Merge PR #<number>: <conventional PR subject> (@<author>)`.
-- The authoring agent merges its PR into `nightly` after the workspace gates and [Codex code-review gate](../agents/pr-review-bots.md) pass: a complete, clean Code Review on the final head and every finding answered in its own thread. Do not request security rounds; already-posted security findings must be fixed or disproved.
+- The authoring agent merges its PR into `nightly` after CI, acceptance, up-to-date base and the [Codex code-review gate](pr-review-bots.md) pass. Mark it `mergeable` only when these criteria hold. The owner alone decides promotion and hotfix merges into `main`.
 - Contributor heads (any author other than the owner) are never executed on the owner's machine; see `docs/agents/pr-review-bots.md` › Running PR code.
 
 ## CI
@@ -44,10 +44,10 @@ a private child ACL alone cannot stop replacement through a shared parent.
 
 ## Promotion
 
-`nightly` is promoted into `main` weekly by the `promote-nightly` workflow
-(`.github/workflows/promote-nightly.yml`): it opens a `sync/promote-<date>`
-PR from `nightly` into `main` and merges it when checks pass. The owner may
-also run it by hand with `gh workflow run promote-nightly.yml`.
+The `promote-nightly` workflow (`.github/workflows/promote-nightly.yml`) opens
+a monthly `sync/promote-<date>` PR from `nightly` into `main`, or can be run by
+hand with `gh workflow run promote-nightly.yml`. It leaves the PR open with
+`human: pending`; the owner merges. Automation never merges a promotion.
 
 `schedule` and `workflow_dispatch` triggers only run from the default branch,
 so the workflow does nothing until it exists on `main`. The first promotion
@@ -62,16 +62,62 @@ after it lands is a manual `nightly` into `main` merge by the owner.
 
 ## Labels
 
-The settled interim meanings and at-least-daily proposal/review/apply procedure are in [triage-labels.md](../agents/triage-labels.md). This is not the completed global policy or setup-skill migration; existing issue assignments have not been bulk-reconciled.
+Use [triage-labels.md](triage-labels.md) for the composable vocabulary and
+[triage.md](triage.md) for two-pass classification and daily reconciliation.
+The review manual owns head-specific review state. Actor completion and
+merge eligibility are distinct; issues remain open until full acceptance
+and promotion to `main`.
 
-- Composable type/context: `accessibility`, `bug`, `documentation`, `enhancement`, `idea`, `experiment`, `spec`. Existing `question` associations are retained pending reviewed cutover, not recommended for new assignments.
-- Priority: `priority: p0` … `priority: p3`. Difficulty: the eight `difficulty: 0.000-0.125` … `difficulty: 0.875-1.000` intervals. Frame: `frame: hours`, `frame: days`, `frame: weeks`, `frame: months`, `frame: years`. Historical `effort: tiny` … `effort: very large` associations are retained pending individual review, not assigned to new triage or automatically converted.
-- Issue triage: `needs-triage`, `needs-info`, `wontfix`; `ready-for-agent` and `ready-for-human` remain legacy markers pending evidence-based reconciliation. No replacement actor/reviewer names are selected.
-- PR state remains `needs-review`, `ready-for-merge`, `review-stalled`. Accepted target `mergeable` means the existing repository gates are met, not permission to merge `main`. It is not deployed; keep `ready-for-merge` until parent policy and literal consumers migrate together. Review gates are unchanged.
-- Source/relationship/disposition: `downstream`, `duplicate`, `entangled`, `hotfix`, `invalid`, `stale: identical`, `stale: similar`. `baseline` remains for defects found on the base during a PR; removal is undecided and it does not automatically imply upstream origin.
-- Operational `upstream-sync` remains pending coordinated migration to accepted target `upstream`, meaning substantive upstream involvement beyond release synchronization. Do not create or rename it in isolation. Preserve existing associations of deselected non-operational labels pending reviewed cutover; use the [triage guide](../agents/triage-labels.md#composable-meanings) for exclusions from new assignments.
-- `experiment` is newly created here, not a rename from a prior experimental-idea label. A label alone starts no work; experimental implementation needs an `experimental/` topic branch and a separate owner decision before landing on `nightly` or `main`.
-- `downstream` now exists here too. Missing NeoPi capabilities still belong in `PsychedelicShayna/neopi` (see `AGENTS.md` › Fork rule); this availability does not change repository scope or authorize historical label bundles for new assignments.
+## Commits and publication
+
+Use small logical commits on topic worktrees based on freshly fetched
+`origin/nightly`. Keep unrelated work intact. Resolve base drift by merging
+the base into the topic branch, preserving provenance rather than rebasing.
+After a PR merges or closes, remove its worktree and local topic branch.
+
+Commit headlines use `type(scope): imperative summary` and at most 72
+characters. Bodies explain the change, reason and verification actually run.
+Use `Fixes #N` only when the full issue is satisfied; NeoCode closure still
+waits for promotion. Every commit has `Model: <provider>/<model-id>` and
+`Co-authored-by: <Model Name> <noreply@provider-domain>` trailers.
+Agents sign each commit explicitly with
+`git commit -S/home/shayna/.ssh/id_ed25519_github_signing_agents.pub -m "<short>" -m "<long>"`
+and run `git verify-commit HEAD` before pushing. Review fixes are new signed
+commits; retain published history and signing configuration.
+
+One PR per issue, using `.github/PULL_REQUEST_TEMPLATE.md` exactly. Check only
+true checklist items and explain skipped ones. Declare dependencies as
+`Depends on #N` and merge in dependency order. Every issue and PR has a fitting
+kind, priority and state; unclassified intake uses `needs-triage`. PR review
+requirements and states follow the review manual rather than intake labels.
+
+Every GitHub comment, issue body or review reply starts with:
+
+```md
+> [!NOTE]
+> <Model Name> on behalf of PsychedelicShayna
+```
+
+The authoring agent may push its topic branch, reply on its own PR, file
+evidenced baseline issues discovered during review, apply supported labels,
+and merge its PR into `nightly` when gates pass. Changes to other authors'
+PRs, repository settings, rulesets and protection remain outside that
+authority. Post only on the fork, never `pingdotgg/t3code`.
+
+## Failed checks and recovery
+
+Classify failures with evidence: head-only failures are fixed on the PR;
+identical base/head failures become `baseline` issues with both outputs;
+checks that pass locally on both are flaky, with those runs cited before a
+rerun. If a local run is impossible, record the reason and evidence. Do not
+retry hoping for green. A red check can be accepted only for an evidenced,
+filed base defect. Project-wide checks belong to CI.
+
+After merging, re-check other owned PRs against the new base. If a merge
+breaks `nightly`, revert through a PR. Workflow changes exercised only on push
+or dispatch stay single-purpose: watch the first applicable post-merge run
+and revert through a PR on failure.
+
 
 ## Where the rest lives
 
@@ -81,6 +127,6 @@ The settled interim meanings and at-least-daily proposal/review/apply procedure 
 | Fork placement and compatibility checks        | `docs/agents/fork-maintenance.md`                                                             |
 | Upstream sync procedure                        | `docs/agents/upstream-sync.md`                                                                |
 | Review-bot mechanics                           | `docs/agents/pr-review-bots.md`                                                               |
-| Issue tracker, funnel, triage labels           | `docs/agents/issue-tracker.md`, `docs/agents/issue-funnel.md`, `docs/agents/triage-labels.md` |
+| Issue tracker, funnel, triage | `docs/agents/issue-tracker.md`, `docs/agents/issue-funnel.md`, `docs/agents/triage.md`, `docs/agents/triage-labels.md` |
 | Domain vocabulary                              | `docs/agents/domain.md`                                                                       |
 | Release workflow                               | `docs/operations/release.md`                                                                  |

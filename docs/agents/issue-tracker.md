@@ -8,7 +8,7 @@ Issues and specs for this repo live in GitHub Issues at `PsychedelicShayna/neoco
 - Read: `gh issue view <number> --comments`, including labels.
 - List: `gh issue list --state <state> --json number,title,body,labels,comments` with the filters the task requires.
 - Apply or remove labels: `gh issue edit <number> --add-label "..."` or `--remove-label "..."`.
-- Posting rules (comment identity block, labels) are the workspace policy in `~/source/github/PsychedelicShayna/AGENTS.md`. Label meanings and reconciliation are in [triage-labels.md](triage-labels.md).
+- Posting rules and authority are in [policy.md](policy.md). Read [triage.md](triage.md) for classification/reconciliation and [triage-labels.md](triage-labels.md) for vocabulary.
 - Upstream `AGENTS.md` still applies: implementation plans and scratch notes stay out of the worktree; the issue owns the checklist, the merged PR is the record.
 
 ## Pull requests as a triage surface
@@ -22,17 +22,21 @@ Issues and specs for this repo live in GitHub Issues at `PsychedelicShayna/neoco
 
 ## Composable labels
 
-Type, source/relationship, estimates, specification presence and participation/readiness are distinct facts, not mutually exclusive issue categories. Use the deployed labels and interim meanings in [triage-labels.md](triage-labels.md); the repository inventory and operational PR state names are in [repository policy](../policy/README.md#labels).
-
-Each published issue carries a fitting type, a `priority: p0`–`priority: p3` and a state; use `needs-triage` when unresolved. Assign no new `effort: *` labels, do not convert historical effort into time, and preserve existing associations pending evidence-based review. Keep legacy `ready-for-agent` / `ready-for-human` assignments pending reconciliation; they are not fresh implementation authorization. The publication contract is [issue-funnel.md](issue-funnel.md).
+Type, relationships, estimates, specification and participation are separate
+facts. Each published issue has a fitting kind, priority and state; unclassified
+intake uses `needs-triage`. Follow [triage.md](triage.md) before finalizing labels.
+The publication contract is [issue-funnel.md](issue-funnel.md).
 
 ## Completion and closure
 
 A merged PR is implementation evidence, not proof that the entire issue is complete. Verify every acceptance criterion and any explicit promotion condition against the implementation and actual PR merge state. A closed, unmerged PR is not a merged implementation.
 
-GitHub automatic closure normally waits for a default-branch merge, so a `nightly` merge can leave implemented work open. **NeoCode's existing repository-wide condition remains: issues stay open until the fix is promoted to `main`, even if the issue body does not repeat that condition.** An authorized integration owner may close manually only after that promotion and complete acceptance verification, recording the merge, promotion and proof. Do not automatically label a `nightly` merge `ready-for-human`, close an umbrella for a partial PR, or reopen a correctly completed issue merely because a new follow-up exists.
-
-For stale or duplicate candidates, follow the evidence and proposal/review/apply procedure in [triage-labels.md](triage-labels.md#reconciliation).
+NeoCode issues stay open until the complete fix is promoted to `main`, even
+if the body omits this condition. After a `nightly` merge, record acceptance
+evidence and mark completed agent work `agent: finished`; keep the issue open.
+The promotion PR carries `human: pending` for the owner's decision. An
+authorized closer verifies full acceptance and promotion before closing.
+Duplicate and rejected-report dispositions follow [triage.md](triage.md).
 
 ## Issue shape
 

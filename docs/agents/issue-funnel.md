@@ -10,7 +10,7 @@ Read in this order, then work:
 
 1. This file.
 2. `docs/agents/issue-tracker.md` (mechanics, labels and completion).
-3. `docs/agents/triage-labels.md` (interim meanings and reconciliation).
+3. `docs/agents/triage.md` and `triage-labels.md` (process and vocabulary).
 4. Open issues: `gh issue list -R PsychedelicShayna/neocode --state open`.
 5. Style samples: recent well-formed issues for shape.
 
@@ -42,15 +42,15 @@ Typical sections (drop any that add nothing):
 
 ## Composable labels
 
-Follow [triage-labels.md](triage-labels.md) for deployed label meanings and legacy-state handling, and [repository policy](../policy/README.md#labels) for the inventory. Type, source/relationship, estimates, specification presence and participation/readiness are separate facts, not a compulsory dual taxonomy.
+Follow [triage.md](triage.md) for classification, estimates and participation;
+[triage-labels.md](triage-labels.md) defines the vocabulary. Every funnel issue
+has a fitting kind, priority and state; unclassified intake uses `needs-triage`.
+Use the two-pass process before final readiness labels. Entangled alternatives
+require the owner's choice; a label alone never starts implementation.
 
-Every funnel issue carries a fitting type, a `priority: p0`–`priority: p3` and a state; `needs-triage` is the default when unresolved. Assign no new `effort: *` labels. Do not auto-convert historical effort into frame, remove existing labels without review, or invent unsupported difficulty precision. Fresh agent-authored frame estimates use the one-step normalization and provenance rules in the triage guide; human estimates stay unchanged.
-
-Use `idea` for undecided possibilities, `spec` only for an actual implementation specification, and `experiment` for experimental work. None of these labels starts implementation. Experimental work stays on an `experimental/` topic branch unless the owner separately decides it may land on `nightly` or `main`.
-
-Keep existing `ready-for-agent` / `ready-for-human` assignments as legacy markers pending reconciliation; do not translate them into new actor states or treat them as new authorization. Do not rename `upstream-sync` or `ready-for-merge` before the coordinated cutover.
-
-`entangled` is only for incompatible alternatives where choosing one supersedes the others. The Captain must have ordered the label itself, or the cluster brief must name it. Preserve that choice rather than implementing unresolved alternatives.
+After completed work merges to `nightly`, keep its issue open with
+`agent: finished` until full acceptance and promotion to `main`. The promotion
+PR carries `human: pending`, not the implemented issue.
 
 ## Dedupe and amend
 
@@ -58,7 +58,7 @@ Keep existing `ready-for-agent` / `ready-for-human` assignments as legacy marker
 
 **Comment-amend** when the subject is already filed. Comments are the default amendment. Do not rewrite a published body unless the Captain orders a body edit.
 
-**Label-only:** propose evidence-backed corrections when the contract is fine but labels are wrong. Follow the triage guide's proposal/review/apply separation; the authorized integration owner applies verified changes.
+**Label-only:** propose evidence-backed corrections when the contract is fine but labels are wrong. Follow [triage.md](triage.md); the authorized integration owner applies verified changes.
 
 **Entangled cluster:** each body names the other numbers and states which choice supersedes the alternatives. Do not close siblings until the authorized choice has actually shipped.
 
@@ -81,7 +81,7 @@ Do not create labels unless the Captain ordered that label.
 
 Do not mix presentation-plane work into delivery-plane issues.
 
-Missing NeoPi capabilities are filed in `PsychedelicShayna/neopi` with `downstream`, not here (see `AGENTS.md` › Fork rule). Follow its current tracker policy for other labels; the deselected-label list in [triage-labels.md](triage-labels.md#composable-meanings) is not a recommendation for new assignments.
+Missing NeoPi capabilities are filed in `PsychedelicShayna/neopi` with `downstream`, not here (see `AGENTS.md` › Fork rule). Follow its current tracker policy for other labels.
 
 ## Style anti-patterns
 

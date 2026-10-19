@@ -1,8 +1,7 @@
 # PR review bots
 
-This repository follows `AGENTS.md` in the directory one level above the
-repository (the directory containing it) for branches, commits, signing,
-pull requests and merging. The review gate below applies to every PR.
+Read [policy.md](policy.md) for branches, commits, signing, publication and
+merge authority. The review gate below applies to every PR.
 
 ## Merge gate
 
@@ -34,6 +33,36 @@ does not waive it.
 Add new reviewer rows only from observed behavior on a real PR; keep the table
 directly under its heading. `Codex Review: Something went wrong` is a failed
 round, not a clean result.
+
+## Requirement and state labels
+
+Default: every PR gets `review: codex`, including documentation and workflows.
+Triage assigns the requirement; the PR author checks it against the actual
+diff before requesting review. Token `codex` maps to the Codex connector login
+and `@codex review` trigger in the table above; a label is not itself a request.
+No other reviewer family is configured. This policy adds no security passes.
+
+Use one current-head state alongside the requirement:
+
+- `review: requested (codex)` when a round is requested or running on the head.
+- `review: open (codex)` when findings remain unanswered.
+- `review: closed (codex)` only when the latest code round on this head is
+  completed and clean, and every finding across all rounds has a factual reply.
+- `review: stalled (codex)` when the loop ends unresolved; post the remaining
+  findings and blocker. This proposed name does not waive the merge gate.
+
+Read the latest `codex-review-state:v1` JSON in the summary comment:
+`code_review.commit_sha` must match `headRefOid`, status must be completed,
+and unresolved findings must be empty before the closed state is justified.
+An old-head round supplies no current-head state. After a push, remove stale
+state and `mergeable`, request a round on the new head, and record requested.
+A failed or incomplete round is not closed.
+
+Apply `mergeable` only when review, every finding's disposition, acceptance,
+CI (or evidenced baseline exception) and base freshness meet
+[policy.md](policy.md#merging). Participant `finished` labels do not replace
+these checks. The owner still decides merges into `main`.
+
 
 ## Read, address, then merge
 

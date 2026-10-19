@@ -1,58 +1,80 @@
 # Triage labels
 
-This is the settled interim tracker policy, not completion of the global policy or setup-skill migration. The shared labels are deployed; actor/reviewer naming, the baseline decision and the coordinated renames below remain open. Label creation did not relabel or close existing issues.
+Iteration 1: labels compose facts, rather than encoding every combination in a new name. Follow [triage.md](triage.md) to classify and reconcile records; [pr-review-bots.md](pr-review-bots.md) owns the review gate and head-specific state.
 
-## Composable meanings
+## Kind
 
-Labels describe separate facts. Keep type, source/relationship, estimates, specification presence and participation/readiness distinct.
+| Label | Meaning |
+| --- | --- |
+| `bug` | Something isn't working. |
+| `enhancement` | New feature or request. |
+| `documentation` | User- or agent-facing docs, README or changelog. |
+| `accessibility` | Barrier affecting people with disabilities. |
+| `idea` | An undecided possibility; not a spec, not authorized work. |
+| `experiment` | Tried on an `experimental/` branch; landing on `nightly` or `main` requires an owner decision. |
+| `spec` | Is or contains an implementation specification. |
+| `hotfix` | Urgent targeted fix to the default branch. |
+
+## Relationship and disposition
+
+| Label | Meaning |
+| --- | --- |
+| `upstream` | Upstream is involved: synchronization, compatibility, conflict avoidance or divergence. |
+| `downstream` | Needed by a project that consumes this one. |
+| `duplicate` | Same request as another issue; useful context merged into the canonical one. |
+| `entangled` | Incompatible alternatives; the owner chooses one, the rest close. |
+| `baseline` | Pre-existing defect found on the base during review; retained this iteration. |
+| `invalid` | Closed: wrong repo, missing required information or format, or policy violation. |
+| `wontfix` | Closed: will not be worked on. |
+| `stale: identical` | Already implemented essentially as specified. |
+| `stale: similar` | Implemented differently; open for remaining differences. |
+
+## Priority and estimates
 
 | Labels | Meaning |
 | --- | --- |
-| `bug`, `enhancement`, `documentation`, `accessibility`, `idea` | Fitting descriptions of the issue; `idea` is an undecided possibility, not implementation authorization. |
-| `spec` | The issue is or contains an implementation specification, optionally in a collapsible `<details>` section. Headings or checkboxes alone do not turn brainstorming into an agreed spec. A spec is not authorization, active ownership or merge eligibility. |
-| `experiment` | Composes with `idea`, `bug` and other labels. Experimental implementation belongs on an `experimental/` topic branch; landing it on `nightly` or `main` requires a separate owner decision. The label starts no work. |
-| `downstream` | Records a downstream relationship; it does not move missing NeoPi capabilities into this repository. |
-| `entangled` | Incompatible alternatives: choosing one supersedes the others, not ordinary dependencies or related work. Preserve the owner's choice; do not AFK-implement an unresolved alternative set. |
-| `duplicate`, `invalid`, `wontfix` | Evidence-based disposition, not a shortcut around reading the issue. `wontfix` means it will not be actioned. |
-| `stale: identical` | Proof establishes that the requested behavior is already implemented essentially as specified. |
-| `stale: similar` | Partial or different implementation; not automatic closure. |
+| `priority: p0` | Blocks current work or handles an active incident. |
+| `priority: p1` | High value or prerequisite for several issues. |
+| `priority: p2` | Useful planned work. |
+| `priority: p3` | Backlog or opportunistic work. |
+| `difficulty: 0.000-0.125`, `difficulty: 0.125-0.250`, `difficulty: 0.250-0.375`, `difficulty: 0.375-0.500`, `difficulty: 0.500-0.625`, `difficulty: 0.625-0.750`, `difficulty: 0.750-0.875`, `difficulty: 0.875-1.000` | Eight implementation-difficulty bands. Lower bounds inclusive; upper bounds exclusive except 1.000. |
+| `frame: hours`, `frame: days`, `frame: weeks`, `frame: months`, `frame: years` | Estimated time frame; agent estimates lowered one unit exactly once, with hours as the floor. Human estimates unchanged. |
 
-`experiment` was newly created here; NeoCode had no prior `experimental idea` label to rename.
+## Triage and actor state
 
-Deselected non-operational labels are not for new triage assignments: `question`, `good first issue`, `help wanted`, `rpc`, `t3c-npi`, `npi-deck`, `neopi-upstream`, `codex-review`, `sentinel-review-requested`, and the effort/size/vouch/wayfinder families. Preserve existing associations until reviewed cutover; do not bulk-remove them. Current required PR/readiness operational names remain in force until their replacements are decided.
-
-### Estimates
-
-Priority remains `priority: p0`, `priority: p1`, `priority: p2` or `priority: p3`. Difficulty and frame are independent of priority and each other; do not invent numerical precision without evidence.
-
-- Difficulty labels: `difficulty: 0.000-0.125`, `difficulty: 0.125-0.250`, `difficulty: 0.250-0.375`, `difficulty: 0.375-0.500`, `difficulty: 0.500-0.625`, `difficulty: 0.625-0.750`, `difficulty: 0.750-0.875`, `difficulty: 0.875-1.000`. Lower bounds are inclusive; upper bounds are exclusive except the final interval includes 1.0. Preserve estimator/source provenance. Arbitrary title-number prefixes are not evidence of difficulty; do not rewrite titles on that assumption.
-- Frame labels: `frame: hours`, `frame: days`, `frame: weeks`, `frame: months`, `frame: years`. For a fresh agent-authored estimate, normalize down exactly one step: years → months → weeks → days → hours, with hours as the floor. Record estimator, original unit and normalization so later triage does not shrink it again. Leave human-authored estimates unchanged.
-- Historical `effort: *` is not literal time and cannot be auto-converted. Do not assign it to new triage; existing associations remain until individually reviewed.
-
-### Interim state names
-
-| Operational issue label | Interim treatment |
+| Label | Meaning |
 | --- | --- |
-| `needs-triage` | Maintainer evaluation or an unresolved policy decision is needed. |
-| `needs-info` | More information is needed from the reporter. |
-| `ready-for-agent` | Legacy readiness marker; retain pending evidence-based reconciliation, not as new authorization for an AFK agent. |
-| `ready-for-human` | Legacy readiness marker; retain pending evidence-based reconciliation, not as an automatic post-merge or promotion marker. |
-| `wontfix` | Will not be actioned. |
+| `needs-triage` | Not yet triaged. |
+| `triage: started` | Triage in progress; labels are provisional. Name is a proposal in this iterative vocabulary. |
+| `needs-info` | Cannot proceed until the named information arrives. |
+| `agent: pending` | Ready for an out-of-the-loop (OTL) agent to pick up. |
+| `agent: started` | An agent has claimed this; do not duplicate the work. |
+| `agent: finished` | The agent's part is done; not necessarily mergeable. |
+| `human: pending` | Needs an in-the-loop (ITL) session with a human. |
+| `human: started` | A human has claimed the in-the-loop part. |
+| `human: finished` | The human's in-the-loop part is done. |
 
-Human/agent pending, started and finished participation is under discussion; no final spellings or replacement labels are selected. Started would claim active ownership; finished concerns that participant's work, not universal PR mergeability. Do not create actor-state aliases or settle reviewer naming in this interim policy.
+Started is a claim, not a heartbeat. Human means human-in-the-loop, not a human writing the code.
 
-PRs still use `needs-review`, `ready-for-merge` and `review-stalled`, not issue triage markers. The accepted target `mergeable` means the repository's documented gates are met; it does not grant permission to merge `main`. Keep operational `ready-for-merge` until parent policy and literal consumers migrate together. The [existing review gate](pr-review-bots.md) is unchanged.
+## Review and merge
 
-`upstream` is the accepted target for substantive upstream involvement, not only release synchronization. A fork-local manifestation does not disprove upstream origin. Keep operational `upstream-sync` pending the coordinated parent-policy/consumer cutover; do not create the target or rename the existing label in isolation. `baseline` remains in use for defects found on the base; it does not automatically imply upstream origin. Whether to remove it remains undecided.
+| Label | Meaning |
+| --- | --- |
+| `review: codex` | Codex reviews this change; token `codex` maps to the configured bot and trigger in the review manual. |
+| `review: requested (codex)` | A Codex round is requested on the current head. |
+| `review: open (codex)` | Codex findings are unanswered on the current head. |
+| `review: closed (codex)` | Codex's latest round on the current head is clean and every finding answered. |
+| `review: stalled (codex)` | Review loop ended unresolved; summary posted. Name is a proposal. |
+| `mergeable` | Meets this repository's documented merge criteria; merge authority remains separate. |
 
-## Reconciliation
+`sentinel-review-requested` remains recognized where an existing issue or PR explicitly requires that panel; its mechanics are governed by the applicable assignment. Magi is not configured.
 
-Reconcile at least daily. The owner will create a dedicated triage role; until then use the built-in `@commit` role, resolved at runtime. Do not pin a model slug, start a swarm or infer a scheduler from this requirement.
+## Composition
 
-1. Read issue and PR bodies, relevant comments, current labels, linked implementation and all acceptance criteria. Check actual PR merged state, not just closed state. Ingest PR review bodies as well as inline comments/threads and issue comments. Author claims are not independent CI/review proof.
-2. Compare duplicate candidates and existing ownership/acceptance work without redoing it. Scope review to tangible changed behavior, not unrelated upstream ghosts. Distinguish partial/similar implementation from essentially identical implementation.
-3. Produce an evidence-linked proposal first: current labels, proposed additions/removals, issue-state recommendation, confidence, evidence and unresolved policy decisions. Unclear cases stay `needs-triage` or `needs-info` as appropriate.
-4. An authorized integration owner reviews the proposal and applies verified changes. Preserve useful unique duplicate context in an attributed canonical-issue comment/crosslink before closing; never close on title similarity.
-5. For merged-PR issues, follow [completion and closure](issue-tracker.md#completion-and-closure): prove all acceptance and any explicit promotion condition, record the merge/proof, and do not confuse partial delivery with complete scope.
+Use `upstream` + `bug`, `downstream` + `enhancement`, or `upstream` + `experiment` to express separate facts. `experiment` can compose with `idea` or `bug`, but requires its experimental branch rather than ordinary integration eligibility. `documentation` covers this policy as well as user guides.
 
-This procedure adds no scheduling infrastructure and does not decide actor/reviewer names, baseline removal or new review gates. Publication authority and identity rules remain in [issue-funnel.md](issue-funnel.md) and workspace policy.
+`duplicate` and `entangled` can coexist when variants address the same request but cannot coexist. Entanglement does not imply duplication. `needs-info` or unresolved `entangled` excludes pending actor states: blocked work is not ready to pick up. Use one state per actor and one current review state per reviewer; actor states for different participants can coexist. Completion of either participant does not imply `mergeable`. `spec` supplies a contract, not authorization or ownership. Priority, difficulty and frame are independent axes.
+
+## Open decisions
+
+These are recorded, not implemented: retiring `baseline` (fork-local base defects still need a marker); upstream-conflict potential and user-disruption axes; a replacement for the question category; resource allocation in place of contributor recruitment; a squash/rebase exception; an owner approval mechanism for policy files; the setup skill and HTML questionnaire; Magi; automated triage runners/webhooks; GitHub Projects and Discussions reporting. Vocabulary and proposed spellings remain iterative.
