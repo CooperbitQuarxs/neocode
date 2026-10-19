@@ -462,7 +462,8 @@ export function projectActivityPayload(
     projectedData.displayOutput =
       displayOutput.length <= MAX_DISPLAY_OUTPUT_CHARS
         ? displayOutput
-        : Array.from(displayOutput.slice(-MAX_DISPLAY_OUTPUT_CHARS)).join("");
+        : // Keep the tail within its budget without emitting half a surrogate pair.
+          displayOutput.slice(-MAX_DISPLAY_OUTPUT_CHARS).replace(/^[\uDC00-\uDFFF]/u, "");
   }
   const item = projectCommandData(data);
   if (item) {

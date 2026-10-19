@@ -1,4 +1,4 @@
-import { rejects } from "node:assert/strict";
+import * as NodeAssert from "node:assert/strict";
 import { assert, it } from "@effect/vitest";
 import { TurnId } from "@t3tools/contracts";
 import { groupNeoPiHistory, rollbackNeoPiConversation } from "./NeoPiRollback.ts";
@@ -90,7 +90,7 @@ it("keeps a proposal refinement tied to its original native rollback boundary", 
     ],
   };
   const calls: string[] = [];
-  await rejects(
+  await NodeAssert.rejects(
     rollbackNeoPiConversation({
       cursor: refined,
       numTurns: 1,
@@ -150,7 +150,7 @@ it("rejects a removed plan continuation before a later native turn without branc
     ],
   };
   const commands: string[] = [];
-  await rejects(
+  await NodeAssert.rejects(
     rollbackNeoPiConversation({
       cursor: boundaries,
       numTurns: 2,
@@ -206,7 +206,7 @@ it("branches a user-invoked skill entry and verifies it by advertised entry id",
 
 it("marks every failure after a confirmed branch as requiring restoration", async () => {
   for (const state of ["throw", "invalid"]) {
-    await rejects(
+    await NodeAssert.rejects(
       rollbackNeoPiConversation({
         cursor,
         numTurns: 1,
@@ -237,7 +237,7 @@ it("does not branch a missing ancestry entry, a hidden entry, or a cancelled req
               { turnId: TurnId.make("hidden"), userEntryId: "missing" },
             ],
           };
-    await rejects(
+    await NodeAssert.rejects(
       rollbackNeoPiConversation({
         cursor: suspect,
         numTurns: 1,
@@ -251,7 +251,7 @@ it("does not branch a missing ancestry entry, a hidden entry, or a cancelled req
     assert.deepEqual(sent, ["get_entries"]);
   }
   const sent: string[] = [];
-  await rejects(
+  await NodeAssert.rejects(
     rollbackNeoPiConversation({
       cursor,
       numTurns: 1,
@@ -288,7 +288,7 @@ it("accepts a carried label after branch and rejects stale session identity", as
     },
   });
   assert.equal(result.sessionId, "new");
-  await rejects(
+  await NodeAssert.rejects(
     rollbackNeoPiConversation({
       cursor,
       numTurns: 1,
@@ -306,7 +306,7 @@ it("accepts a carried label after branch and rejects stale session identity", as
 
 it("persists the new identity before failing a branch that leaves removed messages in memory", async () => {
   let saved: NeoPiResumeCursor | undefined;
-  await rejects(
+  await NodeAssert.rejects(
     rollbackNeoPiConversation({
       cursor,
       numTurns: 1,
@@ -375,7 +375,7 @@ it("rewinds local turns without mutating native history and branches only the fi
   const withoutBC = await rollbackNeoPiConversation({ cursor: mixed, numTurns: 2, request });
   assert.deepEqual(withoutBC.turnBoundaries, [cursor.turnBoundaries[0]!]);
   assert.ok(requests.includes("branch:second"));
-  await rejects(
+  await NodeAssert.rejects(
     rollbackNeoPiConversation({
       cursor: {
         ...mixed,

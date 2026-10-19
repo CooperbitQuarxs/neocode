@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import * as NodeCrypto from "node:crypto";
 import type { ServerProviderUsageLimits, ServerProviderUsageWindow } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import type * as Duration from "effect/Duration";
@@ -245,7 +245,7 @@ export const applyUsageLimits = Effect.fn("applyNeoPiUsageLimits")(function* (
     }
   }
 
-  const environmentHash = createHash("sha256");
+  const environmentHash = NodeCrypto.createHash("sha256");
   for (const [key, value] of Object.entries(input.environment ?? {}).sort(([a], [b]) =>
     a.localeCompare(b),
   )) {
