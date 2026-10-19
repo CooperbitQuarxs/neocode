@@ -44,8 +44,10 @@ jobs:
           date=$(date -u +%Y-%m-%d)
           branch="sync/promote-$date"
           labels="human: pending,review: codex"
-          existing=$(gh pr list --base "$BASE" --state open --json number,headRefName,isCrossRepository \
-            --jq '[.[] | select(.isCrossRepository == false) | select(.headRefName | startswith("sync/promote-"))][0].number // empty')
+          existing=$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" \
+            -f base="$BASE" -f state=open -F per_page=100 --paginate --slurp |
+            jq '[.[][] | select(.head.repo.full_name == env.GITHUB_REPOSITORY) |
+              select(.head.ref | startswith("sync/promote-"))][0].number // empty')
           if [ -n "$existing" ]; then
              gh pr edit "$existing" --add-label "$labels"
              echo "number=$existing" >> "$GITHUB_OUTPUT"
@@ -63,7 +65,7 @@ jobs:
              echo
              echo "## Why"
              echo
-             echo "Scheduled promotion per \`docs/agents/policy.md\` › Promotion. Everything here already merged into \`$SOURCE\` through its own PR."
+             echo "Scheduled promotion per \`docs/policy/README.md\` › Promotion. Everything here already merged into \`$SOURCE\` through its own PR."
              echo
              echo "## Testing"
              echo
