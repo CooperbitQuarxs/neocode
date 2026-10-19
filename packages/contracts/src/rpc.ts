@@ -40,6 +40,15 @@ import {
   AgentSessionScanError,
 } from "./agentSessions.ts";
 import {
+  NeoPiSessionError,
+  NeoPiSessionListInput,
+  NeoPiSessionListResult,
+  NeoPiSessionResumeInput,
+  NeoPiSessionResumeResult,
+  NeoPiSessionHandoffInput,
+  NeoPiSessionHandoffResult,
+} from "./neopiSessions.ts";
+import {
   AssetAccessError,
   AssetCreateUrlInput,
   AssetCreateUrlResult,
@@ -292,6 +301,9 @@ export const WS_METHODS = {
   filesystemBrowse: "filesystem.browse",
   agentSessionsScan: "agentSessions.scan",
   agentSessionsImport: "agentSessions.import",
+  neopiSessionsList: "neopiSessions.list",
+  neopiSessionsResume: "neopiSessions.resume",
+  neopiSessionsHandoff: "neopiSessions.handoff",
   assetsCreateUrl: "assets.createUrl",
   attachmentsCreateUploadUrl: "attachments.createUploadUrl",
   attachmentsDelete: "attachments.delete",
@@ -983,6 +995,22 @@ const WsAgentSessionsImportRpc = Rpc.make(WS_METHODS.agentSessionsImport, {
   ]),
 });
 
+const WsNeoPiSessionsListRpc = Rpc.make(WS_METHODS.neopiSessionsList, {
+  payload: NeoPiSessionListInput,
+  success: NeoPiSessionListResult,
+  error: Schema.Union([NeoPiSessionError, EnvironmentAuthorizationError]),
+});
+const WsNeoPiSessionsResumeRpc = Rpc.make(WS_METHODS.neopiSessionsResume, {
+  payload: NeoPiSessionResumeInput,
+  success: NeoPiSessionResumeResult,
+  error: Schema.Union([NeoPiSessionError, EnvironmentAuthorizationError]),
+});
+const WsNeoPiSessionsHandoffRpc = Rpc.make(WS_METHODS.neopiSessionsHandoff, {
+  payload: NeoPiSessionHandoffInput,
+  success: NeoPiSessionHandoffResult,
+  error: Schema.Union([NeoPiSessionError, EnvironmentAuthorizationError]),
+});
+
 const WsAssetsCreateUrlRpc = Rpc.make(WS_METHODS.assetsCreateUrl, {
   payload: AssetCreateUrlInput,
   success: AssetCreateUrlResult,
@@ -1473,6 +1501,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsFilesystemBrowseRpc,
   WsAgentSessionsScanRpc,
   WsAgentSessionsImportRpc,
+  WsNeoPiSessionsListRpc,
+  WsNeoPiSessionsResumeRpc,
+  WsNeoPiSessionsHandoffRpc,
   WsAssetsCreateUrlRpc,
   WsAttachmentsCreateUploadUrlRpc,
   WsAttachmentsDeleteRpc,
