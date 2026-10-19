@@ -63,7 +63,6 @@ CI (or evidenced baseline exception) and base freshness meet
 [policy.md](policy.md#merging). Participant `finished` labels do not replace
 these checks. The owner still decides merges into `main`.
 
-
 ## Read, address, then merge
 
 1. Retrieve all inline comments, including human replies, plus review bodies

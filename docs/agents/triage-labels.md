@@ -4,68 +4,68 @@ Iteration 1: labels compose facts, rather than encoding every combination in a n
 
 ## Kind
 
-| Label | Meaning |
-| --- | --- |
-| `bug` | Something isn't working. |
-| `enhancement` | New feature or request. |
-| `documentation` | User- or agent-facing docs, README or changelog. |
-| `accessibility` | Barrier affecting people with disabilities. |
-| `idea` | An undecided possibility; not a spec, not authorized work. |
-| `experiment` | Tried on an `experimental/` branch; landing on `nightly` or `main` requires an owner decision. |
-| `spec` | Is or contains an implementation specification. |
-| `hotfix` | Urgent targeted fix to the default branch. |
+| Label           | Meaning                                                                                        |
+| --------------- | ---------------------------------------------------------------------------------------------- |
+| `bug`           | Something isn't working.                                                                       |
+| `enhancement`   | New feature or request.                                                                        |
+| `documentation` | User- or agent-facing docs, README or changelog.                                               |
+| `accessibility` | Barrier affecting people with disabilities.                                                    |
+| `idea`          | An undecided possibility; not a spec, not authorized work.                                     |
+| `experiment`    | Tried on an `experimental/` branch; landing on `nightly` or `main` requires an owner decision. |
+| `spec`          | Is or contains an implementation specification.                                                |
+| `hotfix`        | Urgent targeted fix to the default branch.                                                     |
 
 ## Relationship and disposition
 
-| Label | Meaning |
-| --- | --- |
-| `upstream` | Upstream is involved: synchronization, compatibility, conflict avoidance or divergence. |
-| `downstream` | Needed by a project that consumes this one. |
-| `duplicate` | Same request as another issue; useful context merged into the canonical one. |
-| `entangled` | Incompatible alternatives; the owner chooses one, the rest close. |
-| `baseline` | Pre-existing defect found on the base during review; retained this iteration. |
-| `invalid` | Closed: wrong repo, missing required information or format, or policy violation. |
-| `wontfix` | Closed: will not be worked on. |
-| `stale: identical` | Already implemented essentially as specified. |
-| `stale: similar` | Implemented differently; open for remaining differences. |
+| Label              | Meaning                                                                                 |
+| ------------------ | --------------------------------------------------------------------------------------- |
+| `upstream`         | Upstream is involved: synchronization, compatibility, conflict avoidance or divergence. |
+| `downstream`       | Needed by a project that consumes this one.                                             |
+| `duplicate`        | Same request as another issue; useful context merged into the canonical one.            |
+| `entangled`        | Incompatible alternatives; the owner chooses one, the rest close.                       |
+| `baseline`         | Pre-existing defect found on the base during review; retained this iteration.           |
+| `invalid`          | Closed: wrong repo, missing required information or format, or policy violation.        |
+| `wontfix`          | Closed: will not be worked on.                                                          |
+| `stale: identical` | Already implemented essentially as specified.                                           |
+| `stale: similar`   | Implemented differently; open for remaining differences.                                |
 
 ## Priority and estimates
 
-| Labels | Meaning |
-| --- | --- |
-| `priority: p0` | Blocks current work or handles an active incident. |
-| `priority: p1` | High value or prerequisite for several issues. |
-| `priority: p2` | Useful planned work. |
-| `priority: p3` | Backlog or opportunistic work. |
-| `difficulty: 0.000-0.125`, `difficulty: 0.125-0.250`, `difficulty: 0.250-0.375`, `difficulty: 0.375-0.500`, `difficulty: 0.500-0.625`, `difficulty: 0.625-0.750`, `difficulty: 0.750-0.875`, `difficulty: 0.875-1.000` | Eight implementation-difficulty bands. Lower bounds inclusive; upper bounds exclusive except 1.000. |
-| `frame: hours`, `frame: days`, `frame: weeks`, `frame: months`, `frame: years` | Estimated time frame; agent estimates lowered one unit exactly once, with hours as the floor. Human estimates unchanged. |
+| Labels                                                                                                                                                                                                                 | Meaning                                                                                                                  |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `priority: p0`                                                                                                                                                                                                         | Blocks current work or handles an active incident.                                                                       |
+| `priority: p1`                                                                                                                                                                                                         | High value or prerequisite for several issues.                                                                           |
+| `priority: p2`                                                                                                                                                                                                         | Useful planned work.                                                                                                     |
+| `priority: p3`                                                                                                                                                                                                         | Backlog or opportunistic work.                                                                                           |
+| `difficulty: 0.000-0.125`, `difficulty: 0.125-0.250`, `difficulty: 0.250-0.375`, `difficulty: 0.375-0.500`, `difficulty: 0.500-0.625`, `difficulty: 0.625-0.750`, `difficulty: 0.750-0.875`, `difficulty: 0.875-1.000` | Eight implementation-difficulty bands. Lower bounds inclusive; upper bounds exclusive except 1.000.                      |
+| `frame: hours`, `frame: days`, `frame: weeks`, `frame: months`, `frame: years`                                                                                                                                         | Estimated time frame; agent estimates lowered one unit exactly once, with hours as the floor. Human estimates unchanged. |
 
 ## Triage and actor state
 
-| Label | Meaning |
-| --- | --- |
-| `needs-triage` | Not yet triaged. |
+| Label             | Meaning                                                                                      |
+| ----------------- | -------------------------------------------------------------------------------------------- |
+| `needs-triage`    | Not yet triaged.                                                                             |
 | `triage: started` | Triage in progress; labels are provisional. Name is a proposal in this iterative vocabulary. |
-| `needs-info` | Cannot proceed until the named information arrives. |
-| `agent: pending` | Ready for an out-of-the-loop (OTL) agent to pick up. |
-| `agent: started` | An agent has claimed this; do not duplicate the work. |
-| `agent: finished` | The agent's part is done; not necessarily mergeable. |
-| `human: pending` | Needs an in-the-loop (ITL) session with a human. |
-| `human: started` | A human has claimed the in-the-loop part. |
-| `human: finished` | The human's in-the-loop part is done. |
+| `needs-info`      | Cannot proceed until the named information arrives.                                          |
+| `agent: pending`  | Ready for an out-of-the-loop (OTL) agent to pick up.                                         |
+| `agent: started`  | An agent has claimed this; do not duplicate the work.                                        |
+| `agent: finished` | The agent's part is done; not necessarily mergeable.                                         |
+| `human: pending`  | Needs an in-the-loop (ITL) session with a human.                                             |
+| `human: started`  | A human has claimed the in-the-loop part.                                                    |
+| `human: finished` | The human's in-the-loop part is done.                                                        |
 
 Started is a claim, not a heartbeat. Human means human-in-the-loop, not a human writing the code.
 
 ## Review and merge
 
-| Label | Meaning |
-| --- | --- |
-| `review: codex` | Codex reviews this change; token `codex` maps to the configured bot and trigger in the review manual. |
-| `review: requested (codex)` | A Codex round is requested on the current head. |
-| `review: open (codex)` | Codex findings are unanswered on the current head. |
-| `review: closed (codex)` | Codex's latest round on the current head is clean and every finding answered. |
-| `review: stalled (codex)` | Review loop ended unresolved; summary posted. Name is a proposal. |
-| `mergeable` | Meets this repository's documented merge criteria; merge authority remains separate. |
+| Label                       | Meaning                                                                                               |
+| --------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `review: codex`             | Codex reviews this change; token `codex` maps to the configured bot and trigger in the review manual. |
+| `review: requested (codex)` | A Codex round is requested on the current head.                                                       |
+| `review: open (codex)`      | Codex findings are unanswered on the current head.                                                    |
+| `review: closed (codex)`    | Codex's latest round on the current head is clean and every finding answered.                         |
+| `review: stalled (codex)`   | Review loop ended unresolved; summary posted. Name is a proposal.                                     |
+| `mergeable`                 | Meets this repository's documented merge criteria; merge authority remains separate.                  |
 
 `sentinel-review-requested` remains recognized where an existing issue or PR explicitly requires that panel; its mechanics are governed by the applicable assignment. Magi is not configured.
 

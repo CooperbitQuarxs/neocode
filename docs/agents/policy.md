@@ -118,15 +118,14 @@ breaks `nightly`, revert through a PR. Workflow changes exercised only on push
 or dispatch stay single-purpose: watch the first applicable post-merge run
 and revert through a PR on failure.
 
-
 ## Where the rest lives
 
-| Topic                                          | File                                                                                          |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Code conventions, package layout, verification | `AGENTS.md`                                                                                   |
-| Fork placement and compatibility checks        | `docs/agents/fork-maintenance.md`                                                             |
-| Upstream sync procedure                        | `docs/agents/upstream-sync.md`                                                                |
-| Review-bot mechanics                           | `docs/agents/pr-review-bots.md`                                                               |
-| Issue tracker, funnel, triage | `docs/agents/issue-tracker.md`, `docs/agents/issue-funnel.md`, `docs/agents/triage.md`, `docs/agents/triage-labels.md` |
-| Domain vocabulary                              | `docs/agents/domain.md`                                                                       |
-| Release workflow                               | `docs/operations/release.md`                                                                  |
+| Topic                                          | File                                                                                                                   |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Code conventions, package layout, verification | `AGENTS.md`                                                                                                            |
+| Fork placement and compatibility checks        | `docs/agents/fork-maintenance.md`                                                                                      |
+| Upstream sync procedure                        | `docs/agents/upstream-sync.md`                                                                                         |
+| Review-bot mechanics                           | `docs/agents/pr-review-bots.md`                                                                                        |
+| Issue tracker, funnel, triage                  | `docs/agents/issue-tracker.md`, `docs/agents/issue-funnel.md`, `docs/agents/triage.md`, `docs/agents/triage-labels.md` |
+| Domain vocabulary                              | `docs/agents/domain.md`                                                                                                |
+| Release workflow                               | `docs/operations/release.md`                                                                                           |
