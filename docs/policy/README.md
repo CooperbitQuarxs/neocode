@@ -62,12 +62,16 @@ after it lands is a manual `nightly` into `main` merge by the owner.
 
 ## Labels
 
-- Type: `bug`, `enhancement`, `documentation`, `question`, …
-- Priority: `priority: p0` … `priority: p3`. Effort: `effort: tiny` … `effort: very large`.
-- Issue triage (meanings in `docs/agents/triage-labels.md`): `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`.
-- PR state: `needs-review`, `ready-for-merge`, `review-stalled`.
-- Other: `baseline` (defect found on the base branch during a PR), `upstream-sync`, `hotfix`, `entangled`, `neopi-upstream`, `codex-review`, `sentinel-review-requested`.
-- The `downstream`, `rpc`, `t3c-npi` and `npi-deck` labels exist only in `PsychedelicShayna/neopi`. Missing NeoPi capabilities are filed there with them (see `AGENTS.md` › Fork rule).
+The settled interim meanings and at-least-daily proposal/review/apply procedure are in [triage-labels.md](../agents/triage-labels.md). This is not the completed global policy or setup-skill migration; existing issue assignments have not been bulk-reconciled.
+
+- Composable type/context: `accessibility`, `bug`, `documentation`, `enhancement`, `idea`, `experiment`, `spec`, plus fitting existing repository labels such as `question`.
+- Priority: `priority: p0` … `priority: p3`. Difficulty: the eight `difficulty: 0.000-0.125` … `difficulty: 0.875-1.000` intervals. Frame: `frame: hours`, `frame: days`, `frame: weeks`, `frame: months`, `frame: years`. Historical `effort: tiny` … `effort: very large` is retained pending individual review, not required or automatically converted.
+- Issue triage: `needs-triage`, `needs-info`, `wontfix`; `ready-for-agent` and `ready-for-human` remain legacy markers pending evidence-based reconciliation. No replacement actor/reviewer names are selected.
+- PR state remains `needs-review`, `ready-for-merge`, `review-stalled`. Accepted target `mergeable` means the existing repository gates are met, not permission to merge `main`. It is not deployed; keep `ready-for-merge` until parent policy and literal consumers migrate together. Review gates are unchanged.
+- Source/relationship/disposition: `downstream`, `duplicate`, `entangled`, `hotfix`, `invalid`, `stale: identical`, `stale: similar`. `baseline` remains for defects found on the base during a PR; removal is undecided and it does not automatically imply upstream origin.
+- Operational `upstream-sync` remains pending coordinated migration to accepted target `upstream`, meaning substantive upstream involvement beyond release synchronization. Do not create or rename it in isolation. Existing repository labels including `neopi-upstream`, `codex-review` and `sentinel-review-requested` are not automatically removed.
+- `experiment` is newly created here, not a rename from a prior experimental-idea label. A label alone starts no work; experimental implementation needs an `experimental/` topic branch and a separate owner decision before landing on `nightly` or `main`.
+- `downstream` now exists here too. Missing NeoPi capabilities still belong in `PsychedelicShayna/neopi` with `rpc`, `downstream`, `t3c-npi` (see `AGENTS.md` › Fork rule); this availability does not change repository scope.
 
 ## Where the rest lives
 

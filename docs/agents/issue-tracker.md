@@ -8,8 +8,7 @@ Issues and specs for this repo live in GitHub Issues at `PsychedelicShayna/neoco
 - Read: `gh issue view <number> --comments`, including labels.
 - List: `gh issue list --state <state> --json number,title,body,labels,comments` with the filters the task requires.
 - Apply or remove labels: `gh issue edit <number> --add-label "..."` or `--remove-label "..."`.
-- Issues stay open until the fix is promoted to the default branch; label `ready-for-human` after the `nightly` merge.
-- Posting rules (comment identity block, labels) are the workspace policy in `~/source/github/PsychedelicShayna/AGENTS.md`. This guide is mechanics only.
+- Posting rules (comment identity block, labels) are the workspace policy in `~/source/github/PsychedelicShayna/AGENTS.md`. Label meanings and reconciliation are in [triage-labels.md](triage-labels.md).
 - Upstream `AGENTS.md` still applies: implementation plans and scratch notes stay out of the worktree; the issue owns the checklist, the merged PR is the record.
 
 ## Pull requests as a triage surface
@@ -21,20 +20,19 @@ Issues and specs for this repo live in GitHub Issues at `PsychedelicShayna/neoco
 - "Publish to the issue tracker" means create a GitHub issue on the fork.
 - "Fetch the relevant ticket" means read the GitHub issue, its comments, and labels.
 
-## Dual taxonomy
+## Composable labels
 
-House labels (type, `effort: *`, `priority: *`, and `entangled` only for true alternative clusters) and Matt triage labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) are **orthogonal layers**, not replacements. An issue may carry both. Do not strip house labels to be Matt-only. The same taxonomy applies in `neopi` and `neodeck`. The Issue Funnel contract is `docs/agents/issue-funnel.md`.
+Type, source/relationship, estimates, specification presence and participation/readiness are distinct facts, not mutually exclusive issue categories. Use the deployed labels and interim meanings in [triage-labels.md](triage-labels.md); the repository inventory and operational PR state names are in [repository policy](../policy/README.md#labels).
 
-**House:**
+Each published issue carries a fitting type, a `priority: p0`–`priority: p3` and a state; use `needs-triage` when unresolved. Do not require `effort: *`, convert historical effort into time, or remove existing labels without evidence. Keep legacy `ready-for-agent` / `ready-for-human` assignments pending reconciliation; they are not fresh implementation authorization. The publication contract is [issue-funnel.md](issue-funnel.md).
 
-- Type: `bug` or `enhancement` (other GitHub defaults only when they truly fit).
-- Exactly one `effort: tiny|small|medium|large|very large`.
-- Exactly one `priority: p0|p1|p2|p3`.
-- `entangled` only for a true alternative cluster (shipping one supersedes the siblings), and only when the Captain ordered it.
+## Completion and closure
 
-**Matt triage (readiness):** see `docs/agents/triage-labels.md`.
+A merged PR is implementation evidence, not proof that the entire issue is complete. Verify every acceptance criterion and any explicit promotion condition against the implementation and actual PR merge state. A closed, unmerged PR is not a merged implementation.
 
-**PR state** (on PRs, not issues): `needs-review`, `ready-for-merge`, `review-stalled`; the full label list is in `docs/policy/README.md` › Labels. Do not invent labels.
+GitHub automatic closure normally waits for a default-branch merge. A `nightly` merge can therefore leave a completed issue open: an authorized integration owner may close it manually after verifying the full scope and recording the merge and acceptance proof. If the issue explicitly requires promotion to `main`, wait for that promotion. Do not automatically label a `nightly` merge `ready-for-human`, close an umbrella for a partial PR, or reopen a correctly completed issue merely because a new follow-up exists.
+
+For stale or duplicate candidates, follow the evidence and proposal/review/apply procedure in [triage-labels.md](triage-labels.md#reconciliation).
 
 ## Issue shape
 
@@ -48,4 +46,4 @@ House voice: concrete contract, explicit boundaries, checkable acceptance. Sente
 - Tests (only when they defend an observable contract)
 - Acceptance (`- [ ]` musts)
 
-Dedupe before filing: amend an existing issue with a comment rather than opening a duplicate.
+Dedupe before filing: amend an existing issue with a comment rather than opening a duplicate. Before closing a verified duplicate, preserve useful unique context in an attributed canonical-issue comment and crosslink; title similarity alone is not proof.
