@@ -6,7 +6,7 @@ Use [triage-labels.md](triage-labels.md) for vocabulary, [policy.md](policy.md) 
 
 New reports enter with `needs-triage`. Read each body, comments, current labels, acceptance criteria and linked implementation. Claim triage by replacing `needs-triage` with `triage: started`; provisional labels are not readiness.
 
-Record a first pass in a private file outside the worktree, so the classification survives context loss. For each record keep its number, observed update time, current labels, provisional additions/removals, evidence links, acceptance gaps and unresolved decisions. Assign a fitting kind, priority, difficulty, frame, relationships, review requirement and actor state only where supported. An `idea` remains undecided; headings alone do not make it a `spec`. An `experiment` may be investigated on an `experimental/` branch, not merged to `nightly` or `main` without a separate owner decision.
+Record a first pass in a private file outside the worktree, so the classification survives context loss. For each record keep its number, observed update time, current labels, provisional additions/removals, evidence links, acceptance gaps and unresolved decisions. Assign a fitting kind, priority, difficulty, frame, relationships, optional review evidence and actor state only where supported. An `idea` remains undecided; headings alone do not make it a `spec`. An `experiment` may be investigated on an `experimental/` branch, not merged to `nightly` or `main` without a separate owner decision.
 
 A valid usage/configuration question may have no fitting kind in this iteration.
 Keep it unclassified with `needs-triage` after the pass and record the open
@@ -41,7 +41,7 @@ Use `agent: pending` only when the issue is sufficiently specified for unattende
 
 The participant who claims the work replaces pending with `agent: started` or `human: started`. Started records ownership, not continuous activity; another worker does not duplicate that claim. Replace started with the corresponding finished label when that participant's responsibility is complete. Human participation may finish before unattended review fixes do. Agent completion can precede promotion. Neither finished label asserts whole-change merge eligibility. If responsibility returns, move the affected actor back to pending or started as appropriate and explain the changed scope.
 
-Default review policy: every PR requires Codex Code Review. Assign `review: codex` at triage when a change will produce a PR. The PR author re-checks the actual diff against [pr-review-bots.md](pr-review-bots.md), carries the requirement onto the PR and requests a round on its head. This iteration adds no security rounds. Existing explicit panel requirements remain binding. Review states describe evidence, not author confidence; `mergeable` requires all repository gates and does not grant authority to merge `main`.
+Assign no review by default. Optional reviewer choices and observed round states follow [pr-review-bots.md](pr-review-bots.md); they never gate nightly delivery. `mergeable` records integrator confidence, not completed CI or review, and grants no merge authority.
 
 ## 5. Apply and reconcile
 
