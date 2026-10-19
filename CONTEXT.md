@@ -19,9 +19,9 @@ PR: a unit of tangible change the owner can feel when she runs the build.
 | Idea                | An undecided possibility, not a commitment or permission to implement.                                                            |
 | Entangled           | Mutually incompatible alternatives requiring the owner's choice, rather than ordinary related or dependent work.                  |
 | Frame normalization | Lower an agent's original time unit exactly once, with hours as the floor; preserve provenance. Human estimates are unchanged.    |
-| Review choice       | An optional reviewer selected for a large-blast-radius change; never a nightly gate. |
-| Review state        | Descriptive evidence of a requested, open, closed or stalled round on its recorded SHA. |
-| Mergeable           | The integrator's confidence supports nightly delivery; not a CI/review gate or authority to merge. |
+| Review choice       | An optional reviewer selected for a large-blast-radius change; never a nightly gate.                                              |
+| Review state        | Descriptive evidence of a requested, open, closed or stalled round on its recorded SHA.                                           |
+| Mergeable           | The integrator's confidence supports nightly delivery; not a CI/review gate or authority to merge.                                |
 | Baseline            | A defect already present on the PR base; it need not originate upstream.                                                          |
 | Integration         | Merge into `nightly`, where agent work can finish while an issue remains open.                                                    |
 | Promotion           | Owner-decided merge from `nightly` into `main`; NeoCode issues close only after complete acceptance and promotion.                |

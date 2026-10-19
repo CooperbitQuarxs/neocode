@@ -58,13 +58,13 @@ Started is a claim, not a heartbeat. Human means human-in-the-loop, not a human 
 
 ## Review and merge
 
-| Label                       | Meaning                                                                                               |
-| --------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `review: codex`             | Optional reviewer choice; no default assignment. |
-| `review: requested (codex)` | A Codex round was requested; descriptive evidence only. |
-| `review: open (codex)`      | Codex findings remain open. |
-| `review: closed (codex)`    | The recorded round's findings have dispositions. |
-| `review: stalled (codex)`   | A round failed, is missing, or remains unresolved; never a nightly blocker. |
+| Label                       | Meaning                                                                                       |
+| --------------------------- | --------------------------------------------------------------------------------------------- |
+| `review: codex`             | Optional reviewer choice; no default assignment.                                              |
+| `review: requested (codex)` | A Codex round was requested; descriptive evidence only.                                       |
+| `review: open (codex)`      | Codex findings remain open.                                                                   |
+| `review: closed (codex)`    | The recorded round's findings have dispositions.                                              |
+| `review: stalled (codex)`   | A round failed, is missing, or remains unresolved; never a nightly blocker.                   |
 | `mergeable`                 | Integrator confidence supports nightly delivery; not review/CI completion or merge authority. |
 
 These labels are optional evidence, never nightly gates. Base movement
