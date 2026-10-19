@@ -82,4 +82,3 @@ jobs:
           allow-fail: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
