@@ -2,6 +2,8 @@
 
 Use these meanings for NeoCode policy and issue work. Product vocabulary stays in [docs/internals/glossary.md](docs/internals/glossary.md); procedures live in [docs/agents/](docs/agents/).
 
+PR: a unit of tangible change the owner can feel when she runs the build.
+
 | Term                | Meaning                                                                                                                           |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | NeoCode             | This fork, `PsychedelicShayna/neocode`, of `pingdotgg/t3code`.                                                                    |
@@ -17,9 +19,9 @@ Use these meanings for NeoCode policy and issue work. Product vocabulary stays i
 | Idea                | An undecided possibility, not a commitment or permission to implement.                                                            |
 | Entangled           | Mutually incompatible alternatives requiring the owner's choice, rather than ordinary related or dependent work.                  |
 | Frame normalization | Lower an agent's original time unit exactly once, with hours as the floor; preserve provenance. Human estimates are unchanged.    |
-| Review requirement  | A configured reviewer must review the change; distinct from a request or completed round.                                         |
-| Review state        | Requested, open, closed or stalled state for a reviewer on the current PR head.                                                   |
-| Mergeable           | All documented repository gates pass; not simply a conflict-free GitHub status or authority to merge.                             |
+| Review choice       | An optional reviewer selected for a large-blast-radius change; never a nightly gate. |
+| Review state        | Descriptive evidence of a requested, open, closed or stalled round on its recorded SHA. |
+| Mergeable           | The integrator's confidence supports nightly delivery; not a CI/review gate or authority to merge. |
 | Baseline            | A defect already present on the PR base; it need not originate upstream.                                                          |
 | Integration         | Merge into `nightly`, where agent work can finish while an issue remains open.                                                    |
 | Promotion           | Owner-decided merge from `nightly` into `main`; NeoCode issues close only after complete acceptance and promotion.                |

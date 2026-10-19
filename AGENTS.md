@@ -64,14 +64,14 @@ We need to be on the same page with terminology. When communicating, use this la
 
 ## Repository policy
 
-`docs/agents/policy.md` owns branches, commits, signing, pull requests and
-merging. The repository-specific review gate applies to every PR. The
-remaining sections retain compatible upstream code guidance.
+`docs/agents/policy.md` owns branches, commits, signing, pull requests,
+nightly delivery and promotion. The remaining sections retain compatible
+upstream code guidance.
 
 - Default branch `main`; integration branch `nightly`. Topic branches start from `origin/nightly` in a worktree named `../neocode-wt-<slug>`, and PRs target `nightly`. Both branches are protected: PR required, merge commits only, no force-push.
 - Merge commits read `Merge PR #<number>: <conventional PR subject> (@<author>)`.
 - Promotion opens a monthly PR for the owner to merge; promotion and `hotfix/` PRs into `main` are the owner's decision.
-- Every PR requires a complete, clean Codex Code Review on its final head and a factual disposition in every finding's thread, including unsolicited rounds. Do not request security rounds; already-posted security findings still require a fix or disproof. Before reviewing or merging, read `docs/agents/pr-review-bots.md`.
+- Review bots are optional; read `docs/agents/pr-review-bots.md` only when requesting or interpreting a review, or before executing PR-controlled code.
 - Before integrating upstream or adding fork behavior, read `docs/agents/fork-maintenance.md` and `docs/agents/upstream-sync.md`.
 - Contributor PRs (any author other than the owner) are read-only on the owner's machine: never run their code locally.
 - Releases and tags: `docs/agents/policy.md` › Releases.
@@ -142,7 +142,7 @@ For authorized mobile verification, a missing or outdated native client is a bui
 - UI changes need before/after images. Motion or timing needs a short video.
 - Upload PR evidence to GitHub. Never commit PR-only screenshots or assets such as `.github/pr-assets/`.
 - One concern per PR. If the description says "also", split it.
-- When babysitting: poll checks and comments newer than the last push, verify each bot finding against the source, fix real ones, dismiss false positives with a written reason. Stay quiet when nothing is new. Stop when the bots are green on the latest commit.
+- Delegate any CI/review watching to a cheap poller; continue delivery under `docs/agents/policy.md` rather than waiting for green bots or checks.
 
 ## Documentation
 
@@ -257,4 +257,4 @@ Single-context: root `CONTEXT.md` + `docs/agents/adr/`, extending `docs/internal
 
 ### PR review bots
 
-Before any PR review or merge, read `docs/agents/pr-review-bots.md` for the mandatory head-commit gate, complete finding retrieval and owner-head execution safety.
+For optional review mechanics and owner-head execution safety, read `docs/agents/pr-review-bots.md`. Nightly delivery authority lives in `docs/agents/policy.md`.

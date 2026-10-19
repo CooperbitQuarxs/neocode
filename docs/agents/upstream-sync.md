@@ -12,7 +12,7 @@ RFC 2119 applies to MUST, REQUIRED, SHOULD, RECOMMENDED, MAY, OPTIONAL. `NEVER` 
 - MUST resolve conflicts personally, sequentially, one file at a time. NEVER delegate conflict resolution.
 - MUST record each resolution in the ledger while resolving it.
 - MUST preserve fork behavior unless upstream satisfies the same observable contract (`AGENTS.md` › Fork rule).
-- MUST land through a PR after checks and runtime proof pass. NEVER commit or push directly to `main` or `nightly`.
+- MUST land through a PR under [Nightly delivery](policy.md#nightly-delivery). NEVER commit or push directly to `main` or `nightly`.
 - MUST sign every commit with the agent signing key and attribute the actual executing provider/model.
 - NEVER install dependencies (`vp i`, pnpm, npm) without the Captain's per-call authorization.
 
@@ -125,7 +125,7 @@ Push the integration branch and create a PR targeting `nightly`. Summarize:
 - checks, focused tests, and runtime proof;
 - pre-existing failures with base evidence.
 
-Merge with a merge commit only after the local evidence is green and the PR's required checks pass. Do not bypass the PR by pushing the integration directly.
+Merge with a merge commit under [Nightly delivery](policy.md#nightly-delivery), then build, install and check launch as that policy requires. Local checks and CI provide evidence, not merge gates. Do not bypass the PR by pushing the integration directly.
 
 ## 7. Realign the main checkout safely
 

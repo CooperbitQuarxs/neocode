@@ -1,6 +1,6 @@
 # Triage labels
 
-Iteration 1: labels compose facts, rather than encoding every combination in a new name. Follow [triage.md](triage.md) to classify and reconcile records; [pr-review-bots.md](pr-review-bots.md) owns the review gate and head-specific state.
+Iteration 1: labels compose facts, rather than encoding every combination in a new name. Follow [triage.md](triage.md) to classify and reconcile records; [pr-review-bots.md](pr-review-bots.md) owns optional review mechanics.
 
 ## Kind
 
@@ -60,14 +60,17 @@ Started is a claim, not a heartbeat. Human means human-in-the-loop, not a human 
 
 | Label                       | Meaning                                                                                               |
 | --------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `review: codex`             | Codex reviews this change; token `codex` maps to the configured bot and trigger in the review manual. |
-| `review: requested (codex)` | A Codex round is requested on the current head.                                                       |
-| `review: open (codex)`      | Codex findings are unanswered on the current head.                                                    |
-| `review: closed (codex)`    | Codex's latest round on the current head is clean and every finding answered.                         |
-| `review: stalled (codex)`   | Review loop ended unresolved; summary posted. Name is a proposal.                                     |
-| `mergeable`                 | Meets this repository's documented merge criteria; merge authority remains separate.                  |
+| `review: codex`             | Optional reviewer choice; no default assignment. |
+| `review: requested (codex)` | A Codex round was requested; descriptive evidence only. |
+| `review: open (codex)`      | Codex findings remain open. |
+| `review: closed (codex)`    | The recorded round's findings have dispositions. |
+| `review: stalled (codex)`   | A round failed, is missing, or remains unresolved; never a nightly blocker. |
+| `mergeable`                 | Integrator confidence supports nightly delivery; not review/CI completion or merge authority. |
 
-`sentinel-review-requested` remains recognized where an existing issue or PR explicitly requires that panel; its mechanics are governed by the applicable assignment. Magi is not configured.
+These labels are optional evidence, never nightly gates. Base movement
+invalidates nothing; a new head needs no review reset or equivalence proof.
+`sentinel-review-requested` records an explicit panel request, not a nightly
+gate. Magi is not configured.
 
 ## Composition
 
