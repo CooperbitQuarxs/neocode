@@ -2,11 +2,13 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import {
   EventId,
+  MessageId,
   NeoPiSettings,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
+  TurnId,
   type OrchestrationCommand,
   type OrchestrationEvent,
   type OrchestrationProjectShell,
@@ -104,6 +106,7 @@ const harness = (options?: {
   rows?: object[];
   bindings?: ProviderRuntimeBindingWithMetadata[];
   threads?: OrchestrationThread[];
+  read?: () => Record<string, unknown>;
   defaultInstanceId?: ProviderInstanceId;
   extraInstances?: {
     instanceId: ProviderInstanceId;
@@ -166,7 +169,9 @@ const harness = (options?: {
         binary: "/opt/npi",
         env: { OMP_PROFILE: "personal" },
         profile: "personal",
-        capabilities: new Set(options?.capabilities ?? ["session_catalog", "control_pipe"]),
+        capabilities: new Set(
+          options?.capabilities ?? ["session_catalog", "session_history_identity", "control_pipe"],
+        ),
       },
     );
     const extraInstances = (options?.extraInstances ?? []).map((entry) =>
@@ -184,16 +189,24 @@ const harness = (options?: {
     const catalog = yield* makeNeoPiSessionCatalog((input) =>
       Effect.sync(() => {
         calls.push(input);
-        if (input.args[1] === "read")
-          return encodeJson({
+        if (input.args[1] === "read") {
+          const transcript: Record<string, unknown> = options?.read?.() ?? {
             version: 1,
             session: session("free"),
             truncated: false,
+            branchEntryIds: ["user-1", "assistant-1"],
+            leafId: "assistant-1",
             messages: [
-              { role: "user", text: "Fix this", timestamp: now },
-              { role: "assistant", text: "Fixed it", timestamp: now },
+              { entryId: "user-1", role: "user", text: "Fix this", timestamp: now },
+              { entryId: "assistant-1", role: "assistant", text: "Fixed it", timestamp: now },
             ],
+          };
+          return encodeJson({
+            branchMessages: transcript.messages,
+            branchMessagesTruncated: false,
+            ...transcript,
           });
+        }
         const extra = options?.extraInstances?.find(
           (entry) => entry.instanceId === input.source.profile,
         );
@@ -229,10 +242,15 @@ const harness = (options?: {
               ),
             upsert: (binding, upsertOptions) =>
               Effect.sync(() => {
+                const index = bindings.findIndex((entry) => entry.threadId === binding.threadId);
+                if (upsertOptions?.onlyUpdateStoppedCursor) {
+                  if (index >= 0 && bindings[index]?.status === "stopped")
+                    bindings[index] = { ...bindings[index]!, resumeCursor: binding.resumeCursor };
+                  return;
+                }
                 expect(upsertOptions).toEqual({ onConflict: "ignore" });
                 order.push("binding");
-                if (!bindings.some((entry) => entry.threadId === binding.threadId))
-                  bindings.push({ ...binding, lastSeenAt: now });
+                if (index < 0) bindings.push({ ...binding, lastSeenAt: now });
               }),
           }),
           Layer.mock(OrchestrationEngineService)({
@@ -274,6 +292,16 @@ const harness = (options?: {
                 order.push(command.type);
                 if (command.type === "thread.create")
                   threads.set(command.threadId, projectedThread(command.threadId));
+                if (command.type === "thread.session.stop") {
+                  const index = bindings.findIndex((entry) => entry.threadId === command.threadId);
+                  if (index >= 0) bindings[index] = { ...bindings[index]!, status: "stopped" };
+                  const thread = threads.get(command.threadId);
+                  if (thread?.session)
+                    threads.set(thread.id, {
+                      ...thread,
+                      session: { ...thread.session, status: "stopped" },
+                    });
+                }
                 return { sequence: commands.length };
               }),
           }),
@@ -291,7 +319,7 @@ const harness = (options?: {
         ),
       ),
     );
-    return { catalog, calls, commands, bindings, order };
+    return { catalog, calls, commands, bindings, order, threads };
   });
 
 it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
@@ -425,6 +453,7 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
           sessionDir: "/tmp/neocode-catalog-sessions",
           sharedSession: true,
           turnBoundaries: [],
+          historyLeafId: "assistant-1",
         });
         expect(commands[0]).toMatchObject({
           historyImport: true,
@@ -432,8 +461,12 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
         });
         expect(commands[1]).toMatchObject({
           messages: [
-            { messageId: `${first.threadId}:000000`, role: "user", text: "Fix this" },
-            { messageId: `${first.threadId}:000001`, role: "assistant", text: "Fixed it" },
+            { messageId: `${first.threadId}:native:user-1`, role: "user", text: "Fix this" },
+            {
+              messageId: `${first.threadId}:native:assistant-1`,
+              role: "assistant",
+              text: "Fixed it",
+            },
           ],
         });
         expect(calls.find((call) => call.args[1] === "read")?.args).toEqual([
@@ -463,7 +496,11 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
       const { catalog, calls, bindings, commands } = yield* harness({
         rows: [],
         extraInstances: [
-          { instanceId: otherId, capabilities: ["session_catalog"], rows: [session("free")] },
+          {
+            instanceId: otherId,
+            capabilities: ["session_catalog", "session_history_identity"],
+            rows: [session("free")],
+          },
         ],
       });
       const result = yield* catalog.resume({
@@ -549,5 +586,453 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
         "/tmp/neocode-catalog-sessions",
       ]);
     }),
+  );
+  it.effect(
+    "restores a GUI-born handoff into the same thread once using native IDs, not repeated text",
+    () =>
+      Effect.gen(function* () {
+        const binding = bound("free", "running");
+        const gui = projectedThread(binding.threadId, {
+          modelSelection: { instanceId, model: "saved-provider-model" },
+          messages: [
+            {
+              id: MessageId.make("gui-user"),
+              role: "user",
+              text: "same",
+              turnId: null,
+              streaming: false,
+              createdAt: now,
+              updatedAt: now,
+            },
+            {
+              id: MessageId.make("gui-answer"),
+              role: "assistant",
+              text: "same",
+              turnId: null,
+              streaming: false,
+              createdAt: now,
+              updatedAt: now,
+            },
+          ],
+        });
+        let transcript = {
+          version: 1,
+          session: session("free"),
+          truncated: false,
+          branchEntryIds: ["user-1", "assistant-1"],
+          leafId: "assistant-1",
+          messages: [
+            { entryId: "user-1", role: "user", text: "same", timestamp: now },
+            { entryId: "assistant-1", role: "assistant", text: "same", timestamp: now },
+          ],
+        };
+        const { catalog, commands, bindings, threads } = yield* harness({
+          bindings: [binding],
+          threads: [gui],
+          read: () => transcript,
+        });
+        yield* catalog.handoff({ threadId: binding.threadId });
+        expect(bindings[0]?.resumeCursor).toMatchObject({ historyLeafId: "assistant-1" });
+        transcript = {
+          ...transcript,
+          branchEntryIds: [
+            "user-1",
+            "assistant-1",
+            "compaction",
+            "terminal-user",
+            "terminal-assistant",
+            "custom-tail",
+          ],
+          leafId: "custom-tail",
+          messages: [
+            ...transcript.messages,
+            { entryId: "terminal-user", role: "user", text: "same", timestamp: now },
+            { entryId: "terminal-assistant", role: "assistant", text: "same", timestamp: now },
+          ],
+        };
+        const input = {
+          projectId,
+          providerInstanceId: instanceId,
+          sessionFile: session("free").path,
+        };
+        expect(yield* catalog.resume(input)).toEqual({
+          threadId: binding.threadId,
+          created: false,
+        });
+        expect(commands.filter((command) => command.type === "thread.history.append")).toEqual([
+          {
+            type: "thread.history.append",
+            commandId: `neopi-restore:${binding.threadId}:custom-tail:terminal-user`,
+            threadId: binding.threadId,
+            messages: [
+              {
+                messageId: `${binding.threadId}:native:terminal-user`,
+                role: "user",
+                text: "same",
+                createdAt: now,
+              },
+              {
+                messageId: `${binding.threadId}:native:terminal-assistant`,
+                role: "assistant",
+                text: "same",
+                createdAt: now,
+              },
+            ],
+          },
+        ]);
+        expect(bindings[0]?.resumeCursor).toMatchObject({ historyLeafId: "custom-tail" });
+        expect(yield* catalog.resume(input)).toEqual({
+          threadId: binding.threadId,
+          created: false,
+        });
+        expect(commands.filter((command) => command.type === "thread.history.append")).toHaveLength(
+          1,
+        );
+        expect(threads.get(binding.threadId)?.modelSelection).toEqual(gui.modelSelection);
+        expect(commands.some((command) => command.type === "thread.turn.start")).toBe(false);
+      }),
+  );
+  it.effect("refuses divergent ancestry and legacy cursors without altering their history", () =>
+    Effect.gen(function* () {
+      for (const historyLeafId of ["abandoned-leaf", undefined]) {
+        const binding = {
+          ...bound("free"),
+          resumeCursor: {
+            sessionFile: session("free").path,
+            sessionId: "free",
+            historyLeafId,
+            turnBoundaries: [{ turnId: "gui-turn", userEntryId: "user-1" }],
+          },
+        };
+        const { catalog, commands, bindings } = yield* harness({
+          bindings: [binding],
+          threads: [projectedThread(binding.threadId)],
+        });
+        const error = yield* Effect.flip(
+          catalog.resume({
+            projectId,
+            providerInstanceId: instanceId,
+            sessionFile: session("free").path,
+          }),
+        );
+        expect(error.message).toContain(
+          historyLeafId ? "branch diverged" : "no native history watermark",
+        );
+        expect(commands).toEqual([]);
+        expect(bindings[0]?.resumeCursor).toEqual(binding.resumeCursor);
+      }
+    }),
+  );
+  it.effect("selects a running NeoCode binding without reading or replacing native history", () =>
+    Effect.gen(function* () {
+      const binding = bound("free", "running");
+      const { catalog, commands, calls, bindings } = yield* harness({
+        bindings: [binding],
+        threads: [projectedThread(binding.threadId)],
+      });
+      expect(
+        yield* catalog.resume({
+          projectId,
+          providerInstanceId: instanceId,
+          sessionFile: session("free").path,
+        }),
+      ).toEqual({ threadId: binding.threadId, created: false });
+      expect(commands).toEqual([]);
+      expect(calls.every((call) => call.args[1] !== "read")).toBe(true);
+      expect(bindings[0]).toEqual(binding);
+    }),
+  );
+  it.effect(
+    "restores terminal deltas after a new native import without losing its stable binding",
+    () =>
+      Effect.gen(function* () {
+        let entries = [
+          { entryId: "first-user", role: "user", text: "same", timestamp: now },
+          { entryId: "first-answer", role: "assistant", text: "same", timestamp: now },
+        ];
+        const { catalog, commands, bindings } = yield* harness({
+          read: () => ({
+            version: 1,
+            session: session("free"),
+            truncated: false,
+            branchEntryIds: entries.map((entry) => entry.entryId),
+            leafId: entries.at(-1)?.entryId ?? null,
+            messages: entries,
+          }),
+        });
+        const input = {
+          projectId,
+          providerInstanceId: instanceId,
+          sessionFile: session("free").path,
+        };
+        const first = yield* catalog.resume(input);
+        expect(bindings[0]?.resumeCursor).toMatchObject({ historyLeafId: "first-answer" });
+        entries = [
+          ...entries,
+          { entryId: "terminal-user", role: "user", text: "same", timestamp: now },
+        ];
+        expect(yield* catalog.resume(input)).toEqual({ threadId: first.threadId, created: false });
+        expect(commands.at(-1)).toMatchObject({
+          type: "thread.history.append",
+          messages: [{ messageId: `${first.threadId}:native:terminal-user`, text: "same" }],
+        });
+        expect(bindings).toHaveLength(1);
+        expect(bindings[0]?.resumeCursor).toMatchObject({ historyLeafId: "terminal-user" });
+      }),
+  );
+  it.effect(
+    "migrates an exact legacy GUI-turn shutdown boundary before appending terminal history",
+    () =>
+      Effect.gen(function* () {
+        const binding = {
+          ...bound("free"),
+          resumeCursor: {
+            sessionFile: session("free").path,
+            sessionId: "free",
+            turnBoundaries: [{ turnId: "gui-turn", userEntryId: "gui-user" }],
+          },
+        };
+        const { catalog, commands, bindings } = yield* harness({
+          bindings: [binding],
+          threads: [
+            projectedThread(binding.threadId, {
+              latestTurn: {
+                turnId: TurnId.make("gui-turn"),
+                state: "completed",
+                requestedAt: now,
+                startedAt: now,
+                completedAt: now,
+                assistantMessageId: MessageId.make("gui-answer"),
+              },
+            }),
+          ],
+          read: () => ({
+            version: 1,
+            session: session("free"),
+            truncated: false,
+            branchEntryIds: [
+              "gui-user",
+              "digest",
+              "gui-answer",
+              "gui-exit",
+              "terminal-user",
+              "terminal-answer",
+              "terminal-exit",
+            ],
+            leafId: "terminal-exit",
+            userEntryIds: ["gui-user", "terminal-user"],
+            sessionExitEntryIds: ["gui-exit", "terminal-exit"],
+            sessionExits: [
+              {
+                entryId: "gui-exit",
+                kind: "normal",
+                reason: "dispose",
+                pendingToolCallCount: 0,
+                lastAssistantStopReason: "stop",
+              },
+              {
+                entryId: "terminal-exit",
+                kind: "normal",
+                reason: "dispose",
+                pendingToolCallCount: 0,
+                lastAssistantStopReason: "stop",
+              },
+            ],
+            messages: [
+              { entryId: "gui-user", role: "user", text: "same", timestamp: now },
+              { entryId: "gui-answer", role: "assistant", text: "same", timestamp: now },
+              { entryId: "terminal-user", role: "user", text: "same", timestamp: now },
+              { entryId: "terminal-answer", role: "assistant", text: "same", timestamp: now },
+            ],
+          }),
+        });
+        const input = {
+          projectId,
+          providerInstanceId: instanceId,
+          sessionFile: session("free").path,
+        };
+        expect(yield* catalog.resume(input)).toEqual({
+          threadId: binding.threadId,
+          created: false,
+        });
+        expect(commands).toMatchObject([
+          {
+            type: "thread.history.append",
+            messages: [
+              { messageId: `${binding.threadId}:native:terminal-user` },
+              { messageId: `${binding.threadId}:native:terminal-answer` },
+            ],
+          },
+        ]);
+        expect(bindings[0]?.resumeCursor).toMatchObject({ historyLeafId: "terminal-exit" });
+        yield* catalog.resume(input);
+        expect(commands).toHaveLength(1);
+      }),
+  );
+  it.effect("never migrates past an unfinished, malformed, or later-lifetime legacy exit", () =>
+    Effect.gen(function* () {
+      for (const scenario of [
+        "pending",
+        "aborted",
+        "abnormal",
+        "malformed-first",
+        "empty-user-before-exit",
+        "missing-anchor",
+      ] as const) {
+        const binding = {
+          ...bound("free"),
+          resumeCursor: {
+            sessionFile: session("free").path,
+            sessionId: "free",
+            turnBoundaries: [
+              {
+                turnId: "gui-turn",
+                userEntryId: scenario === "missing-anchor" ? "missing" : "gui-user",
+              },
+            ],
+          },
+        };
+        const { catalog, commands } = yield* harness({
+          bindings: [binding],
+          threads: [
+            projectedThread(binding.threadId, {
+              latestTurn: {
+                turnId: TurnId.make("gui-turn"),
+                state: "completed",
+                requestedAt: now,
+                startedAt: now,
+                completedAt: now,
+                assistantMessageId: MessageId.make("gui-answer"),
+              },
+            }),
+          ],
+          read: () => ({
+            version: 1,
+            session: session("free"),
+            truncated: false,
+            branchEntryIds: [
+              "gui-user",
+              "gui-answer",
+              ...(scenario === "malformed-first" ? ["malformed-exit"] : []),
+              ...(scenario === "empty-user-before-exit" ? ["empty-terminal-user"] : []),
+              "exit",
+              "terminal-user",
+            ],
+            leafId: "terminal-user",
+            userEntryIds: [
+              "gui-user",
+              "terminal-user",
+              ...(scenario === "empty-user-before-exit" ? ["empty-terminal-user"] : []),
+            ],
+            sessionExitEntryIds: [
+              ...(scenario === "malformed-first" ? ["malformed-exit"] : []),
+              "exit",
+            ],
+            sessionExits: [
+              {
+                entryId: "exit",
+                kind: scenario === "abnormal" ? "signal" : "normal",
+                reason: "dispose",
+                pendingToolCallCount: scenario === "pending" ? 1 : 0,
+                lastAssistantStopReason: scenario === "aborted" ? "aborted" : "stop",
+              },
+            ],
+            messages: [],
+          }),
+        });
+        const error = yield* Effect.flip(
+          catalog.resume({
+            projectId,
+            providerInstanceId: instanceId,
+            sessionFile: session("free").path,
+          }),
+        );
+        expect(error.message).toContain("No history was changed");
+        expect(error.message).toContain("--session");
+        expect(commands).toEqual([]);
+      }
+    }),
+  );
+  it.effect(
+    "reads terminal deltas uncapped across compaction and appends every message in bounded batches",
+    () =>
+      Effect.gen(function* () {
+        const binding = {
+          ...bound("free"),
+          resumeCursor: {
+            sessionFile: session("free").path,
+            sessionId: "free",
+            historyLeafId: "invisible-watermark",
+          },
+        };
+        const branchMessages = Array.from({ length: 405 }, (_, index) => ({
+          entryId: `native-${index}`,
+          role: "user",
+          text: "identical",
+          timestamp: now,
+        }));
+        const { catalog, commands, calls, bindings } = yield* harness({
+          bindings: [binding],
+          threads: [projectedThread(binding.threadId)],
+          read: () => ({
+            version: 1,
+            session: session("free"),
+            truncated: false,
+            branchEntryIds: [
+              "invisible-watermark",
+              "compaction",
+              ...branchMessages.map((message) => message.entryId),
+              "custom-tail",
+            ],
+            leafId: "custom-tail",
+            messages: branchMessages.slice(-5),
+            branchMessages,
+          }),
+        });
+        yield* catalog.resume({
+          projectId,
+          providerInstanceId: instanceId,
+          sessionFile: session("free").path,
+        });
+        const appends = commands.filter((command) => command.type === "thread.history.append");
+        expect(appends.map((command) => command.messages.length)).toEqual([200, 200, 5]);
+        expect(
+          appends.flatMap((command) => command.messages.map((message) => message.messageId)),
+        ).toEqual(branchMessages.map((message) => `${binding.threadId}:native:${message.entryId}`));
+        expect(calls.find((call) => call.args[1] === "read")?.args).toEqual([
+          "sessions",
+          "read",
+          "--json",
+          session("free").path,
+        ]);
+        expect(bindings[0]?.resumeCursor).toMatchObject({ historyLeafId: "custom-tail" });
+      }),
+  );
+  it.effect(
+    "keeps discovery available but rejects identity-dependent operations before stopping an older NeoPi",
+    () =>
+      Effect.gen(function* () {
+        const binding = bound("free", "running");
+        const { catalog, calls, commands } = yield* harness({
+          capabilities: ["session_catalog"],
+          bindings: [binding],
+          threads: [projectedThread(binding.threadId)],
+        });
+        expect((yield* catalog.list({ projectId, scope: "project" })).status).toBe("available");
+        const handoff = yield* Effect.flip(catalog.handoff({ threadId: binding.threadId }));
+        expect(handoff.message).toContain("session_history_identity");
+        expect(commands).toEqual([]);
+        const fresh = yield* harness({ capabilities: ["session_catalog"] });
+        const resume = yield* Effect.flip(
+          fresh.catalog.resume({
+            projectId,
+            providerInstanceId: instanceId,
+            sessionFile: session("free").path,
+          }),
+        );
+        expect(resume.message).toContain("Update NeoPi");
+        expect(fresh.commands).toEqual([]);
+        expect([...calls, ...fresh.calls].every((call) => call.args[1] !== "read")).toBe(true);
+      }),
   );
 });

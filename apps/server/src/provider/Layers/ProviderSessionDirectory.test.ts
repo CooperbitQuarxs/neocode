@@ -178,6 +178,54 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
     }),
   );
 
+  it.effect("updates stopped history cursors without overwriting a newly running writer", () =>
+    Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory;
+      const binding = {
+        threadId: ThreadId.make("history-cursor-cas"),
+        provider: ProviderDriverKind.make("neopi"),
+        providerInstanceId: ProviderInstanceId.make("neopi"),
+        status: "stopped" as const,
+        resumeCursor: { historyLeafId: "old" },
+        runtimePayload: { model: "saved-model" },
+      };
+      yield* directory.upsert(binding);
+      yield* directory.upsert(
+        {
+          ...binding,
+          resumeCursor: { historyLeafId: "restored" },
+          runtimePayload: { model: "must-not-replace" },
+        },
+        { onlyUpdateStoppedCursor: true },
+      );
+      expect(Option.getOrThrow(yield* directory.getBinding(binding.threadId))).toMatchObject({
+        status: "stopped",
+        resumeCursor: { historyLeafId: "restored" },
+        runtimePayload: { model: "saved-model" },
+      });
+      yield* directory.upsert({
+        ...binding,
+        status: "running",
+        resumeCursor: { historyLeafId: "writer" },
+      });
+      yield* directory.upsert(
+        {
+          ...binding,
+          resumeCursor: { historyLeafId: "stale-restore" },
+        },
+        { onlyUpdateStoppedCursor: true },
+      );
+      expect(Option.getOrThrow(yield* directory.getBinding(binding.threadId))).toMatchObject({
+        status: "running",
+        resumeCursor: { historyLeafId: "writer" },
+        runtimePayload: { model: "saved-model" },
+      });
+      const missing = ThreadId.make("missing-history-cursor");
+      yield* directory.upsert({ ...binding, threadId: missing }, { onlyUpdateStoppedCursor: true });
+      expect(Option.isNone(yield* directory.getBinding(missing))).toBe(true);
+    }),
+  );
+
   it.effect("records source files without replacing the current provider session", () =>
     Effect.gen(function* () {
       const directory = yield* ProviderSessionDirectory;
