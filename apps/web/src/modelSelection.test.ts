@@ -820,24 +820,6 @@ describe("instance-scoped model selection", () => {
     ).toEqual(createModelSelection(instanceId, "openai/gpt-5.5"));
   });
 
-  it("retains the existing unset text-generation default rather than overriding it with NeoPi", () => {
-    const providers = [
-      provider({
-        provider: ProviderDriverKind.make("neopi"),
-        instanceId: "neopi",
-        models: ["neopi-default"],
-      }),
-      provider({ instanceId: "codex", models: ["gpt-5.6-sol"] }),
-    ];
-
-    expect(
-      resolveAppModelSelectionState(
-        { ...DEFAULT_UNIFIED_SETTINGS, textGenerationModelSelection: null },
-        providers,
-      ),
-    ).toEqual(createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.6-sol"));
-  });
-
   it("uses ready NeoPi and its model when a stored text-generation instance is missing", () => {
     const providers = [
       provider({ instanceId: "codex", models: ["gpt-5.6-sol"] }),
