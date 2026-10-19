@@ -180,6 +180,7 @@ import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../sta
 import { deriveProviderInstanceEntries, type ProviderInstanceEntry } from "../providerInstances";
 import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindings";
 import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/command";
+import { NeoPiSessionPickerHost, useNeoPiSessionPickerAction } from "./neopi/NeoPiSessionEntry";
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -638,6 +639,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           clearOpenIntent={clearOpenIntent}
         />
       </CommandDialog>
+      <NeoPiSessionPickerHost />
     </ComposerHandleContext>
   );
 }
@@ -728,6 +730,7 @@ function OpenCommandPaletteDialog(props: {
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
   const projects = useProjects();
+  const neopiSessionAction = useNeoPiSessionPickerAction();
   const referenceThreadRef =
     pathname === "/pull-requests"
       ? environments.some(
@@ -1745,6 +1748,7 @@ function OpenCommandPaletteDialog(props: {
   ]);
 
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
+  if (neopiSessionAction) actionItems.push(neopiSessionAction);
 
   if (projects.length > 0) {
     const activeProjectTitle =

@@ -12,6 +12,12 @@ export const NEOPI_CAPABILITIES = {
   setChatMode: "set_chat_mode",
   promptEntryIds: "prompt_entry_ids",
   planProposalCancel: "plan_proposal_cancel",
+  /** `npi sessions list|read --json` exist (NeoPi #355). */
+  sessionCatalog: "session_catalog",
+  /** `npi ctl pipe <selector>` relays a live owner's control socket over stdio (NeoPi #355). */
+  controlPipe: "control_pipe",
+  /** Present in `ready` only when the peer is a control connection: this runtime is attached, not the owner. */
+  controlAttached: "control_v1",
 } as const;
 
 /** v2 negotiation is the required transport floor; all named features are optional. */
