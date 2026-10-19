@@ -226,6 +226,50 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
     }),
   );
 
+  it.effect("updates only the promoted default instance of a stopped legacy binding", () =>
+    Effect.gen(function* () {
+      const directory = yield* ProviderSessionDirectory;
+      const runtimeRepository = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository;
+      const threadId = ThreadId.make("legacy-null-history-cursor");
+      yield* runtimeRepository.upsert({
+        threadId,
+        providerName: "neopi",
+        providerInstanceId: null,
+        adapterKey: "neopi",
+        runtimeMode: "full-access",
+        status: "stopped",
+        lastSeenAt: "2026-10-19T00:00:00.000Z",
+        resumeCursor: { historyLeafId: "old" },
+        runtimePayload: { model: "saved-model" },
+      });
+      const binding = Option.getOrThrow(yield* directory.getBinding(threadId));
+      yield* directory.upsert(
+        {
+          ...binding,
+          providerInstanceId: ProviderInstanceId.make("neopi-other"),
+          resumeCursor: { historyLeafId: "wrong-instance" },
+        },
+        { onlyUpdateStoppedCursor: true },
+      );
+      expect(Option.getOrThrow(yield* directory.getBinding(threadId)).resumeCursor).toEqual({
+        historyLeafId: "old",
+      });
+      yield* directory.upsert(
+        {
+          ...binding,
+          resumeCursor: { historyLeafId: "restored" },
+          runtimePayload: { model: "must-not-replace" },
+        },
+        { onlyUpdateStoppedCursor: true },
+      );
+      expect(Option.getOrThrow(yield* directory.getBinding(threadId))).toMatchObject({
+        status: "stopped",
+        resumeCursor: { historyLeafId: "restored" },
+        runtimePayload: { model: "saved-model" },
+      });
+    }),
+  );
+
   it.effect("records source files without replacing the current provider session", () =>
     Effect.gen(function* () {
       const directory = yield* ProviderSessionDirectory;

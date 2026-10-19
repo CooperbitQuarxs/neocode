@@ -244,7 +244,10 @@ export const make = Effect.gen(function* () {
       UPDATE provider_session_runtime SET resume_cursor_json = ${runtime.resumeCursor}
       WHERE thread_id = ${runtime.threadId}
         AND provider_name = ${runtime.providerName}
-        AND provider_instance_id = ${runtime.providerInstanceId}
+        AND (
+          provider_instance_id = ${runtime.providerInstanceId}
+          OR (provider_instance_id IS NULL AND provider_name = ${runtime.providerInstanceId})
+        )
         AND status = 'stopped'
     `,
   });
