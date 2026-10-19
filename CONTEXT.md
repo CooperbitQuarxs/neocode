@@ -18,7 +18,7 @@ Use these meanings for NeoCode policy and issue work. Product vocabulary stays i
 | Entangled           | Mutually incompatible alternatives requiring the owner's choice, rather than ordinary related or dependent work.                  |
 | Frame normalization | Lower an agent's original time unit exactly once, with hours as the floor; preserve provenance. Human estimates are unchanged.    |
 | Review requirement  | A configured reviewer must review the change; distinct from a request or completed round.                                         |
-| Review state        | Requested, open, closed or stalled state for a reviewer on the current PR head.                                                   |
+| Review state | Requested, open, closed or stalled evidence for a reviewer; a recorded round plus the review guide's fix assessment or base-only comparison can establish state on a later head. |
 | Mergeable           | All documented repository gates pass; not simply a conflict-free GitHub status or authority to merge.                             |
 | Baseline            | A defect already present on the PR base; it need not originate upstream.                                                          |
 | Integration         | Merge into `nightly`, where agent work can finish while an issue remains open.                                                    |

@@ -63,9 +63,13 @@ Started is a claim, not a heartbeat. Human means human-in-the-loop, not a human 
 | `review: codex`             | Codex reviews this change; token `codex` maps to the configured bot and trigger in the review manual. |
 | `review: requested (codex)` | A Codex round is requested on the current head.                                                       |
 | `review: open (codex)`      | Codex findings are unanswered on the current head.                                                    |
-| `review: closed (codex)`    | Codex's latest round on the current head is clean and every finding answered.                         |
-| `review: stalled (codex)`   | Review loop ended unresolved; summary posted. Name is a proposal.                                     |
+| `review: closed (codex)` | Completed recorded round and every finding dispositioned under the review guide's merge gate. |
+| `review: stalled (codex)` | Missing/failed round or remaining gate blocker; summary posted. |
 | `mergeable`                 | Meets this repository's documented merge criteria; merge authority remains separate.                  |
+
+A new head clears stale state and `mergeable` until the review guide's fix
+assessment or base-only comparison re-establishes them; another round is not
+automatically required.
 
 `sentinel-review-requested` remains recognized where an existing issue or PR explicitly requires that panel; its mechanics are governed by the applicable assignment. Magi is not configured.
 

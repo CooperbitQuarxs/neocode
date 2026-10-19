@@ -71,7 +71,7 @@ remaining sections retain compatible upstream code guidance.
 - Default branch `main`; integration branch `nightly`. Topic branches start from `origin/nightly` in a worktree named `../neocode-wt-<slug>`, and PRs target `nightly`. Both branches are protected: PR required, merge commits only, no force-push.
 - Merge commits read `Merge PR #<number>: <conventional PR subject> (@<author>)`.
 - Promotion opens a monthly PR for the owner to merge; promotion and `hotfix/` PRs into `main` are the owner's decision.
-- Every PR requires a complete, clean Codex Code Review on its final head and a factual disposition in every finding's thread, including unsolicited rounds. Do not request security rounds; already-posted security findings still require a fix or disproof. Before reviewing or merging, read `docs/agents/pr-review-bots.md`.
+- Every PR follows the one-round confidence gate and factual finding dispositions in `docs/agents/pr-review-bots.md`, including its post-review fix/base-merge assessment. Read it before reviewing or merging. Request no new security rounds; already-posted security findings still require a fix or disproof.
 - Before integrating upstream or adding fork behavior, read `docs/agents/fork-maintenance.md` and `docs/agents/upstream-sync.md`.
 - Contributor PRs (any author other than the owner) are read-only on the owner's machine: never run their code locally.
 - Releases and tags: `docs/agents/policy.md` › Releases.
@@ -251,4 +251,4 @@ Single-context: root `CONTEXT.md` + `docs/agents/adr/`, extending `docs/internal
 
 ### PR review bots
 
-Before any PR review or merge, read `docs/agents/pr-review-bots.md` for the mandatory head-commit gate, complete finding retrieval and owner-head execution safety.
+Before any PR review or merge, read `docs/agents/pr-review-bots.md` for the one-round confidence gate, post-review fix/base-merge assessment, complete finding retrieval and owner-head execution safety.
