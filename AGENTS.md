@@ -191,7 +191,7 @@ This repository is upstream T3 Code (`pingdotgg/t3code`) plus a NeoPi/OMP provid
 
 - New behavior lives in NeoPi-owned files (`apps/server/src/provider/neopi/`, `apps/server/src/provider/{Layers,Drivers,Services}/NeoPi*`, `packages/effect-neopi-rpc/`, `*neopi*` web files). Upstream files get registration lines only (driver lists, exhaustive provider maps, settings slots).
 - When NeoPi genuinely needs an upstream seam, the change must be provider-neutral (usable by any provider), minimal, default-off for existing providers, and covered by a test. Never branch on `neopi` inside shared code, never change an existing provider's behavior, and never reformat or reorder upstream code.
-- Missing capabilities belong in NeoPi's RPC (`PsychedelicShayna/neopi`), not in T3 workarounds. File them there with labels `rpc`, `downstream`, `t3c-npi`.
+- Missing capabilities belong in NeoPi's RPC (`PsychedelicShayna/neopi`), not in T3 workarounds. File them there using its current tracker policy; use `docs/agents/triage-labels.md` here for the interim label cutover.
 - Every upstream file the fork touches is listed below with the reason. Adding one means adding a line. Fewer is better; remove lines when a seam can move back into NeoPi-owned code.
 
 | Upstream file                                                                                                                                                                                                                                                   | Why the fork touches it                                                                                                                                                                                                    |
@@ -231,7 +231,7 @@ Issues and specs live in `PsychedelicShayna/neocode` GitHub Issues (the fork, ne
 
 ### Triage labels
 
-Five canonical Matt triage labels, layered orthogonally over house type/effort/priority labels. See `docs/agents/triage-labels.md`.
+Before assigning labels or reconciling issues, read `docs/agents/triage-labels.md` for composable labels, estimates, legacy states and evidence-led triage. Mandatory effort assignment is retired; the global policy migration remains interim.
 
 ### Domain docs
 

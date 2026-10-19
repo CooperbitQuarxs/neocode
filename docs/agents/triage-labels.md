@@ -19,13 +19,15 @@ Labels describe separate facts. Keep type, source/relationship, estimates, speci
 
 `experiment` was newly created here; NeoCode had no prior `experimental idea` label to rename.
 
+Deselected non-operational labels are not for new triage assignments: `rpc`, `t3c-npi`, `npi-deck`, `neopi-upstream`, `codex-review`, `sentinel-review-requested`, and the effort/size/vouch/wayfinder families. Preserve existing associations until reviewed cutover; do not bulk-remove them. Current required PR/readiness operational names remain in force until their replacements are decided.
+
 ### Estimates
 
 Priority remains `priority: p0`, `priority: p1`, `priority: p2` or `priority: p3`. Difficulty and frame are independent of priority and each other; do not invent numerical precision without evidence.
 
 - Difficulty labels: `difficulty: 0.000-0.125`, `difficulty: 0.125-0.250`, `difficulty: 0.250-0.375`, `difficulty: 0.375-0.500`, `difficulty: 0.500-0.625`, `difficulty: 0.625-0.750`, `difficulty: 0.750-0.875`, `difficulty: 0.875-1.000`. Lower bounds are inclusive; upper bounds are exclusive except the final interval includes 1.0. Preserve estimator/source provenance. Arbitrary title-number prefixes are not evidence of difficulty; do not rewrite titles on that assumption.
 - Frame labels: `frame: hours`, `frame: days`, `frame: weeks`, `frame: months`, `frame: years`. For a fresh agent-authored estimate, normalize down exactly one step: years → months → weeks → days → hours, with hours as the floor. Record estimator, original unit and normalization so later triage does not shrink it again. Leave human-authored estimates unchanged.
-- Historical `effort: *` is not literal time and cannot be auto-converted. Assignment is no longer compulsory; existing labels remain until individually reviewed.
+- Historical `effort: *` is not literal time and cannot be auto-converted. Do not assign it to new triage; existing associations remain until individually reviewed.
 
 ### Interim state names
 
@@ -41,7 +43,7 @@ Human/agent pending, started and finished participation is under discussion; no 
 
 PRs still use `needs-review`, `ready-for-merge` and `review-stalled`, not issue triage markers. The accepted target `mergeable` means the repository's documented gates are met; it does not grant permission to merge `main`. Keep operational `ready-for-merge` until parent policy and literal consumers migrate together. The [existing review gate](pr-review-bots.md) is unchanged.
 
-`upstream` is the accepted target for substantive upstream involvement, not only release synchronization. A fork-local manifestation does not disprove upstream origin. Keep operational `upstream-sync` pending the coordinated parent-policy/consumer cutover; do not create the target or rename the existing label in isolation. Preserve repository-specific `neopi-upstream` where supported by evidence. `baseline` remains in use for defects found on the base; it does not automatically imply upstream origin. Whether to remove it remains undecided.
+`upstream` is the accepted target for substantive upstream involvement, not only release synchronization. A fork-local manifestation does not disprove upstream origin. Keep operational `upstream-sync` pending the coordinated parent-policy/consumer cutover; do not create the target or rename the existing label in isolation. `baseline` remains in use for defects found on the base; it does not automatically imply upstream origin. Whether to remove it remains undecided.
 
 ## Reconciliation
 

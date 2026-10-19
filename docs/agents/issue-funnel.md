@@ -44,7 +44,7 @@ Typical sections (drop any that add nothing):
 
 Follow [triage-labels.md](triage-labels.md) for deployed label meanings and legacy-state handling, and [repository policy](../policy/README.md#labels) for the inventory. Type, source/relationship, estimates, specification presence and participation/readiness are separate facts, not a compulsory dual taxonomy.
 
-Every funnel issue carries a fitting type, a `priority: p0`–`priority: p3` and a state; `needs-triage` is the default when unresolved. `effort: *` is no longer compulsory. Do not auto-convert historical effort into frame, remove existing labels without review, or invent unsupported difficulty precision. Fresh agent-authored frame estimates use the one-step normalization and provenance rules in the triage guide; human estimates stay unchanged.
+Every funnel issue carries a fitting type, a `priority: p0`–`priority: p3` and a state; `needs-triage` is the default when unresolved. Assign no new `effort: *` labels. Do not auto-convert historical effort into frame, remove existing labels without review, or invent unsupported difficulty precision. Fresh agent-authored frame estimates use the one-step normalization and provenance rules in the triage guide; human estimates stay unchanged.
 
 Use `idea` for undecided possibilities, `spec` only for an actual implementation specification, and `experiment` for experimental work. None of these labels starts implementation. Experimental work stays on an `experimental/` topic branch unless the owner separately decides it may land on `nightly` or `main`.
 
@@ -81,7 +81,7 @@ Do not create labels unless the Captain ordered that label.
 
 Do not mix presentation-plane work into delivery-plane issues.
 
-Missing NeoPi capabilities are filed in `PsychedelicShayna/neopi` with labels `rpc`, `downstream`, `t3c-npi` (see `AGENTS.md` › Fork rule), not here.
+Missing NeoPi capabilities are filed in `PsychedelicShayna/neopi`, not here (see `AGENTS.md` › Fork rule). Follow its current tracker policy for new labels; the deselected-label list in [triage-labels.md](triage-labels.md#composable-meanings) is not a recommendation for new assignments.
 
 ## Style anti-patterns
 

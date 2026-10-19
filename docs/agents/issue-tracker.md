@@ -24,7 +24,7 @@ Issues and specs for this repo live in GitHub Issues at `PsychedelicShayna/neoco
 
 Type, source/relationship, estimates, specification presence and participation/readiness are distinct facts, not mutually exclusive issue categories. Use the deployed labels and interim meanings in [triage-labels.md](triage-labels.md); the repository inventory and operational PR state names are in [repository policy](../policy/README.md#labels).
 
-Each published issue carries a fitting type, a `priority: p0`–`priority: p3` and a state; use `needs-triage` when unresolved. Do not require `effort: *`, convert historical effort into time, or remove existing labels without evidence. Keep legacy `ready-for-agent` / `ready-for-human` assignments pending reconciliation; they are not fresh implementation authorization. The publication contract is [issue-funnel.md](issue-funnel.md).
+Each published issue carries a fitting type, a `priority: p0`–`priority: p3` and a state; use `needs-triage` when unresolved. Assign no new `effort: *` labels, do not convert historical effort into time, and preserve existing associations pending evidence-based review. Keep legacy `ready-for-agent` / `ready-for-human` assignments pending reconciliation; they are not fresh implementation authorization. The publication contract is [issue-funnel.md](issue-funnel.md).
 
 ## Completion and closure
 
