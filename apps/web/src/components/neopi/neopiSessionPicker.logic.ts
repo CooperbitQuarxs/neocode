@@ -10,12 +10,12 @@ export function neopiSessionRowState(session: NeoPiSessionSummary) {
   const threadId =
     session.threadId ?? (session.owner.kind === "neocode" ? session.owner.threadId : null);
   const disabledReason =
-    threadId !== null
-      ? null
-      : session.projectId === null
-        ? "Add this folder as a project first"
-        : session.owner.kind === "process" && !session.owner.attachable
-          ? "This terminal session cannot be attached to. Close it in the terminal first."
+    session.owner.kind === "process" && !session.owner.attachable
+      ? "This terminal session cannot be attached to. Close it in the terminal first."
+      : threadId !== null
+        ? null
+        : session.projectId === null
+          ? "Add this folder as a project first"
           : null;
   return {
     title: session.title?.trim() || session.firstMessage.trim() || "Untitled session",

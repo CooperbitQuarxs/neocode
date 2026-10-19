@@ -45,11 +45,23 @@ describe("NeoPi session selection", () => {
       session({
         projectId: null,
         threadId,
-        owner: { kind: "process", pid: 123, attachable: false },
+        owner: { kind: "process", pid: 123, attachable: true },
       }),
     );
     expect(state.threadId).toBe(threadId);
     expect(state.disabledReason).toBeNull();
+  });
+
+  it("blocks a bound thread when its terminal owner cannot be attached", () => {
+    const state = neopiSessionRowState(
+      session({
+        threadId: ThreadId.make("existing-thread"),
+        owner: { kind: "process", pid: 123, attachable: false },
+      }),
+    );
+    expect(state.disabledReason).toBe(
+      "This terminal session cannot be attached to. Close it in the terminal first.",
+    );
   });
 
   it("uses the NeoCode owner thread when the summary has no thread id", () => {
