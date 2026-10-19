@@ -34,6 +34,7 @@ import {
 import LegacyThreadSidebar from "./LegacySidebar";
 import ThreadSidebar from "./Sidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
+import { ConnectionCatalogRecoveryNotice } from "./desktop/ConnectionCatalogRecoveryNotice";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { MainAppLocationTracker } from "./sidebar/mainAppLocation";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
@@ -328,7 +329,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           )}
           <SidebarRail onDoubleClick={resetSidebarWidth} />
         </Sidebar>
-        {children}
+        <ConnectionCatalogRecoveryNotice>{children}</ConnectionCatalogRecoveryNotice>
         <SidebarControl />
         <NavigationHistoryShortcuts />
         <MainAppLocationTracker />

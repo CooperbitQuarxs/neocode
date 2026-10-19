@@ -43,6 +43,7 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import { projectFaviconCache } from "../assets/projectFaviconCache";
+import { useCatalogRecovery } from "./catalogRecovery";
 
 const DATABASE_NAME = "t3code:connection-runtime";
 const DATABASE_VERSION = 4;
@@ -278,7 +279,11 @@ export function makeCatalogBackend(database: IDBDatabase): CatalogBackend {
   if (bridge?.getConnectionCatalog !== undefined && bridge.setConnectionCatalog !== undefined) {
     return {
       read: Effect.tryPromise({
-        try: () => bridge.getConnectionCatalog!(),
+        try: async () => {
+          const result = await bridge.getConnectionCatalog!();
+          useCatalogRecovery.setState({ recovery: result.recovery });
+          return result.catalog;
+        },
         catch: (cause) => catalogError("load", cause),
       }),
       write: (raw) =>
