@@ -1118,6 +1118,35 @@ describe("resolveComposerProviderSelection", () => {
     });
   }
 
+  it("chooses ready NeoPi for a fresh draft independently of incoming provider order", () => {
+    const neopi = entry("neopi", "neopi", { models: catalogModels });
+    const selection = resolveComposerProviderSelection({
+      entries: [entry("codex"), neopi],
+      candidateInstanceIds: [],
+      lockedProvider: null,
+      lockedInstanceId: null,
+    });
+
+    expect(selection.selectedProviderEntry).toBe(neopi);
+  });
+
+  it.each([
+    { enabled: false },
+    { availability: "unavailable" as const },
+    { status: "error" as const },
+    { status: "warning" as const },
+  ])("does not let an unready first NeoPi group displace a healthy draft fallback: %j", (state) => {
+    const healthy = entry("codex");
+    const selection = resolveComposerProviderSelection({
+      entries: [entry("neopi", "neopi", state), healthy],
+      candidateInstanceIds: [],
+      lockedProvider: null,
+      lockedInstanceId: null,
+    });
+
+    expect(selection.selectedProviderEntry).toBe(healthy);
+  });
+
   it.each([
     ["claudeAgent", "claude_work"],
     ["codex", "codex_work"],
@@ -1262,7 +1291,7 @@ describe("resolveComposerProviderSelection", () => {
       models: catalogModels,
     });
     const selection = resolveComposerProviderSelection({
-      entries: [entry("codex"), signedOutEntry],
+      entries: [entry("neopi"), signedOutEntry],
       candidateInstanceIds: [signedOutEntry.instanceId],
       lockedProvider: null,
       lockedInstanceId: null,

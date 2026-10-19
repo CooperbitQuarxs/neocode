@@ -18,6 +18,7 @@ export type ModelOption = {
   readonly isDefault: boolean;
   readonly isLegacy: boolean;
   readonly isUnavailable?: boolean;
+  readonly isReady?: boolean;
   readonly capabilities: ModelCapabilities | null;
   readonly selection: ModelSelection;
 };
@@ -61,7 +62,7 @@ function normalizeSelectionOptions(
       };
 }
 
-/** Whether a known Antigravity selection needs setup or a different model. */
+/** Whether a known Antigravity or NeoPi selection needs setup or a different model. */
 export function isModelSelectionUnavailable(
   config: T3ServerConfig | null | undefined,
   selection: ModelSelection | null | undefined,
@@ -75,12 +76,13 @@ export function isModelSelectionUnavailable(
   const driver =
     provider?.driver ?? config.settings?.providerInstances[selection.instanceId]?.driver;
   return (
-    driver === "antigravity" &&
+    (driver === "antigravity" || driver === "neopi") &&
     (!provider ||
       !provider.enabled ||
       !provider.installed ||
       provider.auth.status === "unauthenticated" ||
       provider.availability === "unavailable" ||
+      (driver === "neopi" && (provider.status === "error" || provider.status === "disabled")) ||
       !provider.models.some((model) => model.slug === selection.model))
   );
 }
@@ -137,12 +139,23 @@ export function resolveNewTaskModelSelection(input: {
   readonly stickySelection: ModelSelection | null;
   readonly modelOptions: ReadonlyArray<ModelOption>;
 }): ModelSelection | null {
+  const explicitSelection =
+    input.draftSelection ?? input.projectDefaultSelection ?? input.stickySelection;
+  if (explicitSelection) return explicitSelection;
+
+  const hasReadyOption = input.modelOptions.some(
+    (option) => option.isReady && !option.isUnavailable,
+  );
+  const isUsable = (option: ModelOption) =>
+    !option.isUnavailable && (!hasReadyOption || option.isReady === true);
   return (
-    input.draftSelection ??
-    input.projectDefaultSelection ??
-    input.stickySelection ??
-    input.modelOptions.find((option) => option.isDefault && !option.isUnavailable)?.selection ??
-    input.modelOptions.find((option) => !option.isUnavailable)?.selection ??
+    input.modelOptions.find(
+      (option) => option.providerDriver === "neopi" && option.isDefault && isUsable(option),
+    )?.selection ??
+    input.modelOptions.find((option) => option.providerDriver === "neopi" && isUsable(option))
+      ?.selection ??
+    input.modelOptions.find((option) => option.isDefault && isUsable(option))?.selection ??
+    input.modelOptions.find(isUsable)?.selection ??
     null
   );
 }
@@ -158,7 +171,10 @@ export function buildModelOptions(
       !provider.enabled ||
       !provider.installed ||
       provider.auth.status === "unauthenticated" ||
-      (provider.driver === "antigravity" && provider.availability === "unavailable")
+      ((provider.driver === "antigravity" || provider.driver === "neopi") &&
+        provider.availability === "unavailable") ||
+      (provider.driver === "neopi" &&
+        (provider.status === "error" || provider.status === "disabled"))
     ) {
       continue;
     }
@@ -175,6 +191,7 @@ export function buildModelOptions(
         providerDriver: provider.driver,
         isDefault: model.isDefault === true,
         isLegacy: model.isLegacy === true,
+        isReady: provider.status === "ready",
         capabilities: model.capabilities,
         selection: normalizeSelectionOptions(
           {
@@ -222,6 +239,7 @@ export function buildModelOptions(
         providerDriver,
         isDefault: false,
         isLegacy: model?.isLegacy === true,
+        isReady: provider?.status === "ready",
         ...(isModelSelectionUnavailable(config, fallbackModelSelection)
           ? { isUnavailable: true }
           : {}),
@@ -248,9 +266,15 @@ export function groupByProvider(options: ReadonlyArray<ModelOption>): ReadonlyAr
     }
   }
 
-  return [...groups.entries()].map(([providerKey, group]) => ({
-    providerKey,
-    providerLabel: group.providerLabel,
-    models: group.models,
-  }));
+  return [...groups.entries()]
+    .map(([providerKey, group]) => ({
+      providerKey,
+      providerLabel: group.providerLabel,
+      models: group.models,
+    }))
+    .sort(
+      (left, right) =>
+        Number(right.models[0]?.providerDriver === "neopi") -
+        Number(left.models[0]?.providerDriver === "neopi"),
+    );
 }

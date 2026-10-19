@@ -13,6 +13,7 @@ import { deriveProviderInstanceEntries, NO_PROVIDER_MODEL_SELECTION } from "./pr
 import {
   getCustomModelOptionsByInstance,
   getAppModelOptionsForInstance,
+  resolveAppModelSelection,
   resolveAppModelSelectionForInstance,
   resolveAppModelSelectionState,
   resolvePlanAgentHealPatch,
@@ -64,6 +65,39 @@ function settingsWithProviderInstances(): UnifiedSettings {
     },
   };
 }
+
+describe("legacy model selection fallback", () => {
+  it("uses NeoPi's default instead of carrying a disabled provider's model across drivers", () => {
+    const providers = [
+      { ...provider({ instanceId: "codex", models: ["shared-model"] }), enabled: false },
+      {
+        ...provider({
+          provider: ProviderDriverKind.make("neopi"),
+          instanceId: "neopi",
+        }),
+        models: [
+          {
+            slug: "neopi-default",
+            name: "NeoPi default",
+            isCustom: false,
+            isDefault: true,
+            capabilities: {},
+          },
+          { slug: "shared-model", name: "Shared model", isCustom: false, capabilities: {} },
+        ],
+      },
+    ];
+
+    expect(
+      resolveAppModelSelection(
+        ProviderDriverKind.make("codex"),
+        DEFAULT_UNIFIED_SETTINGS,
+        providers,
+        "shared-model",
+      ),
+    ).toBe("neopi-default");
+  });
+});
 
 describe("instance-scoped model selection", () => {
   it("preserves server-provided legacy model metadata", () => {
@@ -784,6 +818,46 @@ describe("instance-scoped model selection", () => {
     expect(
       createModelSelection(instanceId, state.selectedModel, dispatch.modelOptionsForDispatch),
     ).toEqual(createModelSelection(instanceId, "openai/gpt-5.5"));
+  });
+
+  it("retains the existing unset text-generation default rather than overriding it with NeoPi", () => {
+    const providers = [
+      provider({
+        provider: ProviderDriverKind.make("neopi"),
+        instanceId: "neopi",
+        models: ["neopi-default"],
+      }),
+      provider({ instanceId: "codex", models: ["gpt-5.6-sol"] }),
+    ];
+
+    expect(
+      resolveAppModelSelectionState(
+        { ...DEFAULT_UNIFIED_SETTINGS, textGenerationModelSelection: null },
+        providers,
+      ),
+    ).toEqual(createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.6-sol"));
+  });
+
+  it("uses ready NeoPi and its model when a stored text-generation instance is missing", () => {
+    const providers = [
+      provider({ instanceId: "codex", models: ["gpt-5.6-sol"] }),
+      provider({
+        provider: ProviderDriverKind.make("neopi"),
+        instanceId: "neopi",
+        models: ["neopi-default"],
+      }),
+    ];
+    const settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      textGenerationModelSelection: createModelSelection(
+        ProviderInstanceId.make("removed_instance"),
+        "stale-model",
+      ),
+    };
+
+    expect(resolveAppModelSelectionState(settings, providers)).toEqual(
+      createModelSelection(ProviderInstanceId.make("neopi"), "neopi-default"),
+    );
   });
 
   it("preserves custom provider instances in settings model selection", () => {

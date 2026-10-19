@@ -755,9 +755,8 @@ export type GrokSettings = typeof GrokSettings.Type;
 
 export const NeoPiSettings = makeProviderSettingsSchema(
   {
-    // Off by default (like Grok): users opt in from Settings.
     enabled: Schema.Boolean.pipe(
-      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.withDecodingDefault(Effect.succeed(true)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
     binaryPath: makeBinaryPathSetting("npi").pipe(
