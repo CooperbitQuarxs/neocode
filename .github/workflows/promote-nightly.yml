@@ -65,7 +65,7 @@ jobs:
              echo
              echo "## Why"
              echo
-             echo "Scheduled promotion per \`docs/policy/README.md\` › Promotion. Everything here already merged into \`$SOURCE\` through its own PR."
+             echo "Scheduled promotion per \`docs/agents/policy.md\` › Promotion. Everything here already merged into \`$SOURCE\` through its own PR."
              echo
              echo "## Testing"
              echo
