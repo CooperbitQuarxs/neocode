@@ -8,8 +8,7 @@ Issues and specs for this repo live in GitHub Issues at `PsychedelicShayna/neoco
 - Read: `gh issue view <number> --comments`, including labels.
 - List: `gh issue list --state <state> --json number,title,body,labels,comments` with the filters the task requires.
 - Apply or remove labels: `gh issue edit <number> --add-label "..."` or `--remove-label "..."`.
-- Issues stay open until the fix is promoted to the default branch; label `ready-for-human` after the `nightly` merge.
-- Posting rules (comment identity block, labels) are the workspace policy in `~/source/github/PsychedelicShayna/AGENTS.md`. This guide is mechanics only.
+- Posting rules and authority are in [policy.md](policy.md). Read [triage.md](triage.md) for classification/reconciliation and [triage-labels.md](triage-labels.md) for vocabulary.
 - Upstream `AGENTS.md` still applies: implementation plans and scratch notes stay out of the worktree; the issue owns the checklist, the merged PR is the record.
 
 ## Pull requests as a triage surface
@@ -21,20 +20,23 @@ Issues and specs for this repo live in GitHub Issues at `PsychedelicShayna/neoco
 - "Publish to the issue tracker" means create a GitHub issue on the fork.
 - "Fetch the relevant ticket" means read the GitHub issue, its comments, and labels.
 
-## Dual taxonomy
+## Composable labels
 
-House labels (type, `effort: *`, `priority: *`, and `entangled` only for true alternative clusters) and Matt triage labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) are **orthogonal layers**, not replacements. An issue may carry both. Do not strip house labels to be Matt-only. The same taxonomy applies in `neopi` and `neodeck`. The Issue Funnel contract is `docs/agents/issue-funnel.md`.
+Type, relationships, estimates, specification and participation are separate
+facts. Each published issue has a fitting kind, priority and state; unclassified
+intake uses `needs-triage`. Follow [triage.md](triage.md) before finalizing labels.
+The publication contract is [issue-funnel.md](issue-funnel.md).
 
-**House:**
+## Completion and closure
 
-- Type: `bug` or `enhancement` (other GitHub defaults only when they truly fit).
-- Exactly one `effort: tiny|small|medium|large|very large`.
-- Exactly one `priority: p0|p1|p2|p3`.
-- `entangled` only for a true alternative cluster (shipping one supersedes the siblings), and only when the Captain ordered it.
+A merged PR is implementation evidence, not proof that the entire issue is complete. Verify every acceptance criterion and any explicit promotion condition against the implementation and actual PR merge state. A closed, unmerged PR is not a merged implementation.
 
-**Matt triage (readiness):** see `docs/agents/triage-labels.md`.
-
-**PR state** (on PRs, not issues): `needs-review`, `ready-for-merge`, `review-stalled`; the full label list is in `docs/policy/README.md` › Labels. Do not invent labels.
+NeoCode issues stay open until the complete fix is promoted to `main`, even
+if the body omits this condition. After a `nightly` merge, record acceptance
+evidence and mark completed agent work `agent: finished`; keep the issue open.
+The promotion PR carries `human: pending` for the owner's decision. An
+authorized closer verifies full acceptance and promotion before closing.
+Duplicate and rejected-report dispositions follow [triage.md](triage.md).
 
 ## Issue shape
 
@@ -48,4 +50,4 @@ House voice: concrete contract, explicit boundaries, checkable acceptance. Sente
 - Tests (only when they defend an observable contract)
 - Acceptance (`- [ ]` musts)
 
-Dedupe before filing: amend an existing issue with a comment rather than opening a duplicate.
+Dedupe before filing: amend an existing issue with a comment rather than opening a duplicate. Before closing a verified duplicate, preserve useful unique context in an attributed canonical-issue comment and crosslink; title similarity alone is not proof.

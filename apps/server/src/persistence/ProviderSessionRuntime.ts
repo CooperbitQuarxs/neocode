@@ -67,6 +67,7 @@ export type RecordImportedTranscriptInput = typeof RecordImportedTranscriptInput
 
 export interface ProviderSessionRuntimeUpsertOptions {
   readonly onConflict?: "update" | "ignore";
+  readonly onlyUpdateStoppedCursor?: true;
 }
 
 /**
@@ -237,6 +238,20 @@ export const make = Effect.gen(function* () {
       `,
   });
 
+  const updateStoppedCursor = SqlSchema.void({
+    Request: ProviderSessionRuntimeDbRowSchema,
+    execute: (runtime) => sql`
+      UPDATE provider_session_runtime SET resume_cursor_json = ${runtime.resumeCursor}
+      WHERE thread_id = ${runtime.threadId}
+        AND provider_name = ${runtime.providerName}
+        AND (
+          provider_instance_id = ${runtime.providerInstanceId}
+          OR (provider_instance_id IS NULL AND provider_name = ${runtime.providerInstanceId})
+        )
+        AND status = 'stopped'
+    `,
+  });
+
   const insertRuntimeRow = SqlSchema.void({
     Request: ProviderSessionRuntimeDbRowSchema,
     execute: (runtime) =>
@@ -369,7 +384,12 @@ export const make = Effect.gen(function* () {
   });
 
   const upsert: ProviderSessionRuntimeRepository["Service"]["upsert"] = (runtime, options) =>
-    (options?.onConflict === "ignore" ? insertRuntimeRow(runtime) : upsertRuntimeRow(runtime)).pipe(
+    (options?.onlyUpdateStoppedCursor
+      ? updateStoppedCursor(runtime)
+      : options?.onConflict === "ignore"
+        ? insertRuntimeRow(runtime)
+        : upsertRuntimeRow(runtime)
+    ).pipe(
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
           "ProviderSessionRuntimeRepository.upsert:query",

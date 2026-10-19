@@ -942,6 +942,13 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
         interrupted: false,
       };
       active = entry;
+      // The import/handoff watermark predates this GUI turn. Invalidate it;
+      // handoff records a new exact leaf only after the writer has stopped.
+      yield* SubscriptionRef.update(cursor, (previous) => {
+        const next = { ...previous };
+        delete next.historyLeafId;
+        return next;
+      });
       yield* setState("running");
       const handle = yield* peer
         .prompt({
@@ -1028,13 +1035,19 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
           interrupted: false,
         };
         const previous = yield* SubscriptionRef.get(cursor);
-        yield* SubscriptionRef.set(cursor, {
+        const next = {
           ...previous,
           turnBoundaries: [
             ...previous.turnBoundaries,
-            { turnId: continuation.turnId, kind: "continuation", afterEntryId: beforeRefinement },
+            {
+              turnId: continuation.turnId,
+              kind: "continuation" as const,
+              afterEntryId: beforeRefinement,
+            },
           ],
-        });
+        };
+        delete next.historyLeafId;
+        yield* SubscriptionRef.set(cursor, next);
         active = entry;
         yield* setState("running");
         if (pendingProposal !== proposal) {

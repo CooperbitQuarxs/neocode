@@ -43,6 +43,8 @@ export type ProviderSessionDirectoryWriteError =
 
 export interface ProviderSessionDirectoryUpsertOptions {
   readonly onConflict?: "update" | "ignore";
+  /** Update only the cursor of an existing stopped row; never replace a live writer. */
+  readonly onlyUpdateStoppedCursor?: true;
 }
 
 export interface ProviderSessionDirectoryShape {

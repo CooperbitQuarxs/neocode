@@ -29,6 +29,8 @@ export type NeoPiResumeCursor = {
   readonly sessionDir: string;
   /** Shared native storage requires a cooperating session lease on every reopen. */
   readonly sharedSession?: boolean;
+  /** Last native leaf whose visible history is already represented in NeoCode. */
+  readonly historyLeafId?: string | null;
   readonly turnBoundaries: ReadonlyArray<
     | { readonly turnId: TurnId; readonly userEntryId: string }
     | { readonly turnId: TurnId; readonly kind: "local" | "unknown" }
