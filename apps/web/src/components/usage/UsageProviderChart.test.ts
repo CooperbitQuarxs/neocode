@@ -85,12 +85,13 @@ describe("buildPeriodColumns", () => {
     // permanently above Codex regardless of which provider spent more.
     const [first] = buildPeriodColumns(days, byDay, "cost");
 
-    expect(first?.bands).toEqual(
-      expect.arrayContaining([
-        { provider: "codex", value: 10 },
-        { provider: "claude", value: 20 },
-      ]),
-    );
+    const nonzeroBands = (first?.bands ?? []).filter(({ value }) => value !== 0);
+    expect(
+      Object.fromEntries(nonzeroBands.map(({ provider, value }) => [provider, value])),
+    ).toEqual({
+      codex: 10,
+      claude: 20,
+    });
   });
 
   it("reports the total as the sum of its bands", () => {
