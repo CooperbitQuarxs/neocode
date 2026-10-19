@@ -424,11 +424,6 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
           operation: "resume",
           message: "This file is not a listed NeoPi session. Refresh session discovery.",
         });
-      if (!sameCwd(row.cwd, project.workspaceRoot))
-        return yield* new NeoPiSessionError({
-          operation: "resume",
-          message: `This session belongs to '${row.cwd || "an unknown workspace"}', not '${project.workspaceRoot}'.`,
-        });
       const existing = bindings.find((entry) => {
         const cursor =
           entry.provider === "neopi" ? decodeCursor(entry.resumeCursor) : Option.none();
@@ -437,6 +432,14 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
       const threadId =
         existing?.threadId ?? ThreadId.make(`import:${provider.instance.instanceId}:${row.id}`);
       const thread = yield* snapshots.getThreadDetailById(threadId);
+      const sessionCwd = Option.isSome(thread)
+        ? (thread.value.worktreePath ?? project.workspaceRoot)
+        : project.workspaceRoot;
+      if (!sameCwd(row.cwd, sessionCwd))
+        return yield* new NeoPiSessionError({
+          operation: "resume",
+          message: `This session belongs to '${row.cwd || "an unknown workspace"}', not '${sessionCwd}'.`,
+        });
       if (Option.isSome(thread)) {
         if (thread.value.projectId !== input.projectId)
           return yield* new NeoPiSessionError({
@@ -467,12 +470,7 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
             message:
               "The bound native session identity changed. Refusing to append unrelated history.",
           });
-        const transcript = yield* readTranscript(
-          provider.source,
-          project.workspaceRoot,
-          sessionFile,
-          row.id,
-        );
+        const transcript = yield* readTranscript(provider.source, sessionCwd, sessionFile, row.id);
         let watermark = saved.value.historyLeafId;
         if (watermark === undefined) {
           // Older GUI cursors know the native user-entry identity, but not the

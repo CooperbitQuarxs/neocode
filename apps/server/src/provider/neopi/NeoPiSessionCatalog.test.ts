@@ -692,6 +692,66 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
         expect(commands.some((command) => command.type === "thread.turn.start")).toBe(false);
       }),
   );
+  it.effect("restores only the bound thread's own worktree", () =>
+    Effect.gen(function* () {
+      const worktreePath = `${cwd}-worktree`;
+      for (const nativeCwd of [worktreePath, `${cwd}-foreign-worktree`]) {
+        const binding = {
+          ...bound("free"),
+          resumeCursor: {
+            sessionFile: session("free").path,
+            sessionId: "free",
+            historyLeafId: "assistant-1",
+          },
+        };
+        const row = session("free", { cwd: nativeCwd });
+        const { catalog, commands, bindings } = yield* harness({
+          rows: [row],
+          bindings: [binding],
+          threads: [projectedThread(binding.threadId, { worktreePath })],
+          read: () => ({
+            version: 1,
+            session: row,
+            truncated: false,
+            branchEntryIds: ["assistant-1", "terminal-user"],
+            leafId: "terminal-user",
+            messages: [
+              {
+                entryId: "terminal-user",
+                role: "user",
+                text: "Terminal continuation",
+                timestamp: now,
+              },
+            ],
+          }),
+        });
+        const input = {
+          projectId,
+          providerInstanceId: instanceId,
+          sessionFile: row.path,
+        };
+        if (nativeCwd !== worktreePath) {
+          const error = yield* catalog.resume(input).pipe(Effect.flip);
+          expect(error.message).toContain("belongs to");
+          expect(commands).toEqual([]);
+          expect(bindings[0]?.resumeCursor).toMatchObject({ historyLeafId: "assistant-1" });
+          continue;
+        }
+        expect(yield* catalog.resume(input)).toEqual({
+          threadId: binding.threadId,
+          created: false,
+        });
+        expect(commands).toMatchObject([
+          {
+            type: "thread.history.append",
+            threadId: binding.threadId,
+            messages: [{ role: "user", text: "Terminal continuation" }],
+          },
+        ]);
+        expect(bindings[0]?.resumeCursor).toMatchObject({ historyLeafId: "terminal-user" });
+      }
+    }),
+  );
   it.effect("refuses divergent ancestry and legacy cursors without altering their history", () =>
     Effect.gen(function* () {
       for (const historyLeafId of ["abandoned-leaf", undefined]) {
