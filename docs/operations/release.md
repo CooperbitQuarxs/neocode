@@ -2,15 +2,59 @@
 
 > For maintainers. Using T3 Code? See [docs/user](../user/).
 
-This document covers the unified release workflow for stable and nightly desktop releases.
+## NeoCode fork releases
+
+In `PsychedelicShayna/neocode`, `.github/workflows/release.yml` publishes a new
+GitHub Release on every push to `nightly` (prerelease, never latest) and `main`
+(stable, marked latest). Each run builds its triggering commit, not a moving
+branch head. On the first nightly merge after this workflow lands, that merge
+starts the prerelease build. Stable automation begins when the owner promotes
+the workflow into `main`; that promotion merge itself starts a stable build.
+
+To publish a stable build manually, select **Release → Run workflow**, leave
+`channel=stable`, and select the workflow ref to build, or supply `ref` with a
+branch, tag, or commit. The workflow resolves it to a commit once. `version`
+optionally overrides the packaged version; otherwise it uses the desktop
+package's base `X.Y.Z`. Manual `nightly` and `preview` channels remain available.
+The Actions UI exposes manual dispatch once the workflow is on `main`.
+
+- Stable branch/manual tags: `v<X.Y.Z>+build.<run_id>.<attempt>`.
+- Nightly tags: `v<X.Y.Z>-nightly.<YYYYMMDD>.<run_id>.<attempt>`.
+- Manual preview tags use `preview` in place of `nightly`.
+- Existing `v*.*.*` tag pushes still build the tagged commit and retain that tag;
+  suffixed versions are prereleases. Generated nightly/preview tags are excluded
+  from push triggers.
+- The half-hour schedule still checks for changes and a six-hour release gap.
+  In the fork it builds `nightly`, not `main`. Branch pushes always publish,
+  regardless of that gap.
+
+Every release retains its tag and assets. Generated tag collisions and existing
+releases fail rather than deleting, replacing, or updating anything. A rerun has
+a new attempt suffix. A tag-triggered run may use its existing source tag, but
+cannot replace an existing release.
+
+The fork reuses `release-desktop.yml` on hosted Ubuntu and Windows x64 runners:
+Linux AppImage and `.deb`, unsigned Windows NSIS installer, both platform CLI
+archives, and `SHA256SUMS`. Windows embeds the Linux CLI archive for WSL.
+No signing secrets are passed; Windows may show an unrecognized-publisher warning.
+Updater manifests are not published, so these releases are installed manually.
+They do not bundle the separate NeoPi executable; install NeoPi separately for
+that provider. No upstream npm, AUR, production relay, Vercel, Discord, or
+version-bump publisher runs in the fork. T3 Connect production configuration
+is not bundled. The upstream release pipeline below remains separate.
+
+## Upstream release workflow
+
+The remaining checklist describes the upstream T3 Code pipeline, not the
+NeoCode fork's GitHub-only release jobs.
 
 ## What the workflow does
 
 - Workflow: `.github/workflows/release.yml`
 - Triggers:
   - manual `workflow_dispatch` with `channel=stable`, the normal way to ship stable. Stable
-    and nightly dispatches must select `main`; preview may select any branch. The channel defaults
-    to preview so an omitted selection cannot publish a stable release.
+    and nightly dispatches must select `main`; preview may select any branch.
+    The shared dispatch form defaults to stable; select preview explicitly for a test train.
   - push tag matching `v*.*.*` for a stable release of an explicit commit
   - scheduled nightly check every 30 minutes
   - manual `workflow_dispatch` with `channel=nightly`
