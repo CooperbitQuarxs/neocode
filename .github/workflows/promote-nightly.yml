@@ -43,7 +43,7 @@ jobs:
           set -euo pipefail
           date=$(date -u +%Y-%m-%d)
           branch="sync/promote-$date"
-          labels="human: pending,review: codex"
+          labels="enhancement,human: pending,review: codex"
           existing=$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" \
             -f base="$BASE" -f state=open -F per_page=100 --paginate --slurp |
             jq '[.[][] | select(.head.repo.full_name == env.GITHUB_REPOSITORY) |
