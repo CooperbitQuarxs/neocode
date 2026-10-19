@@ -77,9 +77,14 @@ jobs:
              echo "- [ ] \`vp check\` and \`vpr typecheck\` pass (not run: promotion PR)"
              echo "- [ ] Tested locally (not run: promotion PR)"
           } > "$body"
+          labels="human: pending,review: codex"
+          merge_subjects=$(git log --merges --format=%s "origin/$BASE..origin/$SOURCE")
+          if [[ "$merge_subjects" =~ (^|[^[:alnum:]_])sync/ ]]; then
+             labels="$labels,upstream"
+          fi
           url=$(gh pr create --base "$BASE" --head "$branch" \
              --title "chore(promote): nightly into main $date" \
-             --body-file "$body" --label upstream --label "human: pending" --label "review: codex")
+             --body-file "$body" --label "$labels")
           number=${url##*/}
           [ -n "$number" ] || { echo "::error::could not determine the promotion PR number"; exit 1; }
           echo "number=$number" >> "$GITHUB_OUTPUT"
