@@ -30,7 +30,16 @@ export function normalizeSemverVersion(version: string): string {
 }
 
 export function parseSemver(value: string): ParsedSemver | null {
-  const normalized = normalizeSemverVersion(value).replace(/^v/, "");
+  const buildIndex = value.indexOf("+");
+  if (
+    buildIndex !== -1 &&
+    !/^[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*$/.test(value.slice(buildIndex + 1).trim())
+  ) {
+    return null;
+  }
+  // SemVer build metadata identifies an artifact, but never changes precedence.
+  const version = buildIndex === -1 ? value : value.slice(0, buildIndex);
+  const normalized = normalizeSemverVersion(version).replace(/^v/, "");
   const [main = "", prerelease] = normalized.split("-", 2);
   const segments = main.split(".");
   if (segments.length !== 3) {

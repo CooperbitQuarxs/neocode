@@ -162,6 +162,18 @@ describe("environment release checks", () => {
     expect(await findEnvironmentUpdate("1.0.0", signal)).toBe("1.2.3+build.39488899088.2");
   });
 
+  it("offers metadata-bearing updates across patch 9 to 10 without downgrading", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(async () => Response.json([release("0.0.10+build.20.1")]));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await findEnvironmentUpdate("0.0.9+build.19.1", signal)).toBe("0.0.10+build.20.1");
+    expect(await findEnvironmentUpdate("0.0.10+build.21.2", signal)).toBeNull();
+
+    fetchMock.mockImplementation(async () => Response.json([release("0.0.9+build.19.1")]));
+    expect(await findEnvironmentUpdate("0.0.10+build.20.1", signal)).toBeNull();
+  });
+
   it("reports failed checks instead of claiming the server is current", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 403 })));
     await expect(findEnvironmentUpdate("1.0.0", signal)).rejects.toThrow("403");

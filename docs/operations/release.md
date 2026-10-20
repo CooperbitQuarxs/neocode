@@ -36,6 +36,9 @@ cannot replace an existing release.
 CLI discovery requires `SHA256SUMS` and an archive named for the full tagged
 version. The CLI updater also requires an archive for its host platform.
 Older mismatched stable releases are skipped, not renamed or overwritten.
+Mobile environment update checks follow SemVer precedence, ignoring `+build`
+metadata. A rebuild of the same base version does not trigger an update; bump
+the base version to offer a new stable update.
 After the owner's next normal stable release, verify its published archive
 against `SHA256SUMS` and check that `--version` reports the full tagged version.
 Local tests cannot prove those published bytes before that release exists.
