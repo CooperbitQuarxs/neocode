@@ -138,6 +138,9 @@ alone is not enough. The first capable executable's path is saved in
 Set **Binary path** to override it; explicit paths are never replaced or given a
 fallback. Clear the field or enter `npi` to select automatically again. Set
 **Profile** to select an `OMP_PROFILE`.
+For a bundled desktop executable, NeoCode records the selection but resolves its
+installation location again on startup, so an AppImage's changing mount path is
+not saved as an explicit override.
 T3 reads OAuth login status but cannot log you in; API-key and local models can
 work even when the card reports authentication as unknown. Model, thinking level,
 and fast mode are selected in the composer when the CLI advertises them. With a

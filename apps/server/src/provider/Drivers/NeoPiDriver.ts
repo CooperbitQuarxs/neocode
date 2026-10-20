@@ -101,7 +101,7 @@ export const NeoPiDriver: ProviderDriver<NeoPiSettings, NeoPiDriverEnv> = {
       const binary = resolved?.binary ?? (config.binaryPath || "npi");
       if (resolved?.autoSelected && !resolved.error) {
         yield* serverSettings.updateSettings((current) =>
-          neoPiBinarySelectionPatch(settingsBeforeProbe, current, instanceId, binary),
+          neoPiBinarySelectionPatch(settingsBeforeProbe, current, instanceId, binary, resolved.bundled),
         ).pipe(
           Effect.mapError((cause) => new ProviderDriverError({
             driver: DRIVER_KIND, instanceId, detail: "Failed to save NeoPi executable selection", cause,

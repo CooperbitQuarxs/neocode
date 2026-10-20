@@ -217,7 +217,7 @@ export const resolveNeoPiBinary = Effect.fn("resolveNeoPiBinary")(function* (
             ? null
             : `version probe exited ${probe.success.value.code}`
         : String(probe.failure);
-    if (!useDefaultSearch) return { binary, version, error, autoSelected: false };
+    if (!useDefaultSearch) return { binary, version, error, autoSelected: false, bundled: false };
     if (!error) {
       const capability = yield* Effect.scoped(
         Effect.gen(function* () {
@@ -239,7 +239,7 @@ export const resolveNeoPiBinary = Effect.fn("resolveNeoPiBinary")(function* (
         }),
       ).pipe(Effect.timeoutOption(HANDSHAKE_TIMEOUT), Effect.result);
       if (Result.isSuccess(capability) && Option.isSome(capability.success) && capability.success.value)
-        return { binary, version, error: null, autoSelected: true };
+        return { binary, version, error: null, autoSelected: true, bundled: candidate === bundled };
       error =
         Result.isFailure(capability)
           ? `session_catalog probe failed: ${String(capability.failure)}`
@@ -254,6 +254,7 @@ export const resolveNeoPiBinary = Effect.fn("resolveNeoPiBinary")(function* (
     version: null,
     error: `No compatible NeoPi executable with session_catalog support found. ${failures.join("; ")}. Set Binary path to an explicit installation or update NeoPi`,
     autoSelected: false,
+    bundled: false,
   };
 });
 

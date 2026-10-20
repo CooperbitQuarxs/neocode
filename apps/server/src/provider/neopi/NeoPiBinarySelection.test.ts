@@ -15,6 +15,31 @@ const before = {
 };
 
 describe("NeoPi executable selection persistence", () => {
+  it("records bundled selection without pinning an AppImage mount or writing on every refresh", () => {
+    const binary = "/mount/current/resources/bin/npi";
+    const patch = neoPiBinarySelectionPatch(before, before, instanceId, binary, true);
+    expect(patch).toEqual({
+      providerInstances: {
+        [instanceId]: {
+          ...before.providerInstances[instanceId],
+          config: { binaryPath: "npi", profile: "work", autoSelectedBinaryPath: binary },
+        },
+      },
+    });
+    const selected = {
+      ...before,
+      providerInstances: {
+        [instanceId]: {
+          ...before.providerInstances[instanceId],
+          config: { binaryPath: "npi", profile: "work", autoSelectedBinaryPath: binary },
+        },
+      },
+    };
+    expect(neoPiBinarySelectionPatch(selected, selected, instanceId, binary, true)).toBeNull();
+    const nextMount = "/mount/next/resources/bin/npi";
+    expect(neoPiBinarySelectionPatch(selected, selected, instanceId, nextMount, true)).not.toBeNull();
+  });
+
   it("preserves current sibling instances while saving the selected executable", () => {
     const siblingId = ProviderInstanceId.make("other");
     const sibling = { driver: ProviderDriverKind.make("codex"), config: {} };

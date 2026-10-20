@@ -1,15 +1,18 @@
 export function NeoPiBinarySelectionNote({ config }: { readonly config: unknown }) {
   if (config === null || typeof config !== "object") return null;
-  if (!("binaryPath" in config) || !("autoSelectedBinaryPath" in config)) return null;
-  if (
-    typeof config.binaryPath !== "string" ||
-    !config.binaryPath ||
-    config.autoSelectedBinaryPath !== config.binaryPath
-  ) return null;
+  if (!("autoSelectedBinaryPath" in config) || typeof config.autoSelectedBinaryPath !== "string")
+    return null;
+  const binaryPath = "binaryPath" in config ? config.binaryPath : undefined;
+  const bundled = !binaryPath || binaryPath === "npi";
+  if (!bundled && binaryPath !== config.autoSelectedBinaryPath) return null;
   return (
     <p className="text-xs text-muted-foreground" role="status">
-      Automatically selected and saved <code>{config.binaryPath}</code> after confirming session-catalog
-      support. Change Binary path to override it, or clear it to select again.
+      Automatically selected {bundled ? "bundled desktop " : ""}executable{" "}
+      <code>{config.autoSelectedBinaryPath}</code> after confirming session-catalog support.
+      {bundled
+        ? " The bundled location is resolved again when the desktop app starts."
+        : " This path is saved."}{" "}
+      Change Binary path to override it, or clear it to select again.
     </p>
   );
 }
