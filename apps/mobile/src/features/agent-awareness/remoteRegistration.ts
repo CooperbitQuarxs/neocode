@@ -1,3 +1,4 @@
+import { APP_BASE_NAME } from "../../lib/mobileBranding";
 import { type LiveActivity } from "expo-widgets";
 import {
   configureAndroidAgentNotifications,
@@ -528,7 +529,7 @@ function armAgentAwarenessLiveActivityForLocalWorkNow(input: {
     }
     const nowIso = new Date(Date.now()).toISOString();
     const activity = startAgentLiveActivity({
-      title: "T3 Code",
+      title: APP_BASE_NAME,
       subtitle: "Agent work in progress",
       activeCount: 1,
       updatedAt: nowIso,

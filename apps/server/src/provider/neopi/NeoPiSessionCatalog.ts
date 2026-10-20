@@ -14,6 +14,7 @@ import {
   ThreadId,
   type NeoPiSessionListInput,
   type NeoPiSessionListResult,
+  type NeoPiSessionDiagnostic,
   type NeoPiSessionSummary,
   type NeoPiSessionResumeInput,
   type NeoPiSessionResumeResult,
@@ -300,11 +301,32 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
                   )
                   .join("\n")
               : "Enable a NeoPi provider in Settings to discover sessions.",
+          diagnostics: enabled.map((instance) => ({
+            providerInstanceId: instance.instanceId,
+            message: capabilityUnavailable(
+              neoPiSessionCatalogSource(instance),
+              NEOPI_CAPABILITIES.sessionCatalog,
+            ),
+          })),
         };
       }
       const unique = new Map<string, NeoPiSessionSummary>();
+      const diagnostics: NeoPiSessionDiagnostic[] = [];
+      let available = false;
       for (const provider of providers) {
-        const { shell, bindings, rows } = yield* catalog(input, provider.source);
+        const result = yield* catalog(input, provider.source).pipe(
+          Effect.mapError(operationError("list")),
+          Effect.result,
+        );
+        if (result._tag === "Failure") {
+          diagnostics.push({
+            providerInstanceId: provider.instance.instanceId,
+            message: result.failure.message,
+          });
+          continue;
+        }
+        available = true;
+        const { shell, bindings, rows } = result.success;
         for (const row of rows) {
           const path = NodePath.resolve(row.path);
           if (unique.has(path)) continue;
@@ -350,8 +372,15 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
           });
         }
       }
+      if (!available)
+        return {
+          status: "unavailable",
+          reason: "Could not load sessions from any NeoPi provider. Try Refresh.",
+          diagnostics,
+        };
       return {
         status: "available",
+        diagnostics,
         sessions: Array.from(unique.values()).sort((left, right) =>
           right.modifiedAt.localeCompare(left.modifiedAt),
         ),
@@ -700,11 +729,16 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
           operation: "handoff",
           message: "The NeoPi provider instance for this thread is unavailable.",
         });
-      if (!source.capabilities.has(NEOPI_CAPABILITIES.sessionHistoryIdentity))
-        return yield* new NeoPiSessionError({
-          operation: "handoff",
-          message: capabilityUnavailable(source, NEOPI_CAPABILITIES.sessionHistoryIdentity),
-        });
+      for (const capability of [
+        NEOPI_CAPABILITIES.sessionCatalog,
+        NEOPI_CAPABILITIES.sessionHistoryIdentity,
+      ]) {
+        if (source.probe.status === "unsupported" || !source.capabilities.has(capability))
+          return yield* new NeoPiSessionError({
+            operation: "handoff",
+            message: capabilityUnavailable(source, capability),
+          });
+      }
       const project = yield* readProject(thread.value.projectId);
       const cwd = thread.value.worktreePath ?? project.workspaceRoot;
       // Subscribe before dispatch: dispatch persists intent, not process shutdown.

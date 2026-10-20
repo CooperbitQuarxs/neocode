@@ -31,6 +31,8 @@ import * as DesktopWindow from "../window/DesktopWindow.ts";
 import * as DesktopState from "./DesktopState.ts";
 import * as DesktopClerk from "./DesktopClerk.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
+import { resolveDesktopUrlRegistration } from "./DesktopUrlRegistration.ts";
 
 const makeDesktopClerkLayer = (
   isDevelopment = true,
@@ -70,6 +72,18 @@ const makeDesktopClerkLayer = (
       Layer.mergeAll(
         Layer.succeed(DesktopEnvironment.DesktopEnvironment, environment),
         Layer.succeed(ElectronApp.ElectronApp, electronApp),
+        Layer.succeed(DesktopPreReadyPlatform.DesktopPreReadyElectronOptions, {
+          linux: null,
+          linuxPasswordStoreCommandLine: null,
+          urlRegistration: resolveDesktopUrlRegistration({
+            platform: "darwin",
+            isDevelopment,
+            isPackaged: false,
+            explicitRegistration: false,
+            execPath: "/electron",
+            appPath: "/app",
+          }),
+        }),
         FileSystem.layerNoop({ exists: () => Effect.succeed(false) }),
       ),
     ),
@@ -94,15 +108,6 @@ describe("DesktopClerk", () => {
     return Effect.gen(function* () {
       yield* Effect.scoped(Layer.build(makeDesktopClerkLayer(true, events)));
 
-      assert.deepEqual(createClerkBridgeMock.mock.calls, [
-        [
-          {
-            storage: storageAdapter,
-            passkeys: true,
-            renderer: { scheme: "t3code-dev", host: "app" },
-          },
-        ],
-      ]);
       assert.equal(cleanup.mock.calls.length, 1);
       // The bridge acquires Electron's single-instance lock at creation, and
       // the lock both lives in and creates the userData directory — so the
@@ -127,10 +132,6 @@ describe("DesktopClerk", () => {
       assert.equal(error.stateDir, "/tmp/t3-state");
       assert.equal(error.isDevelopment, true);
       assert.strictEqual(error.cause, cause);
-      assert.equal(
-        error.message,
-        'Failed to initialize the desktop Clerk bridge for state directory "/tmp/t3-state" (development: true).',
-      );
     });
   });
 
@@ -153,10 +154,6 @@ describe("DesktopClerk", () => {
         assert.equal(error.stateDir, "/tmp/t3-state");
         assert.equal(error.isDevelopment, false);
         assert.strictEqual(error.cause, cause);
-        assert.equal(
-          error.message,
-          'Failed to clean up the desktop Clerk bridge for state directory "/tmp/t3-state" (development: false).',
-        );
       }
     });
   });

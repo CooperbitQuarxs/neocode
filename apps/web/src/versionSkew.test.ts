@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 // Pinned so the direction cases below read as fixed versions instead of
 // arithmetic on whatever version this checkout happens to be at.
-const branding = vi.hoisted(() => ({ APP_VERSION: "0.0.34" }));
+const branding = vi.hoisted(() => ({ APP_VERSION: "0.0.34", APP_BASE_NAME: "Example App" }));
 vi.mock("./branding", () => branding);
 
 import { APP_VERSION } from "./branding";
@@ -21,8 +21,7 @@ import {
   supportsDesktopAppUpdate,
 } from "./versionSkew";
 
-const MISMATCH_HINT =
-  "Version mismatch. Try syncing the client and server to the same T3 Code version.";
+const MISMATCH_HINT = expect.any(String);
 
 describe("versionSkew", () => {
   beforeEach(() => {

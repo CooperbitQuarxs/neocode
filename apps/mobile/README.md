@@ -1,7 +1,7 @@
-# T3 Code Mobile
+# NeoCode mobile
 
 > [!WARNING]
-> T3 Code Mobile is currently in development and is not distributed yet. If you want to try it out, you can build it from source.
+> NeoCode mobile is built from upstream T3 Code and is not distributed as a fork mobile app yet. Build it from source to try it.
 
 ## Quickstart
 
@@ -10,9 +10,9 @@
 
 This app has three variants:
 
-- `development`: Expo dev client, installable side-by-side as `T3 Code Dev`
-- `preview`: persistent internal preview build, installable side-by-side as `T3 Code Preview`
-- `production`: store/release build as `T3 Code`
+- `development`: Expo dev client, installable side-by-side as `NeoCode Dev`
+- `preview`: persistent internal preview build, installable side-by-side as `NeoCode Preview`
+- `production`: store/release build as `NeoCode`
 
 Run commands from `apps/mobile`.
 

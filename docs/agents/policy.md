@@ -7,10 +7,10 @@ publication and merging; this file adds NeoCode-specific details.
 
 ## Branches
 
-| Role               | Branch    | Local checkout                                    | Ships as                                                                                                                                 |
-| ------------------ | --------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Default (promoted) | `main`    | Main repository checkout                          | Stable GitHub releases (see [Releases](#releases)); the desktop entry runs `apps/desktop/scripts/start-electron.mjs` from this checkout. |
-| Integration        | `nightly` | Topic worktree or a separate integration checkout | Nightly desktop application; source of owner-decided promotion.                                                                          |
+| Role               | Branch    | Local checkout                                    | Ships as                                                        |
+| ------------------ | --------- | ------------------------------------------------- | --------------------------------------------------------------- |
+| Default (promoted) | `main`    | Main repository checkout                          | Stable GitHub releases (see [Releases](#releases)).             |
+| Integration        | `nightly` | Topic worktree or a separate integration checkout | Nightly desktop application; source of owner-decided promotion. |
 
 - Topic branches: `git fetch origin && git worktree add ../neocode-wt-<slug> -b <type>/<slug> origin/nightly`.
 - PRs target `nightly`. `hotfix/` PRs target `main` and are followed by a PR merging `main` back into `nightly`.
@@ -21,9 +21,12 @@ publication and merging; this file adds NeoCode-specific details.
 
 Follow [workspace Nightly delivery](../../../AGENTS.md#nightly-delivery) for merge
 eligibility, lockout-only canaries, artifact-changing rebuilds, installation,
-rollback retention, continuous intake, delegation and machine discipline;
-NeoCode's desktop application is built with
-`vp run build:desktop` and launched with `apps/desktop/scripts/start-electron.mjs`.
+rollback retention, continuous intake, delegation and machine discipline.
+The installed Linux desktop entry runs the versioned nightly artifact at
+`~/.local/lib/neocode/releases/<version>/squashfs-root/AppRun`.
+`vp run build:desktop` builds source output; `apps/desktop/scripts/start-electron.mjs`
+launches that checkout's output, not the installed artifact. See the
+[source desktop workflow](../operations/development.md#running-prebuilt-desktop-output-from-source).
 
 - Merge subjects read `Merge PR #<number>: <conventional PR subject> (@<author>)`.
 - Preserve private diagnostic state and process-ownership safety below. A proof session may hold the destination-scoped runtime install lock for at most ten minutes and releases it as soon as proof ends. Use [NeoPi #386](https://github.com/PsychedelicShayna/neopi/pull/386), with the same `NPI_DEST` for `hold`, `status`, `release` and installation; expired holds do not defer delivery. Do not invent a repository-local lock.

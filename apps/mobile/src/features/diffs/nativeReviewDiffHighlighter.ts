@@ -10,6 +10,7 @@ import typescriptLanguage from "@shikijs/langs/typescript";
 import yamlLanguage from "@shikijs/langs/yaml";
 import * as Schema from "effect/Schema";
 
+import { getReviewTokenizer } from "../review/reviewTokenization";
 import type { NativeReviewDiffFile, NativeReviewDiffLanguage } from "./nativeReviewDiffTypes";
 import type { NativeReviewDiffRow, NativeReviewDiffToken } from "./nativeReviewDiffSurface";
 
@@ -215,6 +216,7 @@ function createHighlighterHandle(
   highlighter: HighlighterCore,
   engine: NativeReviewDiffHighlightEngine,
 ): NativeReviewDiffHighlighterHandle {
+  const tokenizer = getReviewTokenizer(highlighter);
   return {
     engine,
     async tokenize(code, { lang, theme, signal }) {
@@ -253,7 +255,7 @@ function createHighlighterHandle(
           end += 1;
         }
 
-        const tokens = highlighter.codeToTokensBase(lines.slice(start, end).join("\n"), {
+        const tokens = await tokenizer.tokenize(lines.slice(start, end).join("\n"), {
           lang,
           theme,
           grammarState,

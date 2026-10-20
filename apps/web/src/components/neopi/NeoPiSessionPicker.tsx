@@ -247,8 +247,19 @@ export function NeoPiSessionPicker({
                       : "Restoring NeoPi session…"}
               </p>
             ) : null}
+            {result.data?.diagnostics.map((diagnostic) => (
+              <p
+                key={diagnostic.providerInstanceId}
+                role="alert"
+                className="px-4 py-2 text-sm text-destructive"
+              >
+                {diagnostic.providerInstanceId}: {diagnostic.message}
+              </p>
+            ))}
             {result.data?.status === "unavailable" ? (
-              <p className="px-4 py-6 text-sm text-muted-foreground">{result.data.reason}</p>
+              result.data.diagnostics.length === 0 ? (
+                <p className="px-4 py-6 text-sm text-muted-foreground">{result.data.reason}</p>
+              ) : null
             ) : result.data === null ? (
               <p role="status" className="px-4 py-6 text-sm text-muted-foreground">
                 {result.error ? "Could not load sessions. Try Refresh." : "Loading sessions…"}

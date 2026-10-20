@@ -42,6 +42,8 @@ vi.mock("electron", async (importOriginal) => ({
 import * as DesktopAssets from "../app/DesktopAssets.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
+import * as DesktopPreReadyPlatform from "../app/DesktopPreReadyPlatform.ts";
+import { resolveDesktopUrlRegistration } from "../app/DesktopUrlRegistration.ts";
 import * as DesktopState from "../app/DesktopState.ts";
 import * as DesktopClerk from "../app/DesktopClerk.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
@@ -479,6 +481,18 @@ describe("DesktopWindow", () => {
               Effect.provide(desktopEnvironmentLayer),
               Effect.provide(FileSystem.layerNoop({ exists: () => Effect.succeed(false) })),
               Effect.provideService(ElectronApp.ElectronApp, electronApp),
+              Effect.provideService(DesktopPreReadyPlatform.DesktopPreReadyElectronOptions, {
+                linux: null,
+                linuxPasswordStoreCommandLine: null,
+                urlRegistration: resolveDesktopUrlRegistration({
+                  platform: "darwin",
+                  isDevelopment: false,
+                  isPackaged: false,
+                  explicitRegistration: false,
+                  execPath: "/electron",
+                  appPath: "/app",
+                }),
+              }),
             );
             yield* clerk.configure.pipe(
               Effect.provideService(DesktopWindow.DesktopWindow, {

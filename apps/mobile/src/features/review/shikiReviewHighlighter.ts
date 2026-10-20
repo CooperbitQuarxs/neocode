@@ -18,6 +18,7 @@ import {
 } from "./reviewHighlighterEngine";
 import { createIncrementalSnippet } from "./incrementalSnippet";
 import type { ReviewRenderableLineRow } from "./reviewModel";
+import { getReviewTokenizer } from "./reviewTokenization";
 import { applyDiffRangesToTokens, computeWordAltDiffRanges } from "./reviewWordDiffs";
 
 export type ReviewDiffTheme = "light" | "dark";
@@ -514,16 +515,20 @@ async function highlightLines(
   const sourceLines = code.split("\n");
   const highlightedLines: Array<ReadonlyArray<ReviewHighlightedToken>> = [];
   const shortLineBatch: string[] = [];
+  const tokenizer = getReviewTokenizer(highlighter);
+  let grammarState: Parameters<HighlighterCore["codeToTokensBase"]>[1]["grammarState"];
 
   const flushShortLineBatch = async (): Promise<void> => {
     if (shortLineBatch.length === 0) {
       return;
     }
 
-    const tokenLines = highlighter.codeToTokensBase(shortLineBatch.join("\n"), {
+    const tokenLines = await tokenizer.tokenize(shortLineBatch.join("\n"), {
       lang: language,
       theme,
+      ...(grammarState ? { grammarState } : {}),
     });
+    grammarState = highlighter.getLastGrammarState(tokenLines);
     highlightedLines.push(...normalizeHighlightedLines(tokenLines));
     shortLineBatch.length = 0;
   };
@@ -534,6 +539,7 @@ async function highlightLines(
     if (line.length > REVIEW_TOKENIZE_MAX_LINE_LENGTH) {
       await flushShortLineBatch();
       highlightedLines.push([{ content: line, color: null, fontStyle: null }]);
+      grammarState = undefined;
     } else {
       shortLineBatch.push(line);
     }

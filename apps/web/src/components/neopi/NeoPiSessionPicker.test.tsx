@@ -9,6 +9,7 @@ import {
   ProviderInstanceId,
   ThreadId,
   type NeoPiSessionResumeResult,
+  type NeoPiSessionDiagnostic,
   type NeoPiSessionSummary,
   type OrchestrationThread,
 } from "@t3tools/contracts";
@@ -27,6 +28,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 
 const fixture = vi.hoisted(() => ({
   sessions: [] as NeoPiSessionSummary[],
+  diagnostics: [] as NeoPiSessionDiagnostic[],
   threads: new Map<string, EnvironmentThreadState>(),
   empty: null as EnvironmentThreadState | null,
   listeners: new Set<() => void>(),
@@ -42,7 +44,7 @@ vi.mock("../../state/neopiSessions", () => ({
 }));
 vi.mock("../../state/query", () => ({
   useEnvironmentQuery: () => ({
-    data: { status: "available", sessions: fixture.sessions },
+    data: { status: "available", sessions: fixture.sessions, diagnostics: fixture.diagnostics },
     error: null,
     isPending: false,
     refresh: fixture.refresh,
@@ -189,6 +191,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   renderer = null;
   fixture.sessions = [];
+  fixture.diagnostics = [];
   fixture.threads.clear();
   fixture.listeners.clear();
   fixture.empty = EMPTY_ENVIRONMENT_THREAD_STATE;
@@ -208,6 +211,28 @@ afterEach(async () => {
 });
 
 describe("NeoPi picker restoration", () => {
+  it("reports the failed instance while keeping healthy sessions selectable", async () => {
+    const failedId = ProviderInstanceId.make("neopi-broken");
+    fixture.diagnostics = [{ providerInstanceId: failedId, message: "Command timed out." }];
+    await mount();
+    const alert = renderer!.root.findByProps({ role: "alert" });
+    expect(alert.children.join("")).toContain(failedId);
+    expect(alert.children.join("")).toContain(fixture.diagnostics[0]!.message);
+    await select();
+    expect(fixture.resume).toHaveBeenCalledExactlyOnceWith({
+      environmentId,
+      input: {
+        projectId,
+        sessionFile: fixture.sessions[0]!.sessionFile,
+        providerInstanceId: fixture.sessions[0]!.providerInstanceId,
+      },
+    });
+    await finishResume();
+    await act(async () => publish(restoredId, detail(restoredId)));
+    expect(fixture.navigate).toHaveBeenCalledTimes(1);
+    expect(fixture.onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("waits for the returned thread in the shared detail store before navigating", async () => {
     await mount();
     await select();

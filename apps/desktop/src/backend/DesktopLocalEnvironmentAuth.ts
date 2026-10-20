@@ -1,3 +1,4 @@
+import { APP_BASE_NAME } from "../app/DesktopEnvironment.ts";
 import { bootstrapRemoteBearerSession } from "@t3tools/client-runtime/authorization";
 import { PRIMARY_LOCAL_ENVIRONMENT_ID } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -72,7 +73,7 @@ export const make = Effect.gen(function* () {
           httpBaseUrl: config.httpBaseUrl.href,
           credential,
           clientMetadata: {
-            label: "T3 Code Desktop",
+            label: `${APP_BASE_NAME} Desktop`,
             deviceType: "desktop",
           },
         }).pipe(

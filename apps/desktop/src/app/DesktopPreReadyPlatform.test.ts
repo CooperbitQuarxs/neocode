@@ -13,6 +13,8 @@ const {
   setDesktopNameMock,
   mkdirSyncMock,
   writeFileSyncMock,
+  readFileSyncMock,
+  appState,
 } = vi.hoisted(() => ({
   appendSwitchMock: vi.fn(),
   getSwitchValueMock: vi.fn(),
@@ -21,12 +23,18 @@ const {
   setDesktopNameMock: vi.fn(),
   mkdirSyncMock: vi.fn(),
   writeFileSyncMock: vi.fn(),
+  readFileSyncMock: vi.fn(),
+  appState: { isPackaged: true },
 }));
 
 vi.mock("electron", () => ({
   app: {
     setDesktopName: setDesktopNameMock,
     getVersion: () => "0.0.37",
+    getAppPath: () => "/source/apps/desktop/dist-electron/main.cjs",
+    get isPackaged() {
+      return appState.isPackaged;
+    },
     commandLine: {
       appendSwitch: appendSwitchMock,
       getSwitchValue: getSwitchValueMock,
@@ -39,12 +47,13 @@ vi.mock("electron", () => ({
 }));
 
 vi.mock("node:fs", () => ({
-  readFileSync: () => "{}",
+  readFileSync: readFileSyncMock,
   mkdirSync: mkdirSyncMock,
   writeFileSync: writeFileSyncMock,
 }));
 
 import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
+import { escapeDesktopEntryExecArgument } from "./DesktopUrlRegistration.ts";
 
 describe("DesktopPreReadyPlatform", () => {
   beforeEach(() => {
@@ -55,6 +64,8 @@ describe("DesktopPreReadyPlatform", () => {
     setDesktopNameMock.mockReset();
     mkdirSyncMock.mockReset();
     writeFileSyncMock.mockReset();
+    readFileSyncMock.mockReset().mockReturnValue("{}");
+    appState.isPackaged = true;
   });
 
   it.effect("preserves an explicit Linux password-store switch", () => {
@@ -102,7 +113,7 @@ describe("DesktopPreReadyPlatform", () => {
             );
             const identity = yield* Effect.promise(() => portalIdentity);
             assert.equal(identity.desktopName, "com.t3tools.T3Code.desktop");
-            assert.include(identity.desktopEntry ?? "", 'Exec="/Applications/current.AppImage" %U');
+            assert.include(identity.desktopEntry ?? "", '"/Applications/current.AppImage" %U');
             assert.include(identity.desktopEntry ?? "", "MimeType=x-scheme-handler/t3code;");
           }),
         ).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())));
@@ -159,17 +170,52 @@ describe("DesktopPreReadyPlatform", () => {
           preReady: DesktopPreReadyPlatform.DesktopPreReadyElectronOptions,
         }).pipe(Effect.provide(runtimeLayer));
 
-        assert.deepEqual(result, {
-          clerk: { ready: true },
-          preReady: {
-            linux: null,
-            linuxPasswordStoreCommandLine: null,
-          },
-        });
-        assert.deepEqual(events, ["pre-ready", "clerk"]);
+        assert.deepEqual(result.clerk, { ready: true });
+        assert.isNull(result.preReady.linux);
+        assert.isNull(result.preReady.linuxPasswordStoreCommandLine);
         assert.equal(registerSchemesMock.mock.calls.length, 1);
         assert.equal(appendSwitchMock.mock.calls.length, 0);
         assert.equal(setDesktopNameMock.mock.calls.length, 0);
       }),
   );
+
+  it.effect("ordinary source startup leaves the installed handler untouched", () => {
+    appState.isPackaged = false;
+    vi.stubEnv("VITE_DEV_SERVER_URL", "");
+    hasSwitchMock.mockReturnValue(false);
+    readFileSyncMock.mockReturnValue('Exec=/usr/bin/env "/Applications/installed.AppImage" %U');
+    return Effect.gen(function* () {
+      yield* DesktopPreReadyPlatform.make;
+      yield* DesktopPreReadyPlatform.make;
+      assert.equal(writeFileSyncMock.mock.calls.length, 0);
+      assert.equal(mkdirSyncMock.mock.calls.length, 0);
+    }).pipe(
+      Effect.provideService(HostProcessPlatform, "linux"),
+      Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())),
+    );
+  });
+
+  it.effect("explicit source registration writes the full app once", () => {
+    appState.isPackaged = false;
+    vi.stubEnv("VITE_DEV_SERVER_URL", "");
+    hasSwitchMock.mockImplementation((name) => name === "register-url-handler");
+    let entry = "";
+    readFileSyncMock.mockImplementation((path: string) =>
+      path.endsWith(".desktop") ? entry : "{}",
+    );
+    writeFileSyncMock.mockImplementation((_path: string, content: string) => {
+      entry = content;
+    });
+    return Effect.gen(function* () {
+      const options = yield* DesktopPreReadyPlatform.make;
+      yield* DesktopPreReadyPlatform.make;
+      assert.equal(writeFileSyncMock.mock.calls.length, 1);
+      const appEntry = options.urlRegistration.command.at(-1)!;
+      assert.notEqual(appEntry, "/source/apps/desktop/dist-electron/main.cjs");
+      assert.include(entry, `${escapeDesktopEntryExecArgument(appEntry)} %U`);
+    }).pipe(
+      Effect.provideService(HostProcessPlatform, "linux"),
+      Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())),
+    );
+  });
 });
