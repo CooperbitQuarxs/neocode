@@ -48,7 +48,7 @@ export class DesktopClerk extends Context.Service<
   {
     readonly configure: Effect.Effect<
       void,
-      never,
+      DesktopWindow.DesktopWindowError,
       DesktopWindow.DesktopWindow | DesktopState.DesktopState | Scope.Scope
     >;
   }

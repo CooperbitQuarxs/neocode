@@ -433,7 +433,14 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
       ),
     );
 
-    return { layer, createCalls, mainWindow, createdWindows, revealedWindows, revealReceipts } as const;
+    return {
+      layer,
+      createCalls,
+      mainWindow,
+      createdWindows,
+      revealedWindows,
+      revealReceipts,
+    } as const;
   });
 
 const captureOne = DesktopSnapShotId.make("11111111-1111-4111-8111-111111111111");
@@ -462,7 +469,7 @@ describe("DesktopWindow", () => {
                   appEvents.removeListener(eventName, listener);
                 }),
             ).pipe(Effect.asVoid),
-        } as ElectronApp.ElectronApp["Service"];
+        } as unknown as ElectronApp.ElectronApp["Service"];
         yield* Effect.scoped(
           Effect.gen(function* () {
             const desktopWindow = yield* DesktopWindow.DesktopWindow;
@@ -537,32 +544,34 @@ describe("DesktopWindow", () => {
     }),
   );
 
-  it.effect("recreates a destroyed main only after backend readiness, never activating a preview", () =>
-    Effect.gen(function* () {
-      const first = makeFakeBrowserWindow();
-      const replacement = makeFakeBrowserWindow();
-      const preview = makeFakeBrowserWindow();
-      const scenario = yield* makeSplashScenario([first.window, replacement.window]);
-      yield* Effect.gen(function* () {
-        const desktopWindow = yield* DesktopWindow.DesktopWindow;
-        yield* Ref.set(scenario.createdWindows, [preview.window]);
-        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
-        first.windowListeners.get("ready-to-show")!();
-        assert.strictEqual(yield* Queue.take(scenario.revealReceipts), first.window);
-        first.isDestroyed.mockReturnValue(true);
-        yield* desktopWindow.handleBackendNotReady;
-        yield* desktopWindow.activate;
-        assert.equal(yield* Ref.get(scenario.createCalls), 1);
-        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
-        assert.equal(yield* Ref.get(scenario.createCalls), 2);
-        replacement.windowListeners.get("ready-to-show")!();
-        assert.strictEqual(yield* Queue.take(scenario.revealReceipts), replacement.window);
-        assert.deepEqual(yield* Ref.get(scenario.revealedWindows), [
-          first.window,
-          replacement.window,
-        ]);
-      }).pipe(Effect.provide(scenario.layer));
-    }),
+  it.effect(
+    "recreates a destroyed main only after backend readiness, never activating a preview",
+    () =>
+      Effect.gen(function* () {
+        const first = makeFakeBrowserWindow();
+        const replacement = makeFakeBrowserWindow();
+        const preview = makeFakeBrowserWindow();
+        const scenario = yield* makeSplashScenario([first.window, replacement.window]);
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* Ref.set(scenario.createdWindows, [preview.window]);
+          yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+          first.windowListeners.get("ready-to-show")!();
+          assert.strictEqual(yield* Queue.take(scenario.revealReceipts), first.window);
+          first.isDestroyed.mockReturnValue(true);
+          yield* desktopWindow.handleBackendNotReady;
+          yield* desktopWindow.activate;
+          assert.equal(yield* Ref.get(scenario.createCalls), 1);
+          yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+          assert.equal(yield* Ref.get(scenario.createCalls), 2);
+          replacement.windowListeners.get("ready-to-show")!();
+          assert.strictEqual(yield* Queue.take(scenario.revealReceipts), replacement.window);
+          assert.deepEqual(yield* Ref.get(scenario.revealedWindows), [
+            first.window,
+            replacement.window,
+          ]);
+        }).pipe(Effect.provide(scenario.layer));
+      }),
   );
   it.effect("shows native context menus for browser guests and sign-in popups", () =>
     Effect.gen(function* () {

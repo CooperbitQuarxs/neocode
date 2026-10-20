@@ -167,65 +167,68 @@ describe("DesktopClerk", () => {
       { boundary, argv: ["electron", "t3code://clerk/callback?code=private"] },
     ],
   )) {
-    it.effect(`retains ${argv.length === 1 ? "ordinary" : "OAuth"} activation at ${boundary}`, () => {
-      const appEvents = new EventEmitter();
-      const cleanup = vi.fn();
-      const quit = vi.fn();
-      const oauthUrls: string[] = [];
-      const callback = (_event: unknown, args: string[]) => {
-        oauthUrls.push(...args.filter((arg) => arg.startsWith("t3code://")));
-      };
-      storageMock.mockReturnValue(storageAdapter);
-      createClerkBridgeMock.mockImplementation(() => {
-        appEvents.on("second-instance", callback);
-        if (boundary === "bridge lock") appEvents.emit("second-instance", {}, argv);
-        return {
-          isPrimaryInstance: true,
-          cleanup: () => {
-            appEvents.removeListener("second-instance", callback);
-            cleanup();
-          },
+    it.effect(
+      `retains ${argv.length === 1 ? "ordinary" : "OAuth"} activation at ${boundary}`,
+      () => {
+        const appEvents = new EventEmitter();
+        const cleanup = vi.fn();
+        const quit = vi.fn();
+        const oauthUrls: string[] = [];
+        const callback = (_event: unknown, args: string[]) => {
+          oauthUrls.push(...args.filter((arg) => arg.startsWith("t3code://")));
         };
-      });
-      const activated = Promise.withResolvers<void>();
-      let activations = 0;
+        storageMock.mockReturnValue(storageAdapter);
+        createClerkBridgeMock.mockImplementation(() => {
+          appEvents.on("second-instance", callback);
+          if (boundary === "bridge lock") appEvents.emit("second-instance", {}, argv);
+          return {
+            isPrimaryInstance: true,
+            cleanup: () => {
+              appEvents.removeListener("second-instance", callback);
+              cleanup();
+            },
+          };
+        });
+        const activated = Promise.withResolvers<void>();
+        let activations = 0;
 
-      return Effect.gen(function* () {
-        const quitting = yield* Ref.make(false);
-        yield* Effect.scoped(
-          Effect.gen(function* () {
-            const clerk = yield* DesktopClerk.DesktopClerk;
-            if (boundary === "before configure") appEvents.emit("second-instance", {}, argv);
-            assert.equal(activations, 0);
-            yield* clerk.configure;
-            if (boundary === "after configure") appEvents.emit("second-instance", {}, argv);
-            yield* Effect.promise(() => activated.promise);
-            assert.equal(activations, 1);
-            assert.deepEqual(oauthUrls, argv.slice(1));
-            assert.equal(quit.mock.calls.length, 0);
-          }).pipe(
-            Effect.provide(makeDesktopClerkLayer(true, [], appEvents, quit)),
-            Effect.provideService(
-              DesktopWindow.DesktopWindow,
-              DesktopWindow.DesktopWindow.of({
-                activate: Effect.sync(() => {
-                  activations++;
-                  activated.resolve();
-                }),
-              } as DesktopWindow.DesktopWindow["Service"]),
+        return Effect.gen(function* () {
+          const quitting = yield* Ref.make(false);
+          yield* Effect.scoped(
+            Effect.gen(function* () {
+              const clerk = yield* DesktopClerk.DesktopClerk;
+              if (boundary === "before configure") appEvents.emit("second-instance", {}, argv);
+              assert.equal(activations, 0);
+              yield* clerk.configure;
+              if (boundary === "after configure") appEvents.emit("second-instance", {}, argv);
+              yield* Effect.promise(() => activated.promise);
+              assert.equal(activations, 1);
+              assert.deepEqual(oauthUrls, argv.slice(1));
+              assert.equal(quit.mock.calls.length, 0);
+            }).pipe(
+              Effect.provide(makeDesktopClerkLayer(true, [], appEvents, quit)),
+              Effect.provideService(
+                DesktopWindow.DesktopWindow,
+                DesktopWindow.DesktopWindow.of({
+                  activate: Effect.sync(() => {
+                    activations++;
+                    activated.resolve();
+                  }),
+                } as unknown as DesktopWindow.DesktopWindow["Service"]),
+              ),
+              Effect.provideService(DesktopState.DesktopState, {
+                quitting,
+              } as DesktopState.DesktopState["Service"]),
             ),
-            Effect.provideService(DesktopState.DesktopState, {
-              quitting,
-            } as DesktopState.DesktopState["Service"]),
-          ),
-        );
-        appEvents.emit("second-instance", {}, argv);
-        assert.equal(activations, 1);
-        assert.deepEqual(oauthUrls, argv.slice(1));
-        assert.equal(appEvents.listenerCount("second-instance"), 0);
-        assert.equal(cleanup.mock.calls.length, 1);
-      });
-    });
+          );
+          appEvents.emit("second-instance", {}, argv);
+          assert.equal(activations, 1);
+          assert.deepEqual(oauthUrls, argv.slice(1));
+          assert.equal(appEvents.listenerCount("second-instance"), 0);
+          assert.equal(cleanup.mock.calls.length, 1);
+        });
+      },
+    );
   }
 
   it.effect("quits and interrupts startup in a secondary instance without activation", () => {
@@ -240,7 +243,7 @@ describe("DesktopClerk", () => {
         Effect.scoped(clerk.configure).pipe(
           Effect.provideService(DesktopWindow.DesktopWindow, {
             activate: Effect.die("secondary instance must not activate or bootstrap"),
-          } as DesktopWindow.DesktopWindow["Service"]),
+          } as unknown as DesktopWindow.DesktopWindow["Service"]),
           Effect.provideService(DesktopState.DesktopState, {
             quitting,
           } as DesktopState.DesktopState["Service"]),
