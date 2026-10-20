@@ -17,6 +17,7 @@ import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { CustomModelEditor } from "./CustomModelEditor";
+import { LegendList, LegendListRef } from "@legendapp/list/react";
 
 /**
  * Placeholder text for the "add a custom model" input, keyed by driver
@@ -177,7 +178,7 @@ export function ProviderModelsSection({
   const [error, setError] = useState<string | null>(null);
   // Slug of the custom model whose inline editor is open, if any.
   const [editingSlug, setEditingSlug] = useState<string | null>(null);
-  const listRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<LegendListRef | null>(null);
   // Slug of a just-added custom model, scrolled into view once its row exists.
   const scrollToSlugRef = useRef<string | null>(null);
   const hiddenModelSet = useMemo(() => new Set(hiddenModels), [hiddenModels]);
@@ -209,17 +210,15 @@ export function ProviderModelsSection({
       )
     : displayModels;
 
-  // The parent commits the new custom model and hands back an updated
-  // `models` list, so the row can only be scrolled to after that render.
+  // Reveal a just-added model by index: its row may not be mounted yet.
   useEffect(() => {
     const slug = scrollToSlugRef.current;
     if (slug === null) return;
-    const row = listRef.current?.querySelector<HTMLElement>(
-      `[data-model-slug="${CSS.escape(slug)}"]`,
-    );
-    if (!row) return;
+    const index = displayModels.findIndex((model) => model.slug === slug);
+    if (index < 0 || !listRef.current) return;
     scrollToSlugRef.current = null;
-    row.scrollIntoView({ block: "nearest" });
+    void listRef.current.scrollToIndex({ index, animated: false, viewPosition: 0.5 });
+    listRef.current.getScrollableNode().scrollIntoView({ block: "nearest" });
   }, [displayModels]);
 
   const handleAdd = () => {
@@ -505,7 +504,10 @@ export function ProviderModelsSection({
         {showFilter ? (
           <Input
             value={filter}
-            onChange={(event) => setFilter(event.target.value)}
+            onChange={(event) => {
+              setFilter(event.target.value);
+              void listRef.current?.scrollToOffset({ offset: 0, animated: false });
+            }}
             placeholder="Filter models"
             size="sm"
             className="w-56 max-w-full"
@@ -547,49 +549,65 @@ export function ProviderModelsSection({
           </Button>
         ) : null}
       </div>
-      <div
-        ref={listRef}
-        className="mt-2 -mx-2 max-h-64 overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1"
-      >
+      <div className="mt-2 -mx-2">
         {visibleModels.length === 0 ? (
           <p className="px-2 py-2 text-xs text-muted-foreground">
             {isFiltering ? "No models match." : "No models reported for this provider yet."}
           </p>
         ) : null}
-        {visibleModels.map((model, index) => {
-          const group = groupOf(model);
-          const previous = visibleModels[index - 1];
-          const startsGroup = previous === undefined || groupOf(previous) !== group;
-          const editingEntry =
-            model.isCustom && editingSlug === model.slug
-              ? customModels.find((entry) => entry.slug === model.slug)
-              : undefined;
-          return (
-            <div key={`${instanceId}:${model.slug}:group`}>
-              {startsGroup && favoriteCount > 0 && group === "favorite"
-                ? groupLabel("Favorites", index === 0)
-                : null}
-              {startsGroup && favoriteCount > 0 && group === "visible"
-                ? groupLabel("All", index === 0)
-                : null}
-              {startsGroup && group === "hidden"
-                ? groupLabel("Hidden from picker", index === 0)
-                : null}
-              {renderRow(model)}
-              {editingEntry ? (
-                <CustomModelEditor
-                  key={`${instanceId}:${model.slug}:editor`}
-                  instanceId={instanceId}
-                  driverKind={driverKind}
-                  entry={editingEntry}
-                  builtInModels={builtInModels}
-                  onSave={handleSaveEdit}
-                  onCancel={() => setEditingSlug(null)}
-                />
-              ) : null}
-            </div>
-          );
-        })}
+        <LegendList
+          ref={listRef}
+          data={visibleModels}
+          extraData={editingSlug}
+          keyExtractor={(model) => model.slug}
+          estimatedItemSize={28}
+          drawDistance={160}
+          recycleItems={false}
+          maintainVisibleContentPosition={false}
+          style={{
+            height: Math.min(
+              visibleModels.length * 28 +
+                (favoriteCount > 0 ? 80 : 0) +
+                (hiddenCount > 0 ? 40 : 0) +
+                (editingSlug !== null ? 320 : 0),
+              256,
+            ),
+          }}
+          renderItem={({ item: model, index }) => {
+            const group = groupOf(model);
+            const previous = visibleModels[index - 1];
+            const startsGroup = previous === undefined || groupOf(previous) !== group;
+            const editingEntry =
+              model.isCustom && editingSlug === model.slug
+                ? customModels.find((entry) => entry.slug === model.slug)
+                : undefined;
+            return (
+              <div key={`${instanceId}:${model.slug}:group`}>
+                {startsGroup && favoriteCount > 0 && group === "favorite"
+                  ? groupLabel("Favorites", index === 0)
+                  : null}
+                {startsGroup && favoriteCount > 0 && group === "visible"
+                  ? groupLabel("All", index === 0)
+                  : null}
+                {startsGroup && group === "hidden"
+                  ? groupLabel("Hidden from picker", index === 0)
+                  : null}
+                {renderRow(model)}
+                {editingEntry ? (
+                  <CustomModelEditor
+                    key={`${instanceId}:${model.slug}:editor`}
+                    instanceId={instanceId}
+                    driverKind={driverKind}
+                    entry={editingEntry}
+                    builtInModels={builtInModels}
+                    onSave={handleSaveEdit}
+                    onCancel={() => setEditingSlug(null)}
+                  />
+                ) : null}
+              </div>
+            );
+          }}
+        />
       </div>
 
       {driverKind === "antigravity" ? null : isAdding ? (
