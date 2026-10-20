@@ -1,15 +1,16 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
 import { clerkFrontendApiHostnameFromPublishableKey } from "@t3tools/shared/relayAuth";
 import * as ElectronApp from "../electron/ElectronApp.ts";
+import * as DesktopWindow from "../window/DesktopWindow.ts";
+import * as DesktopState from "./DesktopState.ts";
 import { createDesktopClerkBridge } from "./DesktopClerkBridge.ts";
 import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
-import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 
@@ -46,8 +47,8 @@ export class DesktopClerk extends Context.Service<
   {
     readonly configure: Effect.Effect<
       void,
-      never,
-      ElectronApp.ElectronApp | ElectronWindow.ElectronWindow | Scope.Scope
+      DesktopWindow.DesktopWindowError,
+      DesktopWindow.DesktopWindow | DesktopState.DesktopState | Scope.Scope
     >;
   }
 >()("@t3tools/desktop/app/DesktopClerk") {}
@@ -86,6 +87,18 @@ export const make = Effect.gen(function* () {
   const userDataPath = yield* DesktopAppIdentity.resolveUserDataPath;
   yield* electronApp.setPath("userData", userDataPath);
 
+  // Register before bridge creation takes the lock. Only activation intent is
+  // retained here; the SDK remains the sole owner of OAuth argv delivery.
+  let pendingActivation = false;
+  let activate: (() => void) | undefined;
+  yield* electronApp.on("second-instance", () => {
+    if (activate) {
+      activate();
+    } else {
+      pendingActivation = true;
+    }
+  });
+
   const bridge = yield* Effect.acquireRelease(
     Effect.try({
       try: () => createDesktopClerkBridge(environment.stateDir, urlRegistration),
@@ -110,9 +123,9 @@ export const make = Effect.gen(function* () {
 
   return DesktopClerk.of({
     configure: Effect.gen(function* () {
-      const electronApp = yield* ElectronApp.ElectronApp;
-      const electronWindow = yield* ElectronWindow.ElectronWindow;
-      const context = yield* Effect.context<ElectronWindow.ElectronWindow>();
+      const desktopWindow = yield* DesktopWindow.DesktopWindow;
+      const state = yield* DesktopState.DesktopState;
+      const context = yield* Effect.context<never>();
       const runPromise = Effect.runPromiseWith(context);
 
       // The SDK bridge holds Electron's single-instance lock (acquired at
@@ -125,16 +138,23 @@ export const make = Effect.gen(function* () {
         return yield* Effect.interrupt;
       }
 
-      yield* electronApp.on("second-instance", () => {
+      activate = () => {
         void runPromise(
           Effect.gen(function* () {
-            const mainWindow = yield* electronWindow.currentMainOrFirst;
-            if (Option.isSome(mainWindow)) {
-              yield* electronWindow.reveal(mainWindow.value);
-            }
+            if (yield* Ref.get(state.quitting)) return;
+            yield* desktopWindow.activate;
           }),
         );
-      });
+      };
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          activate = undefined;
+        }),
+      );
+      if (pendingActivation && !(yield* Ref.get(state.quitting))) {
+        pendingActivation = false;
+        yield* desktopWindow.activate;
+      }
     }).pipe(Effect.withSpan("desktop.clerk.configure")),
   });
 });

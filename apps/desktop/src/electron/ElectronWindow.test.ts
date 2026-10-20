@@ -109,6 +109,42 @@ describe("ElectronWindow", () => {
     windowsForegroundCloseMock.mockReset();
   });
 
+  for (const initial of [
+    { name: "hidden", visible: false, minimized: false },
+    { name: "minimized", visible: true, minimized: true },
+    { name: "visible behind another window", visible: true, minimized: false },
+  ]) {
+    it.effect(`restores, shows, focuses and raises an ${initial.name} X11 window`, () =>
+      Effect.gen(function* () {
+        const state = { ...initial, focused: false, top: false };
+        const window = {
+          id: 41,
+          isDestroyed: () => false,
+          isMinimized: () => state.minimized,
+          isVisible: () => state.visible,
+          restore: () => {
+            state.minimized = false;
+          },
+          show: () => {
+            state.visible = true;
+          },
+          moveTop: () => {
+            state.top = true;
+          },
+          focus: () => {
+            state.focused = true;
+          },
+        } as unknown as Electron.BrowserWindow;
+        const electronWindow = yield* ElectronWindow.ElectronWindow;
+        yield* electronWindow.reveal(window);
+        assert.isFalse(state.minimized);
+        assert.isTrue(state.visible);
+        assert.isTrue(state.focused);
+        assert.isTrue(state.top);
+      }).pipe(Effect.provide(TestLayer)),
+    );
+  }
+
   it.effect("preserves schema-safe creation context and the Electron cause", () =>
     Effect.gen(function* () {
       const cause = new Error("native BrowserWindow construction failed");

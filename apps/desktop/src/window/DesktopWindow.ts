@@ -5,6 +5,7 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Semaphore from "effect/Semaphore";
 
 import * as Electron from "electron";
 
@@ -328,6 +329,10 @@ export const make = Effect.gen(function* () {
   // createMainIfBackendReady, which gates the post-readiness window
   // open in development and the macOS "activate without windows" path.
   const backendReadyRef = yield* Ref.make(false);
+  const mainCreation = yield* Semaphore.make(1);
+  const revealReadyWindows = new WeakSet<Electron.BrowserWindow>();
+  let activationEnabled = false;
+  let activationRequested = false;
   // The transient "Connecting to WSL" splash window, tracked separately so it
   // is never mistaken for the real main window.
   const splashWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
@@ -343,13 +348,8 @@ export const make = Effect.gen(function* () {
     }
   });
 
-  // currentMainOrFirst / focusedMainOrFirst fall back to "any first window",
-  // which during WSL-only boot is the connecting splash. The splash is never
-  // registered via setMain, so it must be treated as "no real main window" --
-  // otherwise ensureMain/activate/dispatchMenuAction latch onto it and never
-  // open (or retry) the real main. That is the failure the pool's swallowed
-  // post-readiness window-open error would otherwise strand the user in:
-  // splash up, backend ready, no main, and activation only re-reveals splash.
+  // Focused renderer actions may use a preview, but lifecycle activation must
+  // only target the registered main, never an incidental splash or preview.
   const withoutSplash = (window: Option.Option<Electron.BrowserWindow>) =>
     Ref.get(splashWindowRef).pipe(
       Effect.map((splash) =>
@@ -359,7 +359,7 @@ export const make = Effect.gen(function* () {
       ),
     );
 
-  const currentMainWindow = electronWindow.currentMainOrFirst.pipe(Effect.flatMap(withoutSplash));
+  const currentMainWindow = electronWindow.main;
   const focusedMainWindow = electronWindow.focusedMainOrFirst.pipe(Effect.flatMap(withoutSplash));
 
   const createWindow = Effect.fn("desktop.window.createWindow")(function* (): Effect.fn.Return<
@@ -825,7 +825,15 @@ export const make = Effect.gen(function* () {
       if (persistedSettings.mainWindowMaximized) {
         window.maximize();
       }
-      void runPromise(Effect.andThen(electronWindow.reveal(window), dismissConnectingSplash));
+      revealReadyWindows.add(window);
+      void runPromise(
+        Effect.gen(function* () {
+          if (window.isDestroyed()) return;
+          yield* electronWindow.reveal(window);
+          activationRequested = false;
+          yield* dismissConnectingSplash;
+        }),
+      );
     });
 
     loadApplication();
@@ -855,7 +863,7 @@ export const make = Effect.gen(function* () {
       return existingWindow.value;
     }
     return yield* createMain;
-  }).pipe(Effect.withSpan("desktop.window.ensureMain"));
+  }).pipe(mainCreation.withPermits(1), Effect.withSpan("desktop.window.ensureMain"));
 
   const revealOrCreateMain = Effect.gen(function* () {
     const window = yield* ensureMain;
@@ -871,13 +879,19 @@ export const make = Effect.gen(function* () {
   });
 
   const createMainIfBackendReady = Effect.gen(function* () {
+    // Bootstrap calls this only after Electron and the renderer protocol are
+    // ready. In remote-only mode, settings alone must not open a window early.
+    activationEnabled = true;
     if (yield* waitingForBackend) return;
-    const existingWindow = yield* currentMainWindow;
-    if (Option.isSome(existingWindow)) return;
-    yield* createMain;
+    const window = yield* ensureMain;
+    if (activationRequested && revealReadyWindows.has(window)) {
+      yield* electronWindow.reveal(window);
+      activationRequested = false;
+    }
   }).pipe(Effect.withSpan("desktop.window.createMainIfBackendReady"));
 
   const showConnectingSplash = Effect.gen(function* () {
+    activationEnabled = true;
     // Only when nothing is shown yet: no real window, no existing splash.
     const existingSplash = yield* Ref.get(splashWindowRef);
     if (Option.isSome(existingSplash)) return;
@@ -958,23 +972,25 @@ export const make = Effect.gen(function* () {
       }
     }),
     activate: Effect.gen(function* () {
+      activationRequested = true;
       const existingWindow = yield* currentMainWindow;
       if (Option.isSome(existingWindow)) {
-        yield* electronWindow.reveal(existingWindow.value);
+        // Initial loading keeps the request until the first reveal trigger.
+        if (revealReadyWindows.has(existingWindow.value)) {
+          yield* electronWindow.reveal(existingWindow.value);
+          activationRequested = false;
+        }
         return;
       }
-      // No real main window yet. While the backend is still cold-booting,
-      // re-reveal the connecting splash so taskbar/dock activation brings it
-      // back instead of doing nothing. Once the backend is ready we fall
-      // through to (re)create the real main -- including retrying a previously
-      // failed open the pool swallowed -- rather than latching onto the splash.
-      const backendReady = yield* Ref.get(backendReadyRef);
-      if (!backendReady) {
+      if (!activationEnabled) return;
+      // The splash remains useful while cold-booting, but revealing it does
+      // not consume the request for the eventual real main window.
+      if (yield* waitingForBackend) {
         const splash = yield* Ref.get(splashWindowRef);
-        if (Option.isSome(splash)) {
+        if (Option.isSome(splash) && !splash.value.isDestroyed()) {
           yield* electronWindow.reveal(splash.value);
-          return;
         }
+        return;
       }
       yield* createMainIfBackendReady;
     }).pipe(Effect.withSpan("desktop.window.activate")),
