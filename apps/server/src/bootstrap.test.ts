@@ -2,6 +2,7 @@
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
 import * as NodeChildProcess from "node:child_process";
+import { PassThrough } from "node:stream";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as FileSystem from "effect/FileSystem";
@@ -18,6 +19,7 @@ import {
   BootstrapFdStatError,
   BootstrapInputStreamOpenError,
   readBootstrapEnvelope,
+  waitForParentInputClose,
 } from "./bootstrap.ts";
 import { assertNone, assertSome } from "@effect/vitest/utils";
 
@@ -251,5 +253,70 @@ it.layer(NodeServices.layer)("readBootstrapEnvelope", (it) => {
         const payload = yield* Fiber.join(fiber);
         assertNone(payload);
       }).pipe(Effect.provide(TestClock.layer())),
+  );
+  it.effect("keeps a borrowed bootstrap pipe open until its parent ends it", () =>
+    Effect.gen(function* () {
+      const input = yield* Effect.acquireRelease(
+        Effect.sync(() => new PassThrough()),
+        (input) => Effect.sync(() => input.destroy()),
+      );
+      input.write('{"mode":"desktop"}\n');
+
+      const payload = yield* readBootstrapEnvelope(TestEnvelopeSchema, 0, { input });
+      assertSome(payload, { mode: "desktop" });
+      assert.equal(input.destroyed, false);
+
+      const lifetime = yield* waitForParentInputClose(input).pipe(Effect.forkScoped);
+      yield* Effect.yieldNow;
+      assert.equal(lifetime.pollUnsafe(), undefined);
+
+      input.end();
+      yield* Fiber.join(lifetime);
+      assert.equal(input.readableEnded, true);
+    }),
+  );
+
+  it.effect("observes parent EOF that arrives between bootstrap and the lifetime listener", () =>
+    Effect.gen(function* () {
+      const input = yield* Effect.acquireRelease(
+        Effect.sync(() => new PassThrough()),
+        (input) => Effect.sync(() => input.destroy()),
+      );
+      input.end('{"mode":"desktop"}\n');
+
+      const payload = yield* readBootstrapEnvelope(TestEnvelopeSchema, 0, { input });
+      assertSome(payload, { mode: "desktop" });
+      yield* waitForParentInputClose(input);
+      assert.equal(input.readableEnded, true);
+    }),
+  );
+
+  it.effect("reports a broken parent pipe instead of leaving the server running", () =>
+    Effect.gen(function* () {
+      const input = yield* Effect.acquireRelease(
+        Effect.sync(() => new PassThrough()),
+        (input) => Effect.sync(() => input.destroy()),
+      );
+      const lifetime = yield* waitForParentInputClose(input).pipe(Effect.flip, Effect.forkScoped);
+      yield* Effect.yieldNow;
+      const cause = new Error("parent pipe failed");
+      input.destroy(cause);
+
+      const error = yield* Fiber.join(lifetime);
+      assert.equal(error._tag, "DesktopParentInputError");
+      assert.equal(error.cause, cause);
+    }),
+  );
+
+  it.effect("handles a pipe destroyed with an error before the lifetime listener starts", () =>
+    Effect.gen(function* () {
+      const input = new PassThrough();
+      const cause = new Error("parent pipe failed during bootstrap");
+      input.destroy(cause);
+
+      const error = yield* waitForParentInputClose(input).pipe(Effect.flip);
+      assert.equal(error._tag, "DesktopParentInputError");
+      assert.equal(error.cause, cause);
+    }),
   );
 });

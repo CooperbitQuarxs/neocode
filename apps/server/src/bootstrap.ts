@@ -2,7 +2,7 @@
 import * as NodeFS from "node:fs";
 import * as NodeNet from "node:net";
 import * as NodeReadline from "node:readline";
-import type * as NodeStream from "node:stream";
+import * as NodeStream from "node:stream";
 
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -76,12 +76,13 @@ export const readBootstrapEnvelope = Effect.fn("readBootstrapEnvelope")(function
   fd: number,
   options?: {
     timeoutMs?: number;
+    /** Borrowed input stays open after its envelope, including WSL's lifetime pipe. */
+    input?: NodeStream.Readable;
   },
 ): Effect.fn.Return<Option.Option<A>, BootstrapError> {
-  const fdReady = yield* isFdReady(fd);
-  if (!fdReady) return Option.none();
+  if (options?.input === undefined && !(yield* isFdReady(fd))) return Option.none();
 
-  const stream = yield* makeBootstrapInputStream(fd);
+  const stream = options?.input ?? (yield* makeBootstrapInputStream(fd));
 
   const timeoutMs = options?.timeoutMs ?? 1000;
 
@@ -99,7 +100,7 @@ export const readBootstrapEnvelope = Effect.fn("readBootstrapEnvelope")(function
       input.removeListener("line", handleLine);
       input.removeListener("close", handleClose);
       input.close();
-      stream.destroy();
+      if (options?.input === undefined) stream.destroy();
     };
 
     const handleError = (error: Error) => {
@@ -144,6 +145,29 @@ export const readBootstrapEnvelope = Effect.fn("readBootstrapEnvelope")(function
     return Effect.sync(cleanup);
   }).pipe(Effect.timeoutOption(timeoutMs), Effect.map(Option.flatten));
 });
+
+export class DesktopParentInputError extends Schema.TaggedError<DesktopParentInputError>()(
+  "DesktopParentInputError",
+  { cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return "The desktop parent lifetime pipe failed.";
+  }
+}
+
+/** EOF closes the owned server through its normal Effect finalizers, without PID polling. */
+export const waitForParentInputClose = (input: NodeStream.Readable) =>
+  Effect.callback<void, DesktopParentInputError>((resume) => {
+    const cleanup = NodeStream.finished(input, { readable: true, writable: false }, (cause) =>
+      resume(cause ? Effect.fail(new DesktopParentInputError({ cause })) : Effect.void),
+    );
+    input.resume();
+
+    return Effect.sync(() => {
+      cleanup();
+      input.pause();
+    });
+  });
 
 const isUnavailableBootstrapFdError = Predicate.compose(
   Predicate.hasProperty("code"),

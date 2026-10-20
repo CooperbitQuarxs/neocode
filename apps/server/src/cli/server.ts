@@ -1,6 +1,7 @@
 import * as Effect from "effect/Effect";
 import { Command, GlobalFlag } from "effect/unstable/cli";
 
+import { waitForParentInputClose } from "../bootstrap.ts";
 import { ServerConfig, type StartupPresentation } from "../config.ts";
 import { runServer } from "../server.ts";
 import { type CliServerFlags, resolveServerConfig, sharedServerCommandFlags } from "./config.ts";
@@ -15,7 +16,10 @@ export const runServerCommand = (
   Effect.gen(function* () {
     const logLevel = yield* GlobalFlag.LogLevel;
     const config = yield* resolveServerConfig(flags, logLevel, options);
-    return yield* runServer.pipe(Effect.provideService(ServerConfig, config));
+    const server = runServer.pipe(Effect.provideService(ServerConfig, config));
+    return yield* flags.exitOnStdinClose
+      ? Effect.raceFirst(server, waitForParentInputClose(process.stdin))
+      : server;
   });
 
 export const startCommand = Command.make("start", { ...sharedServerCommandFlags }).pipe(
