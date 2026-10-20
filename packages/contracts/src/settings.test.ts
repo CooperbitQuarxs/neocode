@@ -712,14 +712,6 @@ describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
     expect(DEFAULT_SERVER_SETTINGS.providerInstances).toEqual({});
   });
 
-  it("decodes a fully empty config (legacy on-disk shape) without complaint", () => {
-    const decoded = decodeServerSettings({});
-    expect(decoded.providerInstances).toEqual({});
-    // Legacy `providers` struct is still hydrated with its per-driver defaults
-    // so existing call sites keep working through the migration.
-    expect(decoded.providers.codex.enabled).toBe(true);
-  });
-
   it("decodes a multi-instance map mixing first-party and fork drivers", () => {
     const decoded = decodeServerSettings({
       providerInstances: {
@@ -783,7 +775,6 @@ describe("provider enabled defaults", () => {
     const codex = ProviderDriverKind.make("codex");
     // No flags anywhere: driver default applies.
     expect(resolveProviderInstanceEnabled({ driver: grok, config: {} })).toBe(false);
-    expect(resolveProviderInstanceEnabled({ driver: codex, config: {} })).toBe(true);
     // Unknown fork drivers stay enabled.
     expect(
       resolveProviderInstanceEnabled({ driver: ProviderDriverKind.make("ollama"), config: {} }),
@@ -1003,11 +994,13 @@ it("validates remote device hosts and rejects ambiguous host ids", () => {
 });
 
 describe("NeoPi provider settings", () => {
-  it("enables an unconfigured provider without overriding a stored opt-out", () => {
+  it("enables only NeoPi for fresh settings without overriding a stored opt-out", () => {
     const fresh = decodeServerSettings({});
-    expect(fresh.providers.neopi.enabled).toBe(true);
-    expect(fresh.providers.grok.enabled).toBe(false);
-    expect(fresh.providers.antigravity.enabled).toBe(false);
+    expect(
+      Object.entries(fresh.providers)
+        .filter(([, provider]) => provider.enabled)
+        .map(([driver]) => driver),
+    ).toEqual(["neopi"]);
 
     const saved = decodeServerSettings({
       providers: {

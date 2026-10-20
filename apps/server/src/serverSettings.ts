@@ -270,6 +270,10 @@ const decodeServerSettingsJsonExit = Schema.decodeUnknownExit(ServerSettingsJson
 const PersistedOptionalProviderSettings = Schema.Struct({
   providers: Schema.optionalKey(
     Schema.Struct({
+      codex: Schema.optionalKey(Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) })),
+      claudeAgent: Schema.optionalKey(
+        Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) }),
+      ),
       cursor: Schema.optionalKey(Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) })),
       grok: Schema.optionalKey(Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) })),
       opencode: Schema.optionalKey(Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) })),
@@ -287,6 +291,7 @@ function restoreUsedProviders(
     readonly providerName: string;
     readonly providerInstanceId: string | null;
   }>,
+  hasSettingsFile: boolean,
 ): ServerSettings {
   const usedProviders = new Set(providerHistory.map(({ providerName }) => providerName));
   const usedProviderInstances = new Set(
@@ -298,10 +303,13 @@ function restoreUsedProviders(
     Object.entries(settings.providerInstances).map(([instanceId, instance]) => [
       instanceId,
       instance.enabled === undefined &&
-      (instance.driver === "cursor" ||
+      (instance.driver === "codex" ||
+        instance.driver === "claudeAgent" ||
+        instance.driver === "cursor" ||
         instance.driver === "grok" ||
         instance.driver === "opencode") &&
-      usedProviderInstances.has(instanceId)
+      (usedProviderInstances.has(instanceId) ||
+        (hasSettingsFile && (instance.driver === "codex" || instance.driver === "claudeAgent")))
         ? { ...instance, enabled: true }
         : instance,
     ]),
@@ -311,6 +319,18 @@ function restoreUsedProviders(
     ...settings,
     providers: {
       ...settings.providers,
+      // Older sparse files omitted these flags while both harnesses defaulted on.
+      codex: {
+        ...settings.providers.codex,
+        enabled:
+          persisted.providers?.codex?.enabled ?? (hasSettingsFile || usedProviders.has("codex")),
+      },
+      claudeAgent: {
+        ...settings.providers.claudeAgent,
+        enabled:
+          persisted.providers?.claudeAgent?.enabled ??
+          (hasSettingsFile || usedProviders.has("claudeAgent")),
+      },
       cursor: {
         ...settings.providers.cursor,
         enabled: persisted.providers?.cursor?.enabled ?? usedProviders.has("cursor"),
@@ -374,6 +394,8 @@ const PERSISTED_SERVER_SETTINGS_DEFAULTS = {
   ...DEFAULT_SERVER_SETTINGS,
   providers: {
     ...DEFAULT_SERVER_SETTINGS.providers,
+    codex: { ...DEFAULT_SERVER_SETTINGS.providers.codex, enabled: undefined },
+    claudeAgent: { ...DEFAULT_SERVER_SETTINGS.providers.claudeAgent, enabled: undefined },
     cursor: { ...DEFAULT_SERVER_SETTINGS.providers.cursor, enabled: undefined },
     grok: { ...DEFAULT_SERVER_SETTINGS.providers.grok, enabled: undefined },
     neopi: { ...DEFAULT_SERVER_SETTINGS.providers.neopi, enabled: undefined },
@@ -543,8 +565,22 @@ const make = Effect.gen(function* () {
 
   const writeSettingsAtomically = Effect.fnUntraced(
     function* (settings: ServerSettings) {
+      // A new instance's implicit opt-out must not look like an old default-on
+      // instance when this file is loaded again.
+      const persistedSettings = {
+        ...settings,
+        providerInstances: Object.fromEntries(
+          Object.entries(settings.providerInstances).map(([id, instance]) => [
+            id,
+            instance.enabled === undefined &&
+            (instance.driver === "codex" || instance.driver === "claudeAgent")
+              ? { ...instance, enabled: resolveProviderInstanceEnabled(instance) }
+              : instance,
+          ]),
+        ),
+      };
       const sparseSettingsJson = yield* encodeServerSettingsJson(
-        stripDefaultServerSettings(settings, PERSISTED_SERVER_SETTINGS_DEFAULTS) ?? {},
+        stripDefaultServerSettings(persistedSettings, PERSISTED_SERVER_SETTINGS_DEFAULTS) ?? {},
       );
 
       return yield* writeFileStringAtomically({
@@ -572,7 +608,8 @@ const make = Effect.gen(function* () {
     // the fold below only writes when it started from the file's real contents.
     let settingsFileTrusted = true;
 
-    if (yield* readConfigExists) {
+    const hasSettingsFile = yield* readConfigExists;
+    if (hasSettingsFile) {
       const raw = yield* readRawConfig;
       const decoded = decodeServerSettingsJsonExit(raw);
       const persistedSettings = decodePersistedOptionalProviderSettingsJsonExit(raw);
@@ -602,13 +639,13 @@ const make = Effect.gen(function* () {
         provider_name AS "providerName",
         provider_instance_id AS "providerInstanceId"
       FROM projection_thread_sessions
-      WHERE provider_name IN ('cursor', 'grok', 'opencode')
+      WHERE provider_name IN ('codex', 'claudeAgent', 'cursor', 'grok', 'opencode')
       UNION
       SELECT DISTINCT
         provider_name AS "providerName",
         provider_instance_id AS "providerInstanceId"
       FROM provider_session_runtime
-      WHERE provider_name IN ('cursor', 'grok', 'opencode')
+      WHERE provider_name IN ('codex', 'claudeAgent', 'cursor', 'grok', 'opencode')
     `.pipe(
       Effect.mapError(
         (cause) =>
@@ -644,7 +681,7 @@ const make = Effect.gen(function* () {
           );
 
     const loaded = foldProviderInstanceEnabledFlags(
-      restoreUsedProviders(settings, persisted, providerHistory),
+      restoreUsedProviders(settings, persisted, providerHistory, hasSettingsFile),
     );
     const folded = settingsFileTrusted
       ? foldLegacyProjectSettings(loaded, legacyProjectRows)
