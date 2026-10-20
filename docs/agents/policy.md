@@ -10,7 +10,7 @@ publication and merging; this file adds NeoCode-specific details.
 | Role               | Branch    | Local checkout                                    | Ships as                                                                                                                                 |
 | ------------------ | --------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | Default (promoted) | `main`    | Main repository checkout                          | Stable GitHub releases (see [Releases](#releases)); the desktop entry runs `apps/desktop/scripts/start-electron.mjs` from this checkout. |
-| Integration        | `nightly` | Topic worktree or a separate integration checkout | Nightly desktop application; source of owner-decided promotion. |
+| Integration        | `nightly` | Topic worktree or a separate integration checkout | Nightly desktop application; source of owner-decided promotion.                                                                          |
 
 - Topic branches: `git fetch origin && git worktree add ../neocode-wt-<slug> -b <type>/<slug> origin/nightly`.
 - PRs target `nightly`. `hotfix/` PRs target `main` and are followed by a PR merging `main` back into `nightly`.
