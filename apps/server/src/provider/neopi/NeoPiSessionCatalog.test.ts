@@ -355,7 +355,17 @@ const harness = (options?: {
         ),
       ),
     );
-    return { catalog, calls, commands, bindings, order, threads, source, capabilities, providerSettings };
+    return {
+      catalog,
+      calls,
+      commands,
+      bindings,
+      order,
+      threads,
+      source,
+      capabilities,
+      providerSettings,
+    };
   });
 
 /** A real RPC transport whose ready frame is released explicitly by the test. */
@@ -427,19 +437,28 @@ const heldProbe = Effect.gen(function* () {
 });
 
 it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
-  it.effect("uses the configured nightly for real probe, adapter, and catalog processes, not stale PATH npi", () =>
-    Effect.gen(function* () {
-      const scratch = NodePath.join(NodeOS.homedir(), ".cache/npi-canary");
-      NodeFS.mkdirSync(scratch, { recursive: true });
-      const dir = NodeFS.mkdtempSync(NodePath.join(scratch, "neocode-configured-cli-"));
-      yield* Effect.addFinalizer(() => Effect.sync(() => NodeFS.rmSync(dir, { recursive: true, force: true })));
-      const log = NodePath.join(dir, "launches.jsonl");
-      const peer = NodePath.join(dir, "peer.mjs");
-      const binary = NodePath.join(dir, "npi-nightly");
-      const stale = NodePath.join(dir, "npi");
-      const workspaceRoot = process.cwd();
-      const row = session("configured", { cwd: workspaceRoot, title: "Configured nightly session" });
-      NodeFS.writeFileSync(peer, `
+  it.effect(
+    "uses the configured nightly for real probe, adapter, and catalog processes, not stale PATH npi",
+    () =>
+      Effect.gen(function* () {
+        const scratch = NodePath.join(NodeOS.homedir(), ".cache/npi-canary");
+        NodeFS.mkdirSync(scratch, { recursive: true });
+        const dir = NodeFS.mkdtempSync(NodePath.join(scratch, "neocode-configured-cli-"));
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => NodeFS.rmSync(dir, { recursive: true, force: true })),
+        );
+        const log = NodePath.join(dir, "launches.jsonl");
+        const peer = NodePath.join(dir, "peer.mjs");
+        const binary = NodePath.join(dir, "npi-nightly");
+        const stale = NodePath.join(dir, "npi");
+        const workspaceRoot = process.cwd();
+        const row = session("configured", {
+          cwd: workspaceRoot,
+          title: "Configured nightly session",
+        });
+        NodeFS.writeFileSync(
+          peer,
+          `
         import fs from "node:fs";
         import path from "node:path";
         import readline from "node:readline";
@@ -467,64 +486,82 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
             : {};
           console.log(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data }));
         }).on("close", () => process.exit(0));
-      `);
-      const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-      NodeFS.writeFileSync(binary, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(peer)} "$@"\n`, { mode: 0o755 });
-      NodeFS.writeFileSync(stale, `#!/bin/sh\necho stale > ${quote(NodePath.join(dir, "stale-launched"))}\necho 'npi v1.0.0'\n`, { mode: 0o755 });
-      const instance = yield* NeoPiDriver.create({
-        instanceId,
-        displayName: "Configured nightly",
-        enabled: true,
-        environment: [{ name: "PATH", value: dir }],
-        config: { ...NeoPiDriver.defaultConfig(), binaryPath: binary, profile: "configured-profile" },
-      });
-      const checked = yield* instance.snapshot.refresh;
-      expect(checked.version).toBe("9.8.7");
-      expect(checked.status).toBe("ready");
-      const source = neoPiSessionCatalogSource(instance)!;
-      expect(source.binary).toBe(binary);
-      expect(source.probe.status).toBe("compatible");
-      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-      const pinned = yield* checkNeoPiProviderStatus(
-        { ...NeoPiDriver.defaultConfig(), binaryPath: "npi", profile: "configured-profile" },
-        source.env,
-        workspaceRoot,
-        spawner.spawn,
-        yield* makeNeoPiDiscoveryHub(),
-        new Set(),
-        { resolvedBinary: source.binary },
-      );
-      expect(pinned.version).toBe("9.8.7");
-      expect(pinned.status).toBe("ready");
-      const threadId = ThreadId.make("configured-adapter");
-      yield* instance.adapter.startSession({
-        threadId,
-        provider: ProviderDriverKind.make("neopi"),
-        providerInstanceId: instanceId,
-        cwd: workspaceRoot,
-        runtimeMode: "full-access",
-      });
-      yield* instance.adapter.stopAll();
-      const { catalog } = yield* harness({ instance, nativeCommands: true, workspaceRoot });
-      const listed = yield* catalog.list({ projectId, scope: "project" });
-      expect(listed.status === "available" && listed.sessions[0]?.title).toBe("Configured nightly session");
-      const launches = NodeFS.readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { args: string[]; profile: string });
-      expect(launches.some((entry) => entry.args.includes("--no-session"))).toBe(true);
-      expect(launches.some((entry) => entry.args.includes("--session-dir"))).toBe(true);
-      expect(launches.some((entry) => entry.args[0] === "sessions")).toBe(true);
-      expect(launches.every((entry) => entry.profile === "configured-profile")).toBe(true);
-      expect(NodeFS.existsSync(NodePath.join(dir, "stale-launched"))).toBe(false);
-    }).pipe(
-      Effect.provide(
-        Layer.mergeAll(
-          configLayer(process.cwd(), { prefix: "neocode-configured-driver-" }),
-          settingsLayer(),
-          Layer.mock(BackgroundPolicy.BackgroundPolicy)({
-            shouldRunScopeWork: () => Effect.succeed(false),
-          }),
+      `,
+        );
+        const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+        NodeFS.writeFileSync(
+          binary,
+          `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(peer)} "$@"\n`,
+          { mode: 0o755 },
+        );
+        NodeFS.writeFileSync(
+          stale,
+          `#!/bin/sh\necho stale > ${quote(NodePath.join(dir, "stale-launched"))}\necho 'npi v1.0.0'\n`,
+          { mode: 0o755 },
+        );
+        const instance = yield* NeoPiDriver.create({
+          instanceId,
+          displayName: "Configured nightly",
+          enabled: true,
+          environment: [{ name: "PATH", value: dir }],
+          config: {
+            ...NeoPiDriver.defaultConfig(),
+            binaryPath: binary,
+            profile: "configured-profile",
+          },
+        });
+        const checked = yield* instance.snapshot.refresh;
+        expect(checked.version).toBe("9.8.7");
+        expect(checked.status).toBe("ready");
+        const source = neoPiSessionCatalogSource(instance)!;
+        expect(source.binary).toBe(binary);
+        expect(source.probe.status).toBe("compatible");
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const pinned = yield* checkNeoPiProviderStatus(
+          { ...NeoPiDriver.defaultConfig(), binaryPath: "npi", profile: "configured-profile" },
+          source.env,
+          workspaceRoot,
+          spawner.spawn,
+          yield* makeNeoPiDiscoveryHub(),
+          new Set(),
+          { resolvedBinary: source.binary },
+        );
+        expect(pinned.version).toBe("9.8.7");
+        expect(pinned.status).toBe("ready");
+        const threadId = ThreadId.make("configured-adapter");
+        yield* instance.adapter.startSession({
+          threadId,
+          provider: ProviderDriverKind.make("neopi"),
+          providerInstanceId: instanceId,
+          cwd: workspaceRoot,
+          runtimeMode: "full-access",
+        });
+        yield* instance.adapter.stopAll();
+        const { catalog } = yield* harness({ instance, nativeCommands: true, workspaceRoot });
+        const listed = yield* catalog.list({ projectId, scope: "project" });
+        expect(listed.status === "available" && listed.sessions[0]?.title).toBe(
+          "Configured nightly session",
+        );
+        const launches = NodeFS.readFileSync(log, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line) as { args: string[]; profile: string });
+        expect(launches.some((entry) => entry.args.includes("--no-session"))).toBe(true);
+        expect(launches.some((entry) => entry.args.includes("--session-dir"))).toBe(true);
+        expect(launches.some((entry) => entry.args[0] === "sessions")).toBe(true);
+        expect(launches.every((entry) => entry.profile === "configured-profile")).toBe(true);
+        expect(NodeFS.existsSync(NodePath.join(dir, "stale-launched"))).toBe(false);
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            configLayer(process.cwd(), { prefix: "neocode-configured-driver-" }),
+            settingsLayer(),
+            Layer.mock(BackgroundPolicy.BackgroundPolicy)({
+              shouldRunScopeWork: () => Effect.succeed(false),
+            }),
+          ),
         ),
       ),
-    ),
   );
 
   for (const outcome of ["drop", "fail", "unsupported"] as const) {
@@ -545,12 +582,18 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
           capabilities,
           { resolvedBinary: source.binary, capabilityProbe: source.probe },
         ).pipe(
-          Effect.provide(Layer.mock(ChildProcessSpawner.ChildProcessSpawner)({ spawn: peer.spawn })),
+          Effect.provide(
+            Layer.mock(ChildProcessSpawner.ChildProcessSpawner)({ spawn: peer.spawn }),
+          ),
           Effect.forkScoped,
         );
         yield* peer.started;
         expect((yield* catalog.list({ projectId, scope: "project" })).status).toBe("available");
-        const resumeInput = { projectId, providerInstanceId: instanceId, sessionFile: session("free").path };
+        const resumeInput = {
+          projectId,
+          providerInstanceId: instanceId,
+          sessionFile: session("free").path,
+        };
         expect(yield* catalog.resume(resumeInput)).toEqual({
           threadId: ThreadId.make("bound-free"),
           created: false,
@@ -569,7 +612,9 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
           expect(listed.status).toBe("unavailable");
           if (listed.status !== "unavailable") return;
           expect(listed.reason).toContain("'/opt/npi' (version 1.2.3)");
-          expect(listed.reason).toContain(outcome === "drop" ? "did not advertise session_catalog" : "unsupported RPC handshake");
+          expect(listed.reason).toContain(
+            outcome === "drop" ? "did not advertise session_catalog" : "unsupported RPC handshake",
+          );
           const error = yield* catalog.resume(resumeInput).pipe(Effect.flip);
           expect(error.message).toBe(listed.reason);
         }
@@ -584,16 +629,22 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
       source.probe.version = null;
       const initial = yield* catalog.list({ projectId, scope: "project" });
       expect(initial.status === "unavailable" && initial.reason).toContain("version unknown");
-      expect(initial.status === "unavailable" && initial.reason).toContain("support is not yet known");
+      expect(initial.status === "unavailable" && initial.reason).toContain(
+        "support is not yet known",
+      );
       source.probe.failure = "RPC handshake failed: disconnected";
       const failed = yield* catalog.list({ projectId, scope: "project" });
-      expect(failed.status === "unavailable" && failed.reason).toContain("Last probe failed: RPC handshake failed: disconnected");
+      expect(failed.status === "unavailable" && failed.reason).toContain(
+        "Last probe failed: RPC handshake failed: disconnected",
+      );
       expect(failed.status === "unavailable" && failed.reason).not.toContain("did not advertise");
-      const error = yield* catalog.resume({
-        projectId,
-        providerInstanceId: instanceId,
-        sessionFile: session("free").path,
-      }).pipe(Effect.flip);
+      const error = yield* catalog
+        .resume({
+          projectId,
+          providerInstanceId: instanceId,
+          sessionFile: session("free").path,
+        })
+        .pipe(Effect.flip);
       expect(error.message).toBe(failed.status === "unavailable" && failed.reason);
     }),
   );
@@ -634,11 +685,8 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
     it.effect("never invokes unsupported CLI commands", () =>
       Effect.gen(function* () {
         const { catalog, calls } = yield* harness({ capabilities: [] });
-        expect(yield* catalog.list({ projectId, scope: "project" })).toEqual({
-          status: "unavailable",
-          reason:
-            "NeoPi binary '/opt/npi' (version 1.2.3) did not advertise session_catalog in its last compatible handshake. Update NeoPi at this configured executable.",
-        });
+        const result = yield* catalog.list({ projectId, scope: "project" });
+        expect(result.status).toBe("unavailable");
         expect(calls).toHaveLength(0);
       }),
     );

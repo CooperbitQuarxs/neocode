@@ -289,11 +289,17 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
         );
         return {
           status: "unavailable",
-          reason: enabled.length > 0
-            ? enabled.map((instance) =>
-                capabilityUnavailable(neoPiSessionCatalogSource(instance), NEOPI_CAPABILITIES.sessionCatalog),
-              ).join("\n")
-            : "Enable a NeoPi provider in Settings to discover sessions.",
+          reason:
+            enabled.length > 0
+              ? enabled
+                  .map((instance) =>
+                    capabilityUnavailable(
+                      neoPiSessionCatalogSource(instance),
+                      NEOPI_CAPABILITIES.sessionCatalog,
+                    ),
+                  )
+                  .join("\n")
+              : "Enable a NeoPi provider in Settings to discover sessions.",
         };
       }
       const unique = new Map<string, NeoPiSessionSummary>();
@@ -439,7 +445,10 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
         return yield* new NeoPiSessionError({
           operation: "resume",
           message: instance?.enabled
-            ? capabilityUnavailable(neoPiSessionCatalogSource(instance), NEOPI_CAPABILITIES.sessionCatalog)
+            ? capabilityUnavailable(
+                neoPiSessionCatalogSource(instance),
+                NEOPI_CAPABILITIES.sessionCatalog,
+              )
             : `NeoPi provider '${providerInstanceId}' is missing or disabled. Enable it in Settings.`,
         });
       }
@@ -490,7 +499,10 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
         if (!provider.source.capabilities.has(NEOPI_CAPABILITIES.sessionHistoryIdentity))
           return yield* new NeoPiSessionError({
             operation: "resume",
-            message: capabilityUnavailable(provider.source, NEOPI_CAPABILITIES.sessionHistoryIdentity),
+            message: capabilityUnavailable(
+              provider.source,
+              NEOPI_CAPABILITIES.sessionHistoryIdentity,
+            ),
           });
         const saved = decodeCursor(existing.resumeCursor);
         if (Option.isNone(saved) || saved.value.sessionId !== row.id)
@@ -579,7 +591,10 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
       if (!provider.source.capabilities.has(NEOPI_CAPABILITIES.sessionHistoryIdentity))
         return yield* new NeoPiSessionError({
           operation: "resume",
-          message: capabilityUnavailable(provider.source, NEOPI_CAPABILITIES.sessionHistoryIdentity),
+          message: capabilityUnavailable(
+            provider.source,
+            NEOPI_CAPABILITIES.sessionHistoryIdentity,
+          ),
         });
       const transcript = yield* readTranscript(
         provider.source,
