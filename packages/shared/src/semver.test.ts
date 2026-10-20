@@ -46,6 +46,44 @@ describe("semver helpers", () => {
     expect(compareSemverVersions("2.1.111-beta.1", "2.1.111")).toBeLessThan(0);
   });
 
+  it("parses build metadata without treating it as patch or prerelease identifiers", () => {
+    expect(parseSemver("v0.0.10+build.20.1")).toEqual({
+      major: 0,
+      minor: 0,
+      patch: 10,
+      prerelease: [],
+    });
+    expect(parseSemver("0.0.10-nightly.20261020.20.1+build.release-2")).toEqual({
+      major: 0,
+      minor: 0,
+      patch: 10,
+      prerelease: ["nightly", "20261020", "20", "1"],
+    });
+  });
+
+  it("compares metadata-bearing releases numerically across the 9 to 10 boundary", () => {
+    expect(compareSemverVersions("0.0.10+build.20.1", "0.0.9+build.19.1")).toBeGreaterThan(0);
+    expect(compareSemverVersions("0.0.9+build.19.1", "0.0.10+build.20.1")).toBeLessThan(0);
+  });
+
+  it("ignores build metadata for precedence and ranks stable above nightly", () => {
+    expect(compareSemverVersions("0.0.10+build.20.1", "0.0.10+build.21.2")).toBe(0);
+    expect(compareSemverVersions("0.0.10+build.20.1", "0.0.10")).toBe(0);
+    expect(
+      compareSemverVersions("0.0.10+build.20.1", "0.0.10-nightly.20261020.21.1+build.2"),
+    ).toBeGreaterThan(0);
+    expect(
+      compareSemverVersions("0.0.10-nightly.20261020.21.1+build.2", "0.0.10+build.20.1"),
+    ).toBeLessThan(0);
+  });
+
+  it.each(["0.0.10+", "0.0.10+build..1", "0.0.10+build_1", "0.0.10+build.1+other"])(
+    "rejects malformed build metadata in %s",
+    (version) => {
+      expect(parseSemver(version)).toBeNull();
+    },
+  );
+
   it("falls back to lexical comparison for malformed numeric segments", () => {
     expect(compareSemverVersions("1.2.3abc", "1.2.10")).toBeGreaterThan(0);
   });
