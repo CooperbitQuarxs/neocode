@@ -230,6 +230,7 @@ export const sharedServerCommandFlags = {
   bootstrapFd: bootstrapFdFlag,
   exitOnStdinClose: Flag.Boolean("exit-on-stdin-close").pipe(
     Flag.withDescription("Stop an owned desktop backend when its parent closes stdin."),
+    Flag.withDefault(false),
   ),
   autoBootstrapProjectFromCwd: autoBootstrapProjectFromCwdFlag,
   logWebSocketEvents: logWebSocketEventsFlag,
