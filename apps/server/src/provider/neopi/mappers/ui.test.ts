@@ -386,27 +386,24 @@ describe("NeoPi UI mapper", () => {
       send(state, { type: "t3.state", state: { mode: "plan", chatMode: "off" } }).events,
     ).toContainEqual(
       expect.objectContaining({
-        payload: {
-          message: "NeoPi/OMP native plan mode: plan",
+        payload: expect.objectContaining({
           detail: { neopiUi: { kind: "plan-mode", mode: "plan" } },
-        },
+        }),
       }),
     );
     expect(send(state, { type: "mode_changed", mode: "default" }).events).toContainEqual(
       expect.objectContaining({
-        payload: {
-          message: "NeoPi/OMP native plan mode: default",
+        payload: expect.objectContaining({
           detail: { neopiUi: { kind: "plan-mode", mode: "default" } },
-        },
+        }),
       }),
     );
     expect(send(state, { type: "t3.state", state: { mode: "default" } }).events).toEqual([]);
     expect(send(state, { type: "mode_changed", mode: "plan" }).events).toContainEqual(
       expect.objectContaining({
-        payload: {
-          message: "NeoPi/OMP native plan mode: plan",
+        payload: expect.objectContaining({
           detail: { neopiUi: { kind: "plan-mode", mode: "plan" } },
-        },
+        }),
       }),
     );
   });

@@ -64,7 +64,7 @@ export const buildNeoPiLaunchPlan = (
         return yield* new NeoPiRuntimeError({
           code: "settings",
           flag,
-          message: `NeoPi/OMP launch arguments may not override ${flag}`,
+          message: `NeoPi launch arguments may not override ${flag}`,
         });
       }
     }
@@ -92,7 +92,7 @@ export const buildNeoPiLaunchPlan = (
       ) {
         return yield* new NeoPiRuntimeError({
           code: "settings",
-          message: "NeoPi/OMP resume cursor is outside its session directory",
+          message: "NeoPi resume cursor is outside its session directory",
         });
       }
       args.push("--session", input.cursor.sessionFile);

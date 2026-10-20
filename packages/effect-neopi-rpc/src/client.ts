@@ -173,7 +173,7 @@ const startupError = (tail: string): NeoPiRpcError | undefined => {
       const value = decodeStartupError(line);
       return new NeoPiRpcError({
         code: value.code,
-        message: `NeoPi/OMP session is already in use${value.sessionFile ? `: ${value.sessionFile}` : ""}${value.pid !== undefined ? ` (PID ${value.pid})` : ""}`,
+        message: `NeoPi session is already in use${value.sessionFile ? `: ${value.sessionFile}` : ""}${value.pid !== undefined ? ` (PID ${value.pid})` : ""}`,
       });
     } catch {
       // Stderr can also contain diagnostics unrelated to startup.
@@ -197,7 +197,7 @@ export const make = Effect.fn("effect-neopi-rpc/NeoPiRpcClient.make")(function* 
       (cause) =>
         new NeoPiRpcError({
           code: "spawn",
-          message: `failed to spawn NeoPi/OMP (${options.command}): ${cause.message}`,
+          message: `failed to spawn NeoPi (${options.command}): ${cause.message}`,
         }),
     ),
   );
@@ -260,7 +260,7 @@ export const make = Effect.fn("effect-neopi-rpc/NeoPiRpcClient.make")(function* 
           fatal ??
             new NeoPiRpcError({
               code: "closed",
-              message: "NeoPi/OMP RPC client is closed",
+              message: "NeoPi RPC client is closed",
             })
         );
       }
@@ -269,14 +269,14 @@ export const make = Effect.fn("effect-neopi-rpc/NeoPiRpcClient.make")(function* 
           () =>
             new NeoPiRpcError({
               code: "closed",
-              message: "NeoPi/OMP stdin is closed",
+              message: "NeoPi stdin is closed",
             }),
         ),
       );
       if (!offered) {
         return yield* new NeoPiRpcError({
           code: "closed",
-          message: "NeoPi/OMP stdin is closed",
+          message: "NeoPi stdin is closed",
         });
       }
     });
@@ -300,7 +300,7 @@ export const make = Effect.fn("effect-neopi-rpc/NeoPiRpcClient.make")(function* 
       if (closed) {
         return yield* new NeoPiRpcError({
           code: "closed",
-          message: "NeoPi/OMP RPC client is closed",
+          message: "NeoPi RPC client is closed",
           command: cmd.type,
         });
       }
@@ -522,7 +522,7 @@ export const make = Effect.fn("effect-neopi-rpc/NeoPiRpcClient.make")(function* 
           return yield* failReady(
             new NeoPiRpcError({
               code: "bad_frame",
-              message: `unsupported NeoPi/OMP ready protocolVersion: ${String(ready.protocolVersion)}`,
+              message: `unsupported NeoPi ready protocolVersion: ${String(ready.protocolVersion)}`,
             }),
           );
         }
@@ -642,7 +642,7 @@ export const make = Effect.fn("effect-neopi-rpc/NeoPiRpcClient.make")(function* 
       abortTransport(
         new NeoPiRpcError({
           code: "closed",
-          message: `NeoPi/OMP stdout failed: ${String(error)}`,
+          message: `NeoPi stdout failed: ${String(error)}`,
         }),
       ),
     ),
@@ -662,7 +662,7 @@ export const make = Effect.fn("effect-neopi-rpc/NeoPiRpcClient.make")(function* 
               startupError(stderrTailText(stderrTail)) ??
                 new NeoPiRpcError({
                   code: "exited",
-                  message: "NeoPi/OMP stdout ended before the ready frame",
+                  message: "NeoPi stdout ended before the ready frame",
                 }),
             );
           return;
@@ -676,7 +676,7 @@ export const make = Effect.fn("effect-neopi-rpc/NeoPiRpcClient.make")(function* 
         yield* abortTransport(
           new NeoPiRpcError({
             code: "closed",
-            message: "NeoPi/OMP stdout ended while the process was still running",
+            message: "NeoPi stdout ended while the process was still running",
           }),
         );
       }),
@@ -709,7 +709,7 @@ export const make = Effect.fn("effect-neopi-rpc/NeoPiRpcClient.make")(function* 
       abortTransport(
         new NeoPiRpcError({
           code: "closed",
-          message: "NeoPi/OMP stdin write failed",
+          message: "NeoPi stdin write failed",
         }),
       ),
     ),
@@ -737,7 +737,7 @@ export const make = Effect.fn("effect-neopi-rpc/NeoPiRpcClient.make")(function* 
             startupError(stderrTailText(stderrTail)) ??
               new NeoPiRpcError({
                 code: "exited",
-                message: "NeoPi/OMP process exited before ready",
+                message: "NeoPi process exited before ready",
               }),
           ).pipe(Effect.ignore);
         }
@@ -747,7 +747,7 @@ export const make = Effect.fn("effect-neopi-rpc/NeoPiRpcClient.make")(function* 
           yield* failPending(
             new NeoPiRpcError({
               code: "exited",
-              message: "NeoPi/OMP process exited",
+              message: "NeoPi process exited",
             }),
           );
         }
@@ -779,7 +779,7 @@ export const make = Effect.fn("effect-neopi-rpc/NeoPiRpcClient.make")(function* 
         yield* failPending(
           new NeoPiRpcError({
             code: "closed",
-            message: "NeoPi/OMP RPC client is closed",
+            message: "NeoPi RPC client is closed",
           }),
         );
         yield* Queue.end(outbound).pipe(Effect.ignore);
@@ -907,7 +907,7 @@ export const make = Effect.fn("effect-neopi-rpc/NeoPiRpcClient.make")(function* 
     if (!isRecord(result) || result.protocolVersion !== 2) {
       const error = new NeoPiRpcError({
         code: "bad_frame",
-        message: "NeoPi/OMP peer did not confirm protocol v2 negotiation",
+        message: "NeoPi peer did not confirm protocol v2 negotiation",
       });
       yield* abortTransport(error);
       return yield* error;

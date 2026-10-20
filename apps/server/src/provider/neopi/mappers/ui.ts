@@ -157,7 +157,7 @@ export function mapUiRequest(
     )
       events.push(
         makeEvent(ctx, frame, "runtime.warning", {
-          message: `NeoPi/OMP chat mode: ${chatMode}`,
+          message: `NeoPi chat mode: ${chatMode}`,
           detail: { neopiUi: { kind: "chat-mode", mode: chatMode } },
         }),
       );
@@ -170,7 +170,7 @@ export function mapUiRequest(
       state.planMode = planMode;
       events.push(
         makeEvent(ctx, frame, "runtime.warning", {
-          message: `NeoPi/OMP native plan mode: ${planMode}`,
+          message: `NeoPi native plan mode: ${planMode}`,
           detail: { neopiUi: { kind: "plan-mode", mode: planMode } },
         }),
       );
@@ -198,7 +198,7 @@ export function mapUiRequest(
     if (!opened) {
       events.push(
         makeEvent(ctx, frame, "runtime.warning", {
-          message: `Ignored NeoPi/OMP UI cancel for unknown request ${target ?? "(missing target)"}`,
+          message: `Ignored NeoPi UI cancel for unknown request ${target ?? "(missing target)"}`,
         }),
       );
     } else {
@@ -444,7 +444,7 @@ export function mapUiRequest(
   } else if (method === "set_editor_text") {
     if (typeof data.text === "string")
       event = makeEvent(ctx, frame, "runtime.warning", {
-        message: "NeoPi/OMP suggested composer text",
+        message: "NeoPi suggested composer text",
         detail: { neopiUi: { kind: "editor", text: data.text } },
       });
   } else if (method === "open_url") {
@@ -455,7 +455,7 @@ export function mapUiRequest(
   } else if (method === "setTitle") {
     event = nonempty(data.title)
       ? makeEvent(ctx, frame, "thread.metadata.updated", { name: data.title })
-      : makeEvent(ctx, frame, "runtime.warning", { message: "Ignored empty NeoPi/OMP title" });
+      : makeEvent(ctx, frame, "runtime.warning", { message: "Ignored empty NeoPi title" });
   }
   if (event) events.push(event);
   return { events, state };

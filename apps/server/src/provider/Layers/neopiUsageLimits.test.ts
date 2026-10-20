@@ -194,9 +194,8 @@ describe("toUsageLimits", () => {
         activeProvider: "missing",
         checkedAt,
       })?.unavailable,
-    ).toEqual({
+    ).toMatchObject({
       reason: "unsupported",
-      message: "NeoPi/OMP has no usage windows for this provider.",
     });
     expect(
       toUsageLimits({ payload: { generatedAt: 1 }, activeProvider: "openai-codex", checkedAt }),

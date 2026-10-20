@@ -29,8 +29,8 @@ import { neoPiRolesFromRpc, toServerProviderModels } from "../neopi/NeoPiModelCa
 import type { NeoPiCapabilityProbe } from "../neopi/NeoPiSessionCatalogSource.ts";
 
 const PRESENTATION = {
-  displayName: "NeoPi/OMP",
-  badgeLabel: "OMP RPC",
+  displayName: "NeoPi",
+  badgeLabel: "RPC",
   showInteractionModeToggle: false,
   reportsContextWindow: true,
   supportsConversationRollback: true,
@@ -63,8 +63,8 @@ export interface NeoPiProviderProbeOptions {
 
 const probeTimeoutMessage = (part: "handshake" | "metadata"): string =>
   part === "handshake"
-    ? "NeoPi/OMP RPC handshake timed out before ready and protocol v2 negotiation finished."
-    : "NeoPi/OMP RPC metadata probe timed out before login, models, state, and roles were refreshed.";
+    ? "NeoPi RPC handshake timed out before ready and protocol v2 negotiation finished."
+    : "NeoPi RPC metadata probe timed out before login, models, state, and roles were refreshed.";
 
 const isTimeoutCause = (error: unknown): boolean =>
   error instanceof NeoPiRpcError && error.code === "timeout";
@@ -108,7 +108,7 @@ const fromProbe = (
     updateCommand: "npi update",
     canUpdate: false,
     checkedAt,
-    message: "Update NeoPi/OMP manually with the CLI that owns this installation.",
+    message: "Update NeoPi manually with the CLI that owns this installation.",
   },
   ...(input.compatibilityAdvisory ? { compatibilityAdvisory: input.compatibilityAdvisory } : {}),
 });
@@ -123,12 +123,12 @@ export const buildInitialNeoPiProviderSnapshot = (settings: NeoPiSettings) =>
           ? {
               installed: true,
               status: "warning",
-              message: "Checking NeoPi/OMP CLI availability...",
+              message: "Checking NeoPi CLI availability...",
             }
           : {
               installed: false,
               status: "warning",
-              message: "NeoPi/OMP is disabled in app settings.",
+              message: "NeoPi is disabled in app settings.",
             },
       ),
     ),
@@ -324,10 +324,10 @@ export const checkNeoPiProviderStatus = Effect.fn("checkNeoPiProviderStatus")(fu
       installed: false,
       status: "error",
       message: resolved?.error
-        ? `NeoPi/OMP binary '${resolved.binary}' could not be probed: ${resolved.error}.`
+        ? `NeoPi binary '${resolved.binary}' could not be probed: ${resolved.error}.`
         : !settings.binaryPath || settings.binaryPath === "npi"
-          ? "NeoPi/OMP CLI (`npi` or `omp`) is not installed or not on PATH."
-          : `Configured NeoPi/OMP binary '${settings.binaryPath}' could not be executed.`,
+          ? "NeoPi CLI (`npi` or `omp`) is not installed or not on PATH."
+          : `Configured NeoPi binary '${settings.binaryPath}' could not be executed.`,
     });
   }
   const { binary: selected, version } = resolved;
@@ -446,7 +446,7 @@ export const checkNeoPiProviderStatus = Effect.fn("checkNeoPiProviderStatus")(fu
   if (Result.isFailure(probed)) {
     if (observed.compatibility) {
       return yield* withDiscovery(
-        capabilityWarning("NeoPi/OMP RPC metadata probe failed; check the CLI and profile.", false),
+        capabilityWarning("NeoPi RPC metadata probe failed; check the CLI and profile.", false),
       );
     }
     failedProbe("RPC handshake failed; check the CLI and profile.");
@@ -454,7 +454,7 @@ export const checkNeoPiProviderStatus = Effect.fn("checkNeoPiProviderStatus")(fu
       installed: true,
       version,
       status: "warning",
-      message: "NeoPi/OMP RPC handshake failed; check the CLI and profile.",
+      message: "NeoPi RPC handshake failed; check the CLI and profile.",
     });
   }
   if (probed.success.phase === "handshake-timeout") {
@@ -470,7 +470,7 @@ export const checkNeoPiProviderStatus = Effect.fn("checkNeoPiProviderStatus")(fu
       installed: true,
       version,
       status: "warning",
-      message: "NeoPi/OMP RPC handshake failed; check the CLI and profile.",
+      message: "NeoPi RPC handshake failed; check the CLI and profile.",
     });
   }
   if (probed.success.phase === "unsupported") {
@@ -486,7 +486,7 @@ export const checkNeoPiProviderStatus = Effect.fn("checkNeoPiProviderStatus")(fu
     const warning = capabilityWarning(
       probed.success.phase === "metadata-timeout"
         ? probeTimeoutMessage("metadata")
-        : "NeoPi/OMP RPC metadata probe failed; check the CLI and profile.",
+        : "NeoPi RPC metadata probe failed; check the CLI and profile.",
       probed.success.phase === "metadata-timeout",
     );
     const discovered = yield* withDiscovery(warning);
@@ -522,7 +522,7 @@ export const checkNeoPiProviderStatus = Effect.fn("checkNeoPiProviderStatus")(fu
       ? {
           message:
             compatibility.message ??
-            "Current NeoPi/OMP model is not in the refreshed catalog; it remains selectable as a custom model.",
+            "Current NeoPi model is not in the refreshed catalog; it remains selectable as a custom model.",
         }
       : {}),
     compatibilityAdvisory: compatibility,

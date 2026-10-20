@@ -22,7 +22,7 @@ export const PROVIDER_LABEL: Record<UsageProviderKind, string> = {
   cursor: "Cursor",
   opencode: "OpenCode",
   antigravity: "Antigravity",
-  neopi: "NeoPi/OMP",
+  neopi: "NeoPi",
 };
 
 /**

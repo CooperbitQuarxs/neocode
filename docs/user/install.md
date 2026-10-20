@@ -143,20 +143,20 @@ New threads prefer a ready NeoPi instance when no saved provider/model choice
 applies; an enabled, ready alternative remains available when NeoPi is not usable.
 Project defaults and saved selections are preserved.
 
-| Provider                        | Install and authenticate                                                                                                                                    |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Codex                           | Install [Codex CLI](https://developers.openai.com/codex/cli), then run `codex login`.                                                                       |
-| Claude                          | Install [Claude Code](https://claude.com/product/claude-code), then run `claude auth login`.                                                                |
-| Cursor                          | Install [Cursor CLI](https://cursor.com/cli), then run `agent login`.                                                                                       |
-| Grok Build                      | Install [Grok Build CLI](https://x.ai/cli), then run `grok login`.                                                                                          |
-| OpenCode                        | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                                                                                    |
-| NeoPi/OMP (oh-my-pi compatible) | On Linux, the NeoPi-enabled AppImage includes `npi`; elsewhere install the NeoPi `npi` CLI or a compatible `omp` CLI. Configure authentication in that CLI. |
-| Antigravity                     | Install and sign in with Google from T3 Code's provider settings.                                                                                           |
+| Provider    | Install and authenticate                                                                                                                                    |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Codex       | Install [Codex CLI](https://developers.openai.com/codex/cli), then run `codex login`.                                                                       |
+| Claude      | Install [Claude Code](https://claude.com/product/claude-code), then run `claude auth login`.                                                                |
+| Cursor      | Install [Cursor CLI](https://cursor.com/cli), then run `agent login`.                                                                                       |
+| Grok Build  | Install [Grok Build CLI](https://x.ai/cli), then run `grok login`.                                                                                          |
+| OpenCode    | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                                                                                    |
+| NeoPi       | On Linux, the NeoPi-enabled AppImage includes `npi`; elsewhere install the NeoPi `npi` CLI or a compatible `omp` CLI. Configure authentication in that CLI. |
+| Antigravity | Install and sign in with Google from T3 Code's provider settings.                                                                                           |
 
-NeoPi/OMP automatically checks `npi-nightly`, then `npi`, the desktop app's bundled
+NeoPi automatically checks `npi-nightly`, then `npi`, the desktop app's bundled
 `npi` (when available), and `omp` for session-catalog support. A version string
 alone is not enough. The first capable executable's path is saved in
-**Settings → Providers → NeoPi/OMP**, with a visible automatic-selection note.
+**Settings → Providers → NeoPi**, with a visible automatic-selection note.
 Set **Binary path** to override it; explicit paths are never replaced or given a
 fallback. Clear the field or enter `npi` to select automatically again. Set
 **Profile** to select an `OMP_PROFILE`.
