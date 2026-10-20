@@ -204,8 +204,9 @@ describe("complete mobile highlighting consumers", () => {
       const retry = await takeJob();
       expect(fulfilled).toBeUndefined();
       retry();
-      expect((await pending).tokensByRowId).toEqual(expected.tokensByRowId);
-      expect(fulfilled?.tokensByRowId).toEqual(expected.tokensByRowId);
+      const recovered = await pending;
+      expect(recovered.tokensByRowId).toEqual(expected.tokensByRowId);
+      expect(fulfilled).toBe(recovered);
 
       control.cutoff = () => true;
       const incomplete = highlightNativeReviewDiffVisibleRows(request);
