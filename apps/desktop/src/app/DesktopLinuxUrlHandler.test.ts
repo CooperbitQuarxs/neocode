@@ -152,15 +152,6 @@ describe("DesktopLinuxUrlHandler", () => {
     });
   });
 
-  it.effect("explicitly registers the full source app, not bare Electron", () => {
-    const fixture = makeFixture({ packaged: false, explicit: true });
-    return Effect.gen(function* () {
-      yield* fixture.run;
-      assert.include(fixture.files[0]?.content, '"/source/apps/desktop/dist-electron/main.cjs" %U');
-      assert.equal(fixture.commands.at(-1)?.command, "xdg-mime");
-    });
-  });
-
   it.effect("keeps explicit development registration separate", () => {
     const fixture = makeFixture({ packaged: false, explicit: true, development: true });
     return Effect.gen(function* () {

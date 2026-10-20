@@ -132,6 +132,14 @@ Electron profile and T3 state. Source-production startup does not inherit the
 dev runner's automatic per-worktree state isolation. Do not use the unchanged
 normal desktop entry to test a different worktree.
 
+The Linux `t3code:` URL handler belongs to the packaged installation. Ordinary
+source startup leaves that association alone. To deliberately register source
+output, pass `--register-url-handler` when invoking Electron with
+`apps/desktop/dist-electron/main.cjs`; the registered command includes that
+entrypoint. Verify the effective association with
+`xdg-mime query default x-scheme-handler/t3code`, then dispatch a URL to check
+the command too. A successful association query alone does not prove launch.
+
 ## Checks
 
 Run checks for the files and packages you changed:
