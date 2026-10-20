@@ -35,10 +35,7 @@ export interface ProviderClientDefinition {
   readonly label: string;
   readonly icon: Icon;
   readonly settingsSchema: ProviderSettingsSchema;
-  /**
-   * Optional subtitle for the driver kind. NeoPi/OMP uses this to state
-   * oh-my-pi compatibility without claiming upstream Pi Agent.
-   */
+  /** Optional subtitle describing the provider. */
   readonly description?: string;
   /**
    * Optional short label rendered as a `variant="warning"` badge next to
@@ -53,8 +50,8 @@ export interface ProviderClientDefinition {
 const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = [
   {
     value: ProviderDriverKind.make("neopi"),
-    label: "NeoPi/OMP",
-    description: "NeoPi/OMP (oh-my-pi compatible)",
+    label: "NeoPi",
+    description: "NeoCode's primary harness. Compatible with oh-my-pi.",
     icon: NeoPiIcon,
     settingsSchema: NeoPiSettings,
   },

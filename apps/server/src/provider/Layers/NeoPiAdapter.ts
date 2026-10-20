@@ -96,7 +96,7 @@ function parseResumeCursor(value: unknown): NeoPiResumeCursor | undefined {
       );
     })
   )
-    throw new Error("Invalid NeoPi/OMP resume cursor: refusing to start a fresh session");
+    throw new Error("Invalid NeoPi resume cursor: refusing to start a fresh session");
   return cursor as NeoPiResumeCursor;
 }
 
@@ -453,7 +453,7 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
                 new ProviderAdapterProcessError({
                   provider: PROVIDER,
                   threadId: input.threadId,
-                  detail: "NeoPi/OMP session stopped before startup completed",
+                  detail: "NeoPi session stopped before startup completed",
                 }),
               ).pipe(Effect.asVoid)
             : Effect.void,
@@ -545,7 +545,7 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
           return yield* new ProviderAdapterRequestError({
             provider: PROVIDER,
             method: "set_chat_mode",
-            detail: "Exit Plan mode before enabling NeoPi/OMP chat mode.",
+            detail: "Exit Plan mode before enabling NeoPi chat mode.",
           });
         if (
           input.interactionMode === "default" &&
@@ -726,7 +726,7 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
         return yield* new ProviderAdapterRequestError({
           provider: PROVIDER,
           method: "get_messages_page",
-          detail: "session_busy: retry when the NeoPi/OMP turn has settled",
+          detail: "session_busy: retry when the NeoPi turn has settled",
         });
       const messages: unknown[] = [];
       let cursor: string | undefined;
@@ -849,7 +849,7 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
           return yield* new ProviderAdapterRequestError({
             provider: PROVIDER,
             method: "rollbackThread",
-            detail: "NeoPi/OMP session is not ready to branch",
+            detail: "NeoPi session is not ready to branch",
           });
         if (status === "running") {
           let settled = false;
@@ -866,7 +866,7 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
             return yield* new ProviderAdapterRequestError({
               provider: PROVIDER,
               method: "rollbackThread",
-              detail: "NeoPi/OMP abort did not settle; refusing to branch a running session",
+              detail: "NeoPi abort did not settle; refusing to branch a running session",
             });
         }
         if (session.pendingPlan) {

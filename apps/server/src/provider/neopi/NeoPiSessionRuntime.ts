@@ -174,7 +174,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     client
       ? Effect.succeed(client)
       : Effect.fail(
-          new NeoPiRuntimeError({ code: "closed", message: "NeoPi/OMP session is not connected" }),
+          new NeoPiRuntimeError({ code: "closed", message: "NeoPi session is not connected" }),
         );
   // Only read operations and interrupting our own turn may cross an attached
   // control connection. New mutating commands are refused by default.
@@ -193,7 +193,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       if (!client)
         return yield* new NeoPiRpcError({
           code: "closed",
-          message: "NeoPi/OMP session is not connected",
+          message: "NeoPi session is not connected",
           command: cmd.type,
         });
       return yield* client.request(cmd);
@@ -305,7 +305,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       yield* emit({
         type: "notice",
         level: "warning",
-        message: "NeoPi/OMP did not expose this turn's user entry; rollback is unavailable for it",
+        message: "NeoPi did not expose this turn's user entry; rollback is unavailable for it",
         turnId: turn.id,
       });
     });
@@ -315,7 +315,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
         emit({
           type: "notice",
           level: "warning",
-          message: `NeoPi/OMP boundary capture failed: ${error.message}`,
+          message: `NeoPi boundary capture failed: ${error.message}`,
           turnId: turn.id,
         }),
       ),
@@ -422,7 +422,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       ) {
         yield* rejectProposal(
           rejected,
-          typeof frame.error === "string" ? frame.error : "NeoPi/OMP rejected the plan proposal",
+          typeof frame.error === "string" ? frame.error : "NeoPi rejected the plan proposal",
         );
         return;
       }
@@ -459,7 +459,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
           yield* emit({ type: "t3.plan.proposal.closed", id: proposal.id });
         }
         if (cancelled && proposal.resolving && !proposal.withdrawing && turn?.continuation) {
-          yield* rejectProposal(proposal, "NeoPi/OMP cancelled the proposed plan");
+          yield* rejectProposal(proposal, "NeoPi cancelled the proposed plan");
           return;
         }
         if (
@@ -587,7 +587,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       pendingProposal = undefined;
       yield* Deferred.fail(
         proposal.done,
-        new NeoPiRuntimeError({ code: "closed", message: "NeoPi/OMP closed with a pending plan" }),
+        new NeoPiRuntimeError({ code: "closed", message: "NeoPi closed with a pending plan" }),
       ).pipe(Effect.ignore);
     }
     yield* cancelPending;
@@ -605,7 +605,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     if (previous !== "stopped" && previous !== "failed")
       return yield* new NeoPiRuntimeError({
         code: "not_ready",
-        message: "NeoPi/OMP runtime is already started",
+        message: "NeoPi runtime is already started",
       });
     yield* setState("starting");
     const epoch = ++generation;
@@ -623,7 +623,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       yield* setState("failed");
       return yield* new NeoPiRuntimeError({
         code: "startup",
-        message: "NeoPi/OMP cannot reopen a shared session without verified lease support.",
+        message: "NeoPi cannot reopen a shared session without verified lease support.",
       });
     }
     const launch = yield* buildNeoPiLaunchPlan({
@@ -757,7 +757,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       if (neopiCompatibility(peer.ready, peer.capabilities.has("v2")).status !== "supported") {
         return yield* new NeoPiRuntimeError({
           code: "startup",
-          message: "NeoPi/OMP RPC peer requires protocol v2. Update the CLI to continue.",
+          message: "NeoPi RPC peer requires protocol v2. Update the CLI to continue.",
         });
       }
       if (
@@ -768,7 +768,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       )
         return yield* new NeoPiRuntimeError({
           code: "startup",
-          message: "NeoPi/OMP no longer advertises safe shared sessions; refusing this launch.",
+          message: "NeoPi no longer advertises safe shared sessions; refusing this launch.",
         });
       earlyUi = undefined;
       capabilities.clear();
@@ -786,11 +786,11 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
                 proposal.done,
                 new NeoPiRuntimeError({
                   code: "closed",
-                  message: "NeoPi/OMP exited before resolving its proposed plan",
+                  message: "NeoPi exited before resolving its proposed plan",
                 }),
               ).pipe(Effect.ignore);
             }
-            if (active) yield* settle(active, "failed", "NeoPi/OMP process exited during the turn");
+            if (active) yield* settle(active, "failed", "NeoPi process exited during the turn");
             yield* cancelPending;
             yield* emit({ type: "t3.session.exited", recoverable: !requested, ...exit });
           }),
@@ -811,8 +811,8 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       ) {
         return yield* identityError(
           resume
-            ? "NeoPi/OMP resumed a different session"
-            : "NeoPi/OMP fresh launch selected a non-empty or foreign session",
+            ? "NeoPi resumed a different session"
+            : "NeoPi fresh launch selected a non-empty or foreign session",
         );
       }
       yield* SubscriptionRef.set(cursor, {
@@ -834,7 +834,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
         if (configured.handler !== "host")
           return yield* new NeoPiRuntimeError({
             code: "startup",
-            message: "NeoPi/OMP did not activate its host approval handler",
+            message: "NeoPi did not activate its host approval handler",
           });
       }
       if (!attached && input.hostBridge)
@@ -897,7 +897,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
             yield* emit({
               type: "notice",
               level: "warning",
-              message: "NeoPi/OMP fast mode is enabled but not active for the current model",
+              message: "NeoPi fast mode is enabled but not active for the current model",
             });
         }
       }
@@ -908,7 +908,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       if ((yield* SubscriptionRef.get(state)) !== "ready" || compacting)
         return yield* new NeoPiRuntimeError({
           code: "not_ready",
-          message: "NeoPi/OMP can restart only between turns",
+          message: "NeoPi can restart only between turns",
         });
       yield* closePeer;
       yield* setState("stopped");
@@ -925,7 +925,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       if ((yield* SubscriptionRef.get(state)) !== "ready" || compacting)
         return yield* new NeoPiRuntimeError({
           code: "not_ready",
-          message: "NeoPi/OMP is not ready for a turn",
+          message: "NeoPi is not ready for a turn",
         });
       if (!attached && turn.modelSelection) yield* applyModelSelection(turn.modelSelection);
       const peer = yield* current();
@@ -975,7 +975,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       if ((yield* SubscriptionRef.get(state)) !== "running" || !active || compacting)
         return yield* new NeoPiRuntimeError({
           code: "not_running",
-          message: "NeoPi/OMP has no running turn to steer",
+          message: "NeoPi has no running turn to steer",
         });
       yield* request({
         type: "steer",
@@ -993,7 +993,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       if (!proposal || proposal.resolving)
         return yield* new NeoPiRuntimeError({
           code: "not_ready",
-          message: "NeoPi/OMP has no pending plan proposal for this action",
+          message: "NeoPi has no pending plan proposal for this action",
         });
       if (response.decision === "withdraw") {
         proposal.resolving = true;
@@ -1016,13 +1016,13 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       if (pendingProposal !== proposal || proposal.resolving)
         return yield* new NeoPiRuntimeError({
           code: "not_ready",
-          message: "NeoPi/OMP cancelled this plan before its response could be sent",
+          message: "NeoPi cancelled this plan before its response could be sent",
         });
       if (continuation) {
         if (typeof beforeRefinement !== "string")
           return yield* new NeoPiRuntimeError({
             code: "identity_mismatch",
-            message: "NeoPi/OMP cannot locate the plan refinement's native history boundary",
+            message: "NeoPi cannot locate the plan refinement's native history boundary",
           });
         proposal.resolving = true;
         const entry: ActiveTurn = {
@@ -1051,10 +1051,10 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
         active = entry;
         yield* setState("running");
         if (pendingProposal !== proposal) {
-          yield* rejectProposal(proposal, "NeoPi/OMP cancelled this plan before admission");
+          yield* rejectProposal(proposal, "NeoPi cancelled this plan before admission");
           return yield* new NeoPiRuntimeError({
             code: "not_ready",
-            message: "NeoPi/OMP cancelled this plan before admission",
+            message: "NeoPi cancelled this plan before admission",
           });
         }
       } else proposal.resolving = true;
@@ -1062,7 +1062,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       if (pendingProposal !== proposal)
         return yield* new NeoPiRuntimeError({
           code: "not_ready",
-          message: "NeoPi/OMP cancelled this plan before its response could be sent",
+          message: "NeoPi cancelled this plan before its response could be sent",
         });
       const frame: PlanProposalResponseFrame = {
         type: "plan_proposal_response",
@@ -1112,7 +1112,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     if ((yield* SubscriptionRef.get(state)) !== "running" || !active)
       return yield* new NeoPiRuntimeError({
         code: "not_running",
-        message: "NeoPi/OMP has no running turn to interrupt",
+        message: "NeoPi has no running turn to interrupt",
       });
     const turn = active;
     turn.interrupted = true;
@@ -1131,7 +1131,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       if ((yield* SubscriptionRef.get(state)) !== "ready" || compacting)
         return yield* new NeoPiRuntimeError({
           code: "not_ready",
-          message: "NeoPi/OMP can compact only between turns",
+          message: "NeoPi can compact only between turns",
         });
       compacting = true;
       const result = yield* request({
@@ -1172,7 +1172,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     }
     yield* setState("stopping");
     const exit = yield* closePeer;
-    if (active) yield* settle(active, "failed", "NeoPi/OMP session was stopped");
+    if (active) yield* settle(active, "failed", "NeoPi session was stopped");
     yield* setState("stopped");
     if (exit && previous !== "failed")
       yield* emit({ type: "t3.session.exited", recoverable: false, ...exit });
@@ -1181,7 +1181,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
   const onSessionIdentityMayHaveChanged = Effect.gen(function* () {
     const fresh = yield* getState();
     if (!fresh.sessionId || !fresh.sessionFile)
-      return yield* identityError("NeoPi/OMP did not report its current session identity");
+      return yield* identityError("NeoPi did not report its current session identity");
     const previous = yield* SubscriptionRef.get(cursor);
     yield* SubscriptionRef.set(cursor, {
       ...previous,
@@ -1201,7 +1201,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
         pendingMode = true;
         return yield* new NeoPiRuntimeError({
           code: "runtime_mode_deferred",
-          message: "NeoPi/OMP runtime mode takes effect after the current turn",
+          message: "NeoPi runtime mode takes effect after the current turn",
         });
       }
     });
@@ -1229,7 +1229,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
             : Effect.fail(
                 new NeoPiRpcError({
                   code: "closed",
-                  message: "NeoPi/OMP session is not connected",
+                  message: "NeoPi session is not connected",
                 }),
               ),
         ),
@@ -1247,7 +1247,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
         if (!channel)
           return yield* new NeoPiRpcError({
             code: "closed",
-            message: "NeoPi/OMP session is not connected",
+            message: "NeoPi session is not connected",
           });
         yield* channel.respondUi(response);
         uiPending.delete(response.id);

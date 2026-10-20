@@ -65,7 +65,7 @@ export function makeNeoPiDiscoveryProbe(input: {
           )
             return yield* new NeoPiRpcError({
               code: "bad_frame",
-              message: "NeoPi/OMP discovery requires protocol v2",
+              message: "NeoPi discovery requires protocol v2",
             });
           yield* Effect.addFinalizer(() => client.close(150));
           const response = yield* client.request({ type: "get_available_commands" });

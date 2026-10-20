@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -131,7 +132,7 @@ it.live("streams a turn, steers the same turn, routes UI responses, and stops it
           },
         })
         .pipe(Effect.flip);
-      assert.match(invalid.message, /Invalid NeoPi\/OMP resume cursor/);
+      assert.equal(invalid._tag, "ProviderAdapterValidationError");
       assert.equal(yield* adapter.hasSession(threadId), false);
       yield* adapter.startSession({
         threadId,
@@ -932,7 +933,9 @@ it.live(
           !observed.some(
             (event) =>
               event.type === "runtime.warning" &&
-              event.payload.message === "NeoPi/OMP native plan mode: default",
+              isDeepStrictEqual(event.payload.detail, {
+                neopiUi: { kind: "plan-mode", mode: "default" },
+              }),
           );
           attempt++
         )
@@ -940,7 +943,9 @@ it.live(
         const nativeDefaultAt = observed.findIndex(
           (event) =>
             event.type === "runtime.warning" &&
-            event.payload.message === "NeoPi/OMP native plan mode: default",
+            isDeepStrictEqual(event.payload.detail, {
+              neopiUi: { kind: "plan-mode", mode: "default" },
+            }),
         );
         assert.ok(nativeDefaultAt >= 0);
         yield* adapter.sendTurn({ threadId, input: "new plan", interactionMode: "plan" });
@@ -949,24 +954,24 @@ it.live(
         for (
           let attempt = 0;
           attempt < 100 &&
-          !observed
-            .slice(nativeDefaultAt + 1)
-            .some(
-              (event) =>
-                event.type === "runtime.warning" &&
-                event.payload.message === "NeoPi/OMP native plan mode: plan",
-            );
+          !observed.slice(nativeDefaultAt + 1).some(
+            (event) =>
+              event.type === "runtime.warning" &&
+              isDeepStrictEqual(event.payload.detail, {
+                neopiUi: { kind: "plan-mode", mode: "plan" },
+              }),
+          );
           attempt++
         )
           yield* Effect.sleep("5 millis");
         assert.ok(
-          observed
-            .slice(nativeDefaultAt + 1)
-            .some(
-              (event) =>
-                event.type === "runtime.warning" &&
-                event.payload.message === "NeoPi/OMP native plan mode: plan",
-            ),
+          observed.slice(nativeDefaultAt + 1).some(
+            (event) =>
+              event.type === "runtime.warning" &&
+              isDeepStrictEqual(event.payload.detail, {
+                neopiUi: { kind: "plan-mode", mode: "plan" },
+              }),
+          ),
         );
       }),
     ).pipe(Effect.provide(NodeServices.layer)),

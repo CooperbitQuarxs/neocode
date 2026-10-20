@@ -56,7 +56,7 @@ export type NeoPiDriverEnv =
 
 export const NeoPiDriver: ProviderDriver<NeoPiSettings, NeoPiDriverEnv> = {
   driverKind: DRIVER_KIND,
-  metadata: { displayName: "NeoPi/OMP", supportsMultipleInstances: true },
+  metadata: { displayName: "NeoPi", supportsMultipleInstances: true },
   configSchema: NeoPiSettings,
   defaultConfig: () => decodeSettings({}),
   create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
@@ -216,7 +216,7 @@ export const NeoPiDriver: ProviderDriver<NeoPiSettings, NeoPiDriverEnv> = {
             new ProviderDriverError({
               driver: DRIVER_KIND,
               instanceId,
-              detail: `Failed to build NeoPi/OMP snapshot: ${cause.message}`,
+              detail: `Failed to build NeoPi snapshot: ${cause.message}`,
               cause,
             }),
         ),

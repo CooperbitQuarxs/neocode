@@ -186,8 +186,8 @@ export function mapCoreFrame(
           emit(ctx, frame, "session.exited", {
             reason:
               record.recoverable === true
-                ? `NeoPi/OMP process exited (${processStatus})${stderr ? `: ${stderr}` : ""}`
-                : "NeoPi/OMP session stopped",
+                ? `NeoPi process exited (${processStatus})${stderr ? `: ${stderr}` : ""}`
+                : "NeoPi session stopped",
             recoverable: record.recoverable === true,
             exitKind: record.recoverable === true ? "error" : "graceful",
           }),
@@ -447,7 +447,7 @@ function mapAutoRetryStart(
   const maxAttempts = nonNeg(frame.maxAttempts);
   const message =
     text(frame.errorMessage) ??
-    `NeoPi/OMP is retrying${attempt !== undefined ? ` (attempt ${attempt}${maxAttempts !== undefined ? `/${maxAttempts}` : ""})` : ""}`;
+    `NeoPi is retrying${attempt !== undefined ? ` (attempt ${attempt}${maxAttempts !== undefined ? `/${maxAttempts}` : ""})` : ""}`;
   return {
     events: [
       emit(ctx, frame, "runtime.warning", {
@@ -470,7 +470,7 @@ function mapAutoRetryEnd(
   state: CoreState,
 ): { readonly events: ProviderRuntimeEvent[]; readonly state: CoreState } {
   if (frame.success !== false) return { events: [], state };
-  const message = text(frame.finalError) ?? "NeoPi/OMP retry failed";
+  const message = text(frame.finalError) ?? "NeoPi retry failed";
   return {
     events: [
       emit(ctx, frame, "runtime.warning", {
@@ -1150,7 +1150,7 @@ function errorText(error: unknown): string {
   const direct = text(error);
   if (direct) return direct;
   const record = asRecord(error);
-  return text(record?.message) ?? text(record?.error) ?? "NeoPi/OMP extension error";
+  return text(record?.message) ?? text(record?.error) ?? "NeoPi extension error";
 }
 
 function sameCompaction(

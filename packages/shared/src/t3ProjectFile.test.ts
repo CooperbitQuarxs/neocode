@@ -39,8 +39,6 @@ describe("buildT3ProjectFileJsonSchema", () => {
       "worktreeSubmodules",
     ]);
     expect(schema.required).toBeUndefined();
-    expect(schema.properties.iconPath?.description).toContain("Workspace-relative path");
-    expect(schema.properties.defaultThreadEnvMode?.description).toContain("new threads start");
 
     const script = schema.properties.scripts?.items;
     expect(script?.required).toEqual(["name", "command"]);

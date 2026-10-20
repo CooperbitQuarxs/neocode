@@ -128,7 +128,7 @@ export function toUsageLimits(input: NeoPiUsageLimitsInput): ServerProviderUsage
     return makeUnavailableUsageLimits({
       checkedAt: input.checkedAt,
       reason: "unsupported",
-      message: "NeoPi/OMP has no usage windows for this provider.",
+      message: "NeoPi has no usage windows for this provider.",
     });
   }
   // `--provider` filters reports, not accounts. Without an active-account RPC,
@@ -148,7 +148,7 @@ export function toUsageLimits(input: NeoPiUsageLimitsInput): ServerProviderUsage
     return makeUnavailableUsageLimits({
       checkedAt: input.checkedAt,
       reason: "unsupported",
-      message: "NeoPi/OMP cannot attribute usage windows to the active account.",
+      message: "NeoPi cannot attribute usage windows to the active account.",
     });
   }
 
@@ -210,7 +210,7 @@ export const applyUsageLimits = Effect.fn("applyNeoPiUsageLimits")(function* (
     return makeUnavailableUsageLimits({
       checkedAt,
       reason: "unsupported",
-      message: "NeoPi/OMP usage windows need the active model's provider.",
+      message: "NeoPi usage windows need the active model's provider.",
     });
   }
 
@@ -226,7 +226,7 @@ export const applyUsageLimits = Effect.fn("applyNeoPiUsageLimits")(function* (
       const failed = makeUnavailableUsageLimits({
         checkedAt,
         reason: "probeFailed",
-        message: "NeoPi/OMP usage request failed.",
+        message: "NeoPi usage request failed.",
       });
       return resolveUsageLimitsAfterProbe({ published: input.previous, probed: failed }) ?? failed;
     }
@@ -238,7 +238,7 @@ export const applyUsageLimits = Effect.fn("applyNeoPiUsageLimits")(function* (
       const failed = makeUnavailableUsageLimits({
         checkedAt,
         reason: "probeFailed",
-        message: "NeoPi/OMP usage request returned an invalid report.",
+        message: "NeoPi usage request returned an invalid report.",
       });
       const probed = mapped ?? failed;
       return resolveUsageLimitsAfterProbe({ published: input.previous, probed }) ?? probed;
@@ -268,7 +268,7 @@ export const applyUsageLimits = Effect.fn("applyNeoPiUsageLimits")(function* (
   const failed = makeUnavailableUsageLimits({
     checkedAt,
     reason: "probeFailed",
-    message: "NeoPi/OMP usage probe failed.",
+    message: "NeoPi usage probe failed.",
   });
   const profile = input.profile?.trim();
   const probed = yield* spawnAndCollect(

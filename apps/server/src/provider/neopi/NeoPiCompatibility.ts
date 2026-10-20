@@ -35,7 +35,7 @@ export function neopiCompatibility(
     status: compatible ? "supported" : "unsupported",
     message: compatible
       ? null
-      : "NeoPi/OMP RPC peer is too old or returned an invalid ready handshake; protocol v2 is required. Update the CLI to continue.",
+      : "NeoPi RPC peer is too old or returned an invalid ready handshake; protocol v2 is required. Update the CLI to continue.",
     recommendedVersion: null,
     recommendedRange: null,
   };

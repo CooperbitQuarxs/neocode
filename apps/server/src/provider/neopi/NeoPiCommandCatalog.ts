@@ -78,7 +78,7 @@ export function toNeoPiCommandCatalog(
       slashCommands: [
         chat ?? {
           name: "chat",
-          description: "Switch NeoPi/OMP chat mode",
+          description: "Switch NeoPi chat mode",
           input: { hint: "chat|erp|raw|off" },
           source: "builtin",
         },
