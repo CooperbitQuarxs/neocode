@@ -1,5 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Provider binary paths are resolved before RPC services start.
 import * as NodePath from "node:path";
+import * as NodeFS from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import type { NeoPiSettings, ServerProvider, ServerProviderModel } from "@t3tools/contracts";
 import { createModelCapabilities } from "@t3tools/shared/model";
 import type { NeoPiRpcClient, SpawnFn } from "effect-neopi-rpc/client";
@@ -11,11 +13,10 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
 import { ChildProcess } from "effect/unstable/process";
-import type { ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcessSpawner } from "effect/unstable/process";
 import {
   buildServerProvider,
   COMPACT_SLASH_COMMAND,
-  isCommandMissingCause,
   parseGenericCliVersion,
   spawnAndCollect,
   type ServerProviderDraft,
@@ -169,38 +170,91 @@ export const resolveNeoPiBinary = Effect.fn("resolveNeoPiBinary")(function* (
     ? NodePath.join(environment.T3CODE_DESKTOP_RESOURCES_PATH, "bin", "npi")
     : undefined;
   const commands = useDefaultSearch
-    ? ["npi", ...(bundled ? [bundled] : []), "omp"]
+    ? ["npi-nightly", "npi", ...(bundled ? [bundled] : []), "omp"]
     : [settings.binaryPath];
+  const failures: string[] = [];
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   for (const candidate of commands) {
+    // Save the executable's path, not a name whose meaning can change after login hydration.
+    const binary = useDefaultSearch
+      ? yield* Effect.promise(async () => {
+          const extensions =
+            process.platform === "win32"
+              ? ["", ...(environment.PATHEXT ?? ".EXE;.CMD;.BAT").split(";")]
+              : [""];
+          const roots = NodePath.isAbsolute(candidate)
+            ? [candidate]
+            : (environment.PATH ?? "").split(NodePath.delimiter).map((directory) =>
+                NodePath.resolve(cwd, directory, candidate),
+              );
+          for (const root of roots) {
+            for (const extension of extensions) {
+              const path = root + extension;
+              try {
+                await NodeFS.access(path, fsConstants.X_OK);
+                return path;
+              } catch {
+                // Continue searching this command's PATH entries.
+              }
+            }
+          }
+          return candidate;
+        })
+      : candidate;
     const probe = yield* spawnAndCollect(
-      candidate,
-      ChildProcess.make(candidate, ["--version"], { cwd, env: environment }),
+      binary,
+      ChildProcess.make(binary, ["--version"], { cwd, env: environment }),
     ).pipe(Effect.timeoutOption("4 seconds"), Effect.result);
-    if (Result.isSuccess(probe) && Option.isSome(probe.success) && probe.success.value.code === 0) {
-      return {
-        binary: candidate,
-        version: parseGenericCliVersion(probe.success.value.stdout + probe.success.value.stderr),
-        error: null,
-      };
-    }
-    if (
-      useDefaultSearch &&
-      candidate !== "omp" &&
-      Result.isFailure(probe) &&
-      isCommandMissingCause(probe.failure)
-    )
-      continue;
-    return {
-      binary: candidate,
-      version: null,
-      error: Result.isSuccess(probe)
+    const version =
+      Result.isSuccess(probe) && Option.isSome(probe.success) && probe.success.value.code === 0
+        ? parseGenericCliVersion(probe.success.value.stdout + probe.success.value.stderr)
+        : null;
+    let error =
+      Result.isSuccess(probe)
         ? Option.isNone(probe.success)
           ? "version probe timed out"
-          : `version probe exited ${probe.success.value.code}`
-        : String(probe.failure),
-    };
+          : probe.success.value.code === 0
+            ? null
+            : `version probe exited ${probe.success.value.code}`
+        : String(probe.failure);
+    if (!useDefaultSearch) return { binary, version, error, autoSelected: false };
+    if (!error) {
+      const capability = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const client = yield* makeClient({
+            spawn: spawner.spawn,
+            command: binary,
+            args: [
+              "--mode", "rpc-ui", "--cwd", cwd, "--no-session", "--no-tools",
+              "--no-extensions", "--no-skills", "--no-rules", "--no-title",
+            ],
+            cwd,
+            env: environment,
+            requestTimeoutMs: 30_000,
+          });
+          return (
+            neopiCompatibility(client.ready, client.capabilities.has("v2")).status === "supported" &&
+            client.capabilities.has(NEOPI_CAPABILITIES.sessionCatalog)
+          );
+        }),
+      ).pipe(Effect.timeoutOption(HANDSHAKE_TIMEOUT), Effect.result);
+      if (Result.isSuccess(capability) && Option.isSome(capability.success) && capability.success.value)
+        return { binary, version, error: null, autoSelected: true };
+      error =
+        Result.isFailure(capability)
+          ? `session_catalog probe failed: ${String(capability.failure)}`
+          : Option.isNone(capability.success)
+            ? "session_catalog probe timed out"
+            : "missing protocol v2 or session_catalog capability";
+    }
+    failures.push(`${candidate}: ${error}`);
   }
-  return null;
+  return {
+    binary: "npi-nightly",
+    version: null,
+    error: `No compatible NeoPi executable with session_catalog support found. ${failures.join("; ")}. Set Binary path to an explicit installation or update NeoPi`,
+    autoSelected: false,
+  };
 });
 
 export function authFromLoginProviders(

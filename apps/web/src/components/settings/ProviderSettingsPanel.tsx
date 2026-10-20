@@ -38,6 +38,7 @@ import {
   useUpdateEnvironmentSettings,
 } from "../../hooks/useSettings";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
+import { NeoPiBinarySelectionNote } from "../neopi/NeoPiBinarySelectionNote";
 import { cn } from "../../lib/utils";
 import { resolveAppModelSelectionState } from "../../modelSelection";
 import {
@@ -948,6 +949,8 @@ export function EnvironmentProviderSettings({
               readOnly={readOnly}
               onEnable={() => updateProviderInstance(row, { ...row.instance, enabled: true })}
             />
+          ) : mode === "editor" && row.driver === "neopi" ? (
+            <NeoPiBinarySelectionNote config={row.instance.config} />
           ) : null
         }
         onUpdate={(next) => {
