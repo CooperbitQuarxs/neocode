@@ -20,8 +20,9 @@ publication and merging; this file adds NeoCode-specific details.
 ## Nightly delivery
 
 Follow [workspace Nightly delivery](../../../AGENTS.md#nightly-delivery) for merge
-eligibility, lockout-only canaries, artifact-changing rebuilds, installation and
-rollback retention; NeoCode's desktop application is built with
+eligibility, lockout-only canaries, artifact-changing rebuilds, installation,
+rollback retention, continuous intake, delegation and machine discipline;
+NeoCode's desktop application is built with
 `vp run build:desktop` and launched with `apps/desktop/scripts/start-electron.mjs`.
 
 - Merge subjects read `Merge PR #<number>: <conventional PR subject> (@<author>)`.
