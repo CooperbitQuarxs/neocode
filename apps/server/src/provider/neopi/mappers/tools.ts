@@ -51,7 +51,7 @@ export interface ToolState {
 /** Wire `toolSource` for T3-owned host tools. Key is the plan's `"t3-code"`. */
 const T3_CODE_TOOL_SOURCE = {
   key: "t3-code",
-  name: "T3 Code",
+  name: "NeoCode",
   kind: "integration",
 } as const satisfies ToolActivitySource;
 
