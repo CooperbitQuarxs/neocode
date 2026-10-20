@@ -287,7 +287,9 @@ export const make = Effect.gen(function* () {
             window.show();
           }
 
-          if (captureReveal) {
+          // X11 focus and stacking are separate. Wayland does not support
+          // moveTop; its compositor still controls raising and focus.
+          if (captureReveal || platform === "linux") {
             window.moveTop();
           }
 

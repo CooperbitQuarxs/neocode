@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import { DesktopSnapShotId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
@@ -17,6 +18,9 @@ import * as Electron from "electron";
 import * as NodeEvents from "node:events";
 import { vi } from "vite-plus/test";
 
+const { createClerkBridgeMock } = vi.hoisted(() => ({ createClerkBridgeMock: vi.fn() }));
+vi.mock("@clerk/electron", () => ({ createClerkBridge: createClerkBridgeMock }));
+vi.mock("@clerk/electron/storage", () => ({ storage: () => ({}) }));
 vi.mock("electron", async (importOriginal) => ({
   ...(await importOriginal<typeof import("electron")>()),
   session: {
@@ -39,6 +43,7 @@ import * as DesktopAssets from "../app/DesktopAssets.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopState from "../app/DesktopState.ts";
+import * as DesktopClerk from "../app/DesktopClerk.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
@@ -337,6 +342,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
     const createCalls = yield* Ref.make(0);
     const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
     const revealedWindows = yield* Ref.make<Electron.BrowserWindow[]>([]);
+    const revealReceipts = yield* Queue.unbounded<Electron.BrowserWindow>();
     const fallbackWindow = createOutcomes.find(
       (window): window is Electron.BrowserWindow => window !== null,
     );
@@ -384,13 +390,17 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           yield* Ref.update(createdWindows, (windows) => [...windows, outcome]);
           return outcome;
         }),
-      main: Ref.get(mainWindow),
+      main: Ref.get(mainWindow).pipe(Effect.map(Option.filter((window) => !window.isDestroyed()))),
       currentMainOrFirst,
       focusedMainOrFirst: currentMainOrFirst,
       setMain: (window) => Ref.set(mainWindow, Option.some(window)),
       clearMain: () => Ref.set(mainWindow, Option.none()),
       prepareReveal: () => Effect.succeed(false),
-      reveal: (window) => Ref.update(revealedWindows, (windows) => [...windows, window]),
+      reveal: (window) =>
+        Ref.update(revealedWindows, (windows) => [...windows, window]).pipe(
+          Effect.andThen(Queue.offer(revealReceipts, window)),
+          Effect.asVoid,
+        ),
       sendAll: () => Effect.void,
       destroyAll: Effect.void,
       syncAllAppearance: (sync) => (fallbackWindow ? sync(fallbackWindow) : Effect.void),
@@ -423,13 +433,137 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
       ),
     );
 
-    return { layer, createCalls, mainWindow, revealedWindows } as const;
+    return { layer, createCalls, mainWindow, createdWindows, revealedWindows, revealReceipts } as const;
   });
 
 const captureOne = DesktopSnapShotId.make("11111111-1111-4111-8111-111111111111");
 const captureTwo = DesktopSnapShotId.make("22222222-2222-4222-8222-222222222222");
 
 describe("DesktopWindow", () => {
+  for (const boundary of ["lock acquisition", "configured without main"] as const) {
+    it.effect(`delivers a second launch at ${boundary} to the eventual real main`, () =>
+      Effect.gen(function* () {
+        const appEvents = new NodeEvents.EventEmitter();
+        const main = makeFakeBrowserWindow();
+        const scenario = yield* makeSplashScenario([main.window]);
+        createClerkBridgeMock.mockImplementation(() => {
+          if (boundary === "lock acquisition") appEvents.emit("second-instance", {}, ["electron"]);
+          return { isPrimaryInstance: true, cleanup: () => undefined };
+        });
+        const electronApp = {
+          setPath: () => Effect.void,
+          on: (eventName: string, listener: (...args: unknown[]) => void) =>
+            Effect.acquireRelease(
+              Effect.sync(() => {
+                appEvents.on(eventName, listener);
+              }),
+              () =>
+                Effect.sync(() => {
+                  appEvents.removeListener(eventName, listener);
+                }),
+            ).pipe(Effect.asVoid),
+        } as ElectronApp.ElectronApp["Service"];
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const desktopWindow = yield* DesktopWindow.DesktopWindow;
+            const received = yield* Deferred.make<void>();
+            const quitting = yield* Ref.make(false);
+            const clerk = yield* DesktopClerk.make.pipe(
+              Effect.provide(desktopEnvironmentLayer),
+              Effect.provide(FileSystem.layerNoop({ exists: () => Effect.succeed(false) })),
+              Effect.provideService(ElectronApp.ElectronApp, electronApp),
+            );
+            yield* clerk.configure.pipe(
+              Effect.provideService(DesktopWindow.DesktopWindow, {
+                ...desktopWindow,
+                activate: desktopWindow.activate.pipe(
+                  Effect.tap(() => Deferred.succeed(received, undefined)),
+                ),
+              }),
+              Effect.provideService(DesktopState.DesktopState, {
+                quitting,
+              } as DesktopState.DesktopState["Service"]),
+            );
+            if (boundary === "configured without main") {
+              appEvents.emit("second-instance", {}, ["electron"]);
+            }
+            yield* Deferred.await(received);
+            assert.equal(yield* Ref.get(scenario.createCalls), 0);
+            assert.deepEqual(yield* Ref.get(scenario.revealedWindows), []);
+            yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+            assert.equal(yield* Ref.get(scenario.createCalls), 1);
+            assert.strictEqual(Option.getOrThrow(yield* Ref.get(scenario.mainWindow)), main.window);
+            assert.deepEqual(yield* Ref.get(scenario.revealedWindows), []);
+            main.windowListeners.get("ready-to-show")!();
+            assert.strictEqual(yield* Queue.take(scenario.revealReceipts), main.window);
+            assert.equal(yield* Ref.get(scenario.createCalls), 1);
+          }).pipe(Effect.provide(scenario.layer)),
+        );
+        assert.equal(appEvents.listenerCount("second-instance"), 0);
+      }),
+    );
+  }
+
+  it.effect("retains cold-start activation through the splash and real-main readiness", () =>
+    Effect.gen(function* () {
+      const splash = makeFakeBrowserWindow();
+      const main = makeFakeBrowserWindow();
+      const scenario = yield* makeSplashScenario([splash.window, main.window]);
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.activate;
+        assert.equal(yield* Ref.get(scenario.createCalls), 0);
+        yield* desktopWindow.showConnectingSplash;
+        yield* desktopWindow.activate;
+        assert.strictEqual(yield* Queue.take(scenario.revealReceipts), splash.window);
+        assert.equal(yield* Ref.get(scenario.createCalls), 1);
+        yield* Effect.all(
+          [
+            desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773")),
+            desktopWindow.activate,
+            desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773")),
+          ],
+          { concurrency: "unbounded" },
+        );
+        assert.equal(yield* Ref.get(scenario.createCalls), 2);
+        assert.strictEqual(Option.getOrThrow(yield* Ref.get(scenario.mainWindow)), main.window);
+        assert.deepEqual(yield* Ref.get(scenario.revealedWindows), [splash.window]);
+        main.windowListeners.get("ready-to-show")!();
+        assert.strictEqual(yield* Queue.take(scenario.revealReceipts), main.window);
+        yield* desktopWindow.activate;
+        assert.strictEqual(yield* Queue.take(scenario.revealReceipts), main.window);
+        assert.equal(yield* Ref.get(scenario.createCalls), 2);
+      }).pipe(Effect.provide(scenario.layer));
+    }),
+  );
+
+  it.effect("recreates a destroyed main only after backend readiness, never activating a preview", () =>
+    Effect.gen(function* () {
+      const first = makeFakeBrowserWindow();
+      const replacement = makeFakeBrowserWindow();
+      const preview = makeFakeBrowserWindow();
+      const scenario = yield* makeSplashScenario([first.window, replacement.window]);
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* Ref.set(scenario.createdWindows, [preview.window]);
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        first.windowListeners.get("ready-to-show")!();
+        assert.strictEqual(yield* Queue.take(scenario.revealReceipts), first.window);
+        first.isDestroyed.mockReturnValue(true);
+        yield* desktopWindow.handleBackendNotReady;
+        yield* desktopWindow.activate;
+        assert.equal(yield* Ref.get(scenario.createCalls), 1);
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        assert.equal(yield* Ref.get(scenario.createCalls), 2);
+        replacement.windowListeners.get("ready-to-show")!();
+        assert.strictEqual(yield* Queue.take(scenario.revealReceipts), replacement.window);
+        assert.deepEqual(yield* Ref.get(scenario.revealedWindows), [
+          first.window,
+          replacement.window,
+        ]);
+      }).pipe(Effect.provide(scenario.layer));
+    }),
+  );
   it.effect("shows native context menus for browser guests and sign-in popups", () =>
     Effect.gen(function* () {
       const host = makeFakeBrowserWindow();
@@ -653,6 +787,8 @@ describe("DesktopWindow", () => {
         });
         yield* Effect.gen(function* () {
           const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.activate;
+          assert.equal(yield* Ref.get(createCount), 0);
           yield* desktopWindow.createMainIfBackendReady;
           assert.equal(yield* Ref.get(createCount), 1);
           yield* Ref.set(mainWindow, Option.none());
