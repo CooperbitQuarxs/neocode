@@ -108,10 +108,18 @@ const decodeCursor = Schema.decodeUnknownOption(Cursor);
 const decodeListOutput = Schema.decodeEffect(Schema.fromJsonString(ListOutput));
 const decodeReadOutput = Schema.decodeEffect(Schema.fromJsonString(ReadOutput));
 const isNeoPiSessionError = Schema.is(NeoPiSessionError);
-const missingCapability =
-  "Update NeoPi: this npi does not support session discovery (needs session_catalog).";
-const missingHistoryCapability =
-  "Update NeoPi for history restoration identity (needs session_history_identity). Session discovery is still available.";
+const capabilityUnavailable = (
+  source: NeoPiSessionCatalogSource | undefined,
+  capability: string,
+): string => {
+  if (!source) return "NeoPi session discovery is not registered for this provider.";
+  const evidence = `NeoPi binary '${source.binary}' (version ${source.probe.version ?? "unknown"})`;
+  if (source.probe.status === "unprobed")
+    return `${evidence} has not completed a compatible RPC handshake; ${capability} support is not yet known.${source.probe.failure ? ` Last probe failed: ${source.probe.failure}` : " Retry after the provider check completes."}`;
+  if (source.probe.status === "unsupported")
+    return `${evidence} returned an unsupported RPC handshake. Update NeoPi at this configured executable before using ${capability}.${source.probe.failure ? ` Last refresh failed: ${source.probe.failure}` : ""}`;
+  return `${evidence} did not advertise ${capability} in its last compatible handshake. Update NeoPi at this configured executable.${source.probe.failure ? ` Last refresh failed: ${source.probe.failure}` : ""}`;
+};
 const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 const sameCwd = (left: string, right: string) =>
   left !== "" &&
@@ -193,7 +201,8 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
     if (preferred > 0) enabled.unshift(...enabled.splice(preferred, 1));
     return enabled.flatMap((instance) => {
       const source = neoPiSessionCatalogSource(instance);
-      return source?.capabilities.has(NEOPI_CAPABILITIES.sessionCatalog)
+      return source?.probe.status !== "unsupported" &&
+        source?.capabilities.has(NEOPI_CAPABILITIES.sessionCatalog)
         ? [{ instance, source }]
         : [];
     });
@@ -275,14 +284,22 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
     function* (input: NeoPiSessionListInput): Effect.fn.Return<NeoPiSessionListResult, unknown> {
       const providers = yield* resolveProviders();
       if (providers.length === 0) {
-        const hasInstance = (yield* instances.listInstances).some(
+        const enabled = (yield* instances.listInstances).filter(
           (instance) => instance.enabled && instance.driverKind === "neopi",
         );
         return {
           status: "unavailable",
-          reason: hasInstance
-            ? missingCapability
-            : "Enable a NeoPi provider in Settings to discover sessions.",
+          reason:
+            enabled.length > 0
+              ? enabled
+                  .map((instance) =>
+                    capabilityUnavailable(
+                      neoPiSessionCatalogSource(instance),
+                      NEOPI_CAPABILITIES.sessionCatalog,
+                    ),
+                  )
+                  .join("\n")
+              : "Enable a NeoPi provider in Settings to discover sessions.",
         };
       }
       const unique = new Map<string, NeoPiSessionSummary>();
@@ -423,8 +440,18 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
       const provider = (yield* resolveProviders()).find(
         (entry) => entry.instance.instanceId === providerInstanceId,
       );
-      if (!provider)
-        return yield* new NeoPiSessionError({ operation: "resume", message: missingCapability });
+      if (!provider) {
+        const instance = yield* instances.getInstance(providerInstanceId);
+        return yield* new NeoPiSessionError({
+          operation: "resume",
+          message: instance?.enabled
+            ? capabilityUnavailable(
+                neoPiSessionCatalogSource(instance),
+                NEOPI_CAPABILITIES.sessionCatalog,
+              )
+            : `NeoPi provider '${providerInstanceId}' is missing or disabled. Enable it in Settings.`,
+        });
+      }
       // Validate against NeoPi's own listing of that one directory: cheaper than
       // re-listing every project, and still refuses files NeoPi does not recognize.
       const listed = yield* decodeListOutput(
@@ -472,7 +499,10 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
         if (!provider.source.capabilities.has(NEOPI_CAPABILITIES.sessionHistoryIdentity))
           return yield* new NeoPiSessionError({
             operation: "resume",
-            message: missingHistoryCapability,
+            message: capabilityUnavailable(
+              provider.source,
+              NEOPI_CAPABILITIES.sessionHistoryIdentity,
+            ),
           });
         const saved = decodeCursor(existing.resumeCursor);
         if (Option.isNone(saved) || saved.value.sessionId !== row.id)
@@ -561,7 +591,10 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
       if (!provider.source.capabilities.has(NEOPI_CAPABILITIES.sessionHistoryIdentity))
         return yield* new NeoPiSessionError({
           operation: "resume",
-          message: missingHistoryCapability,
+          message: capabilityUnavailable(
+            provider.source,
+            NEOPI_CAPABILITIES.sessionHistoryIdentity,
+          ),
         });
       const transcript = yield* readTranscript(
         provider.source,
@@ -670,7 +703,7 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
       if (!source.capabilities.has(NEOPI_CAPABILITIES.sessionHistoryIdentity))
         return yield* new NeoPiSessionError({
           operation: "handoff",
-          message: missingHistoryCapability,
+          message: capabilityUnavailable(source, NEOPI_CAPABILITIES.sessionHistoryIdentity),
         });
       const project = yield* readProject(thread.value.projectId);
       const cwd = thread.value.worktreePath ?? project.workspaceRoot;
