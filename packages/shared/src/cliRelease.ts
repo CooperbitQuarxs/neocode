@@ -5,7 +5,7 @@
  * platform key, so a rename here is a release-breaking change.
  */
 
-const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
+const CLI_RELEASE_REPOSITORY = "PsychedelicShayna/neocode";
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 /** Overrides the download origin for mirrors and air-gapped installs. */
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
@@ -66,14 +66,14 @@ export function cliReleaseDownloadBaseUrl(
 
 /**
  * Parses the `sha256sum` style checksum file attached to each release.
- * Lines are `<hex>  <file>`; a leading `*` marks binary mode and is ignored.
+ * Lines are `<hex>  <file>`; binary-mode `*` and relative-path `./` prefixes are ignored.
  */
 export function parseChecksums(text: string): ReadonlyMap<string, string> {
   const checksums = new Map<string, string>();
   for (const line of text.split(/\r?\n/)) {
     const match = /^([0-9a-fA-F]{64})\s+\*?(\S.*)$/.exec(line.trim());
     if (match?.[1] !== undefined && match[2] !== undefined) {
-      checksums.set(match[2], match[1].toLowerCase());
+      checksums.set(match[2].replace(/^\.\//, ""), match[1].toLowerCase());
     }
   }
   return checksums;
@@ -88,7 +88,7 @@ export const CLI_RELEASE_CHANNELS: ReadonlyArray<CliReleaseChannel> = [
 
 /** The release train a version was published on, derived from its prerelease tag. */
 export function cliReleaseChannelOf(version: string): CliReleaseChannel {
-  const channel = /^[^-+]+-(nightly|preview)\.\d{8}\.\d+$/.exec(version)?.[1];
+  const channel = /^[^-+]+-(nightly|preview)\.\d{8}\.\d+(?:\.\d+)?$/.exec(version)?.[1];
   return channel === "nightly" || channel === "preview" ? channel : "stable";
 }
 

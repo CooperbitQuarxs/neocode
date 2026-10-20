@@ -30,7 +30,7 @@ const archiveHex = (bytes: Uint8Array) =>
     ),
   );
 const validChecksums = archiveHex(archiveBytes).pipe(
-  Effect.map((hex) => `${hex}  ${archiveName}\n`),
+  Effect.map((hex) => `${hex}  ./${archiveName}\n`),
 );
 const releaseHttpClient = (checksums: string, requests: string[] = []) =>
   HttpClient.make((request) => {
@@ -78,7 +78,6 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
         platform: "linux",
         arch: "x64",
         httpClient: releaseHttpClient(yield* validChecksums, requests),
-        releaseBaseUrl: "https://releases.example/download",
         runner: extractingRunner(fs, path, commands),
         validate: (staging) =>
           fs.exists(staging.entryPath).pipe(
@@ -89,8 +88,8 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
       assert.equal(paths.entryPath, path.join(paths.versionDir, "t3"));
       assert.deepEqual(pinnedRuntimeCommand(paths), { command: paths.entryPath, args: [] });
       assert.deepEqual(requests, [
-        `https://releases.example/download/v${version}/SHA256SUMS`,
-        `https://releases.example/download/v${version}/${archiveName}`,
+        `https://github.com/PsychedelicShayna/neocode/releases/download/v${version}/SHA256SUMS`,
+        `https://github.com/PsychedelicShayna/neocode/releases/download/v${version}/${archiveName}`,
       ]);
       assert.deepEqual(commands, ["tar"]);
       assert.equal(yield* fs.readFileString(paths.sentinelPath), `${version}\n`);
