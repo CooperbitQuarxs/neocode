@@ -64,6 +64,8 @@ We need to be on the same page with terminology. When communicating, use this la
 
 ## Repository policy
 
+The [workspace policy](../AGENTS.md) comes first; repository policy adds NeoCode-specific details.
+
 `docs/agents/policy.md` owns branches, commits, signing, pull requests,
 nightly delivery and promotion. The remaining sections retain compatible
 upstream code guidance.
@@ -130,7 +132,8 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
 - **Do not run repo-wide checks.** No `vp check`, no `vp run -r test`, no `vp run -r typecheck` unless I ask. CI owns the full suite.
 - Backend behavior changes ship with focused tests for that behavior.
 - The server is event-sourced and its async flows emit typed receipts. Wait on receipts and worker drains, never on sleeps or polling. A test that needs a timeout to pass is wrong.
-- Upon request, user-visible frontend changes should get one integrated pass in a real client: `test-t3-app` for web, `test-t3-mobile` for mobile. The primary agent does this once after integrating. Subagents do not launch their own dev servers. Ask permission before doing computer use or spinning up browsers.
+- Upon request, user-visible frontend changes should get one integrated pass in a real client: `test-t3-app` for web, `test-t3-mobile` for mobile. The primary agent does this once after integrating. Subagents do not launch their own dev servers.
+- Under the [workspace policy](../AGENTS.md), the owner's standing authorization covers NeoCode verification in the hidden Xvfb+i3 harness on display `:10` with private state, never her real display, database or running window; anything beyond that needs her authorization.
 
 For authorized mobile verification, a missing or outdated native client is a build step, not a blocker. Run `node scripts/mobile-native-client.ts ensure <ios|android> <device-id>` on the simulator host before starting Metro. It checks the local Expo fingerprint and builds/installs when needed. See `test-t3-mobile` for the full workflow.
 
@@ -188,7 +191,7 @@ Full glossary with file links: `docs/internals/glossary.md`
 
 ## Additional tips
 
-- Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
+- Browser and computer-use verification follows [Verifying](#verifying), including its standing `:10` authorization and boundaries.
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
 
 ## Fork rule: NeoPi-first, upstream-aware

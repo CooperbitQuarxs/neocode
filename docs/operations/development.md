@@ -146,8 +146,8 @@ options.
 ### Diagnostic desktop launches
 
 After building with `vp run build:desktop`, `vp run test:desktop-smoke` uses the
-installed Electron runtime through the shared diagnostic process harness. Run GUI
-verification only with owner approval. On Linux it requires installed `unshare`,
+installed Electron runtime through the shared diagnostic process harness. GUI
+verification follows [AGENTS.md's authorization boundaries](../../AGENTS.md#verifying). On Linux it requires installed `unshare`,
 `dbus-run-session` and `xvfb-run`, with permission to create user/PID/mount namespaces;
 it fails before launching the application if those namespaces are unavailable.
 It does not download a runtime or register a URL handler.
