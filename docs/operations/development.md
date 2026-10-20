@@ -96,6 +96,42 @@ startup and keeps its own SQLite data, signing key, and revocation state. Deskto
 servers ignore the value. See [environment authentication](../internals/environment-auth.md#reusable-dev-credential)
 for the security model.
 
+## Running prebuilt desktop output from source
+
+`vp run start:desktop` and `node apps/desktop/scripts/start-electron.mjs`
+launch the checkout's existing application bundles. They prepare the native
+browser-secret helper and Electron runtime, but do not rebuild the renderer,
+server, desktop main process or preloads. Updating source alone leaves the
+previous bundles in use.
+
+With Node 24, workspace dependencies and a valid Electron runtime installed,
+run this sequence from the checkout the source launcher actually targets:
+
+```sh
+vp run build:desktop
+vp run start:desktop
+```
+
+On Linux, the browser-secret helper also requires a C compiler, `pkg-config`
+and the libsecret development files. The full build runs web, server and
+desktop in dependency order. It emits `apps/web/dist`, copies the renderer to
+`apps/server/dist/client`, builds `apps/server/dist/bin.mjs`, and writes desktop
+main, preload and companion bundles to `apps/desktop/dist-electron`.
+Rebuild after changing source or build inputs. An unchanged build can be
+launched again without rebuilding.
+
+Check a desktop entry's `Exec` before choosing the checkout. An absolute source
+launcher path still uses that checkout when another worktree has been rebuilt.
+A packaged AppImage or extracted `AppRun` uses its installed release instead;
+building source does not replace that installation. `vp run dev:desktop` is
+the separate development/watch workflow.
+
+For worktree diagnostics, launch that worktree's emitted output in the
+[isolated verification environment](../../AGENTS.md#verifying), with private
+Electron profile and T3 state. Source-production startup does not inherit the
+dev runner's automatic per-worktree state isolation. Do not use the unchanged
+normal desktop entry to test a different worktree.
+
 ## Checks
 
 Run checks for the files and packages you changed:
