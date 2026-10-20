@@ -52,6 +52,9 @@ const escapeDesktopEntryString = (value: string): string =>
     .replaceAll("\t", "\\t");
 
 export function escapeDesktopEntryExecArgument(value: string): string {
+  // Generic xdg-open retains quote marks on safe arguments such as -u.
+  // Keep required desktop-entry quoting for whitespace and metacharacters.
+  if (/^[A-Za-z0-9_./:@=+-]+$/.test(value)) return value;
   const quoted = value
     .replaceAll("\\", () => "\\\\")
     .replaceAll("`", () => "\\`")

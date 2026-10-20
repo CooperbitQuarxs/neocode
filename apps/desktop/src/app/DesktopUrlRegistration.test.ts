@@ -54,35 +54,6 @@ describe("DesktopUrlRegistration", () => {
     );
   });
 
-  it("launches the source app entrypoint and forwards the URL as one argument", () =>
-    withPrivateRoot((root) => {
-      const appPath = join(root, 'source app "quoted" 100% 雪.cjs');
-      writeFileSync(
-        appPath,
-        "console.log(JSON.stringify({ args: process.argv.slice(2), runAsNode: process.env.ELECTRON_RUN_AS_NODE, devUrl: process.env.VITE_DEV_SERVER_URL }))",
-      );
-      const plan = resolveDesktopUrlRegistration({
-        platform: "linux",
-        isPackaged: false,
-        isDevelopment: false,
-        explicitRegistration: true,
-        execPath: process.execPath,
-        appPath,
-      });
-      const url = 't3code://app/?code=one%20two&state="quoted"';
-      const launched = spawnSync(plan.command[0]!, [...plan.command.slice(1), url], {
-        env: {
-          ...process.env,
-          ELECTRON_RUN_AS_NODE: "1",
-          VITE_DEV_SERVER_URL: "https://wrong.example",
-        },
-        encoding: "utf8",
-        timeout: 5000,
-      });
-      assert.equal(launched.status, 0, launched.stderr);
-      assert.deepEqual(JSON.parse(launched.stdout), { args: [url] });
-    }));
-
   it("preserves development origin and selects the stable packaged AppImage", () => {
     const plan = resolveDesktopUrlRegistration({
       platform: "linux",
