@@ -599,13 +599,13 @@ function PairingForm({
 
 // ── Step 3: agents ───────────────────────────────────────────
 
-const PRIMARY_AGENT_DRIVERS = ["claudeAgent", "codex"] as const;
+const PRIMARY_AGENT_DRIVERS = ["neopi", "claudeAgent", "codex"] as const;
 type OnboardingAgentDriver = (typeof PRIMARY_AGENT_DRIVERS)[number];
 
 /** Setup values stay fixed while provider probes refresh the surrounding cards. */
 interface AgentTerminalSession {
   readonly environmentId: EnvironmentId;
-  readonly driver: OnboardingAgentDriver;
+  readonly driver: Exclude<OnboardingAgentDriver, "neopi">;
   readonly providerInstanceId: ServerProvider["instanceId"];
   readonly cwd: string;
   readonly command: string;
@@ -613,11 +613,9 @@ interface AgentTerminalSession {
 }
 
 /**
- * Claude Code and Codex use live probe status. Install opens the built-in
- * terminal inline with the vendor's standalone installer pre-typed. The update
- * RPC can't install a binary that isn't there yet (it infers the installer from
- * the installed binary's path), and the terminal also handles the interactive
- * login that follows.
+ * Agent readiness follows live probe status. Claude Code and Codex additionally
+ * offer their standalone installers and interactive login in an inline terminal.
+ * NeoPi setup remains in NeoPi; showing its readiness never starts authentication.
  */
 function AgentsStep({
   environmentIds,
@@ -690,26 +688,30 @@ function ConnectedAgentsStep({
             provider={provider}
             terminalOpen={terminalSession?.driver === driver}
             terminalAvailable={serverConfig !== null}
-            onOpenTerminal={() => {
-              if (provider === undefined || serverConfig === null) return;
-              setTerminalSession({
-                environmentId,
-                driver,
-                providerInstanceId: provider.instanceId,
-                cwd: serverConfig.cwd,
-                command: provider.installed
-                  ? resolveOnboardingProviderLoginCommand(
-                      provider,
-                      serverConfig.settings,
-                      serverConfig.environment.platform.os,
-                    )
-                  : resolveOnboardingProviderInstallCommand(
+            onOpenTerminal={
+              driver === "neopi"
+                ? undefined
+                : () => {
+                    if (provider === undefined || serverConfig === null) return;
+                    setTerminalSession({
+                      environmentId,
                       driver,
-                      serverConfig.environment.platform.os,
-                    ),
-                keybindings: serverConfig.keybindings,
-              });
-            }}
+                      providerInstanceId: provider.instanceId,
+                      cwd: serverConfig.cwd,
+                      command: provider.installed
+                        ? resolveOnboardingProviderLoginCommand(
+                            provider,
+                            serverConfig.settings,
+                            serverConfig.environment.platform.os,
+                          )
+                        : resolveOnboardingProviderInstallCommand(
+                            driver,
+                            serverConfig.environment.platform.os,
+                          ),
+                      keybindings: serverConfig.keybindings,
+                    });
+                  }
+            }
           />
         ))}
       </div>
@@ -738,7 +740,7 @@ function AgentCard({
   readonly provider: ServerProvider | undefined;
   readonly terminalOpen: boolean;
   readonly terminalAvailable: boolean;
-  readonly onOpenTerminal: () => void;
+  readonly onOpenTerminal: (() => void) | undefined;
 }) {
   const meta = getDriverOption(ProviderDriverKind.make(driver));
   const Icon = meta?.icon;
@@ -768,7 +770,7 @@ function AgentCard({
           <span className="text-xs text-muted-foreground">Checking...</span>
         ) : providerState === "disabled" ? (
           <span className="text-xs text-muted-foreground">Disabled</span>
-        ) : providerState === "attention" ? (
+        ) : providerState === "attention" || onOpenTerminal === undefined ? (
           <span className="text-xs text-muted-foreground">{summary.headline}</span>
         ) : (
           <Button
