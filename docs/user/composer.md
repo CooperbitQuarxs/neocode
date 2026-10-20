@@ -62,6 +62,10 @@ On web and desktop, use Settings → Providers → **Models** to add an unlisted
 name and options. Only options supported by the provider integration affect turns. Antigravity
 uses its account catalog and does not support custom models.
 
+The filter searches the provider's full catalog, including models outside the
+visible rows. Favorites, ordering and hidden-model preferences apply to the
+whole catalog. Adding a custom model brings its row into view.
+
 ## Model defaults
 
 T3 Code remembers your provider, model, and model options for new threads. A
