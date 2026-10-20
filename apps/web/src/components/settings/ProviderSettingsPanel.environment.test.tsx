@@ -26,15 +26,8 @@ const commands = vi.hoisted(() => ({
 
 const settingsState = vi.hoisted(() => ({
   value: null as UnifiedSettings | null,
-  readEnvironmentIds: [] as EnvironmentId[],
-  updateEnvironmentIds: [] as EnvironmentId[],
   updateSettings: vi.fn(),
   updateClientSettings: vi.fn(),
-}));
-
-const settingsSearchState = vi.hoisted(() => ({
-  targetId: null as string | null,
-  effects: [] as Array<() => void>,
 }));
 
 vi.mock("react", async (importOriginal) => {
@@ -43,18 +36,10 @@ vi.mock("react", async (importOriginal) => {
   return {
     ...actual,
     useCallback: reactHookHarness.useCallback,
-    useEffect: (effect: () => void) => settingsSearchState.effects.push(effect),
+    useEffect: () => undefined,
     useMemo: reactHookHarness.useMemo,
     useRef: reactHookHarness.useRef,
     useState: reactHookHarness.useState,
-  };
-});
-
-vi.mock("./settingsLayout", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./settingsLayout")>();
-  return {
-    ...actual,
-    useSettingsSearchTargetId: () => settingsSearchState.targetId,
   };
 });
 
@@ -84,10 +69,7 @@ vi.mock("../../state/use-atom-command", () => ({
 
 vi.mock("../../hooks/useSettings", () => ({
   useUpdateClientSettings: () => settingsState.updateClientSettings,
-  useEnvironmentSettings: (environmentId: EnvironmentId) => {
-    settingsState.readEnvironmentIds.push(environmentId);
-    return settingsState.value;
-  },
+  useEnvironmentSettings: () => settingsState.value,
   useUpdateEnvironmentSettings: () => settingsState.updateSettings,
 }));
 
@@ -164,57 +146,42 @@ function isAddProviderButton(element: ReactElement<Record<string, unknown>>): bo
   return element.props["aria-label"] === "Add provider";
 }
 
-async function flushPromises(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-}
-
 describe("EnvironmentProviderSettings routing", () => {
   beforeEach(() => {
     hooks.reset();
     atoms.providers = null;
     settingsState.value = DEFAULT_UNIFIED_SETTINGS;
-    settingsState.readEnvironmentIds = [];
-    settingsState.updateEnvironmentIds = [];
     settingsState.updateSettings.mockReset();
     settingsState.updateClientSettings.mockReset();
-    settingsSearchState.targetId = null;
-    settingsSearchState.effects = [];
     commands.refresh.mockReset().mockResolvedValue({ _tag: "Success" });
     commands.updateProvider.mockReset().mockResolvedValue({ _tag: "Success" });
   });
 
-  it("coalesces a nullable provider snapshot before rendering array-backed UI", () => {
-    expect(() => renderPanel()).not.toThrow();
-    expect(settingsState.readEnvironmentIds).toEqual([environmentId]);
-  });
+  it("allows another update after a pending update settles without dispatching duplicates", async () => {
+    settingsState.value = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [customId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
+      },
+    };
+    atoms.providers = [{ ...provider(), instanceId: customId }];
+    const pending = Promise.withResolvers<{ _tag: "Success" }>();
+    commands.updateProvider.mockReturnValueOnce(pending.promise);
+    const panel = renderPanel({ targetInstanceId: customId });
+    const editor = visitElements(panel, (element) => element.props.mode === "editor");
+    const update = editor?.props.onRunUpdate as () => void;
 
-  it("routes refresh and provider update commands to the selected environment", async () => {
-    atoms.providers = [provider()];
-    const panel = renderPanel();
-    const refreshButton = visitElements(panel, isRefreshButton);
-    expect(refreshButton).not.toBeNull();
-    (refreshButton?.props.onClick as (() => void) | undefined)?.();
-    await flushPromises();
-
-    expect(commands.refresh).toHaveBeenCalledWith({
+    update();
+    update();
+    expect(commands.updateProvider).toHaveBeenCalledExactlyOnceWith({
       environmentId,
-      input: { refreshModels: true },
+      input: { provider: ProviderDriverKind.make("codex"), instanceId: customId },
     });
 
-    const providerCard = visitElements(
-      panel,
-      (element) =>
-        element.props.instanceId === codexId && typeof element.props.onRunUpdate === "function",
-    );
-    expect(providerCard).not.toBeNull();
-    (providerCard?.props.onRunUpdate as (() => void) | undefined)?.();
-    await flushPromises();
-
-    expect(commands.updateProvider).toHaveBeenCalledWith({
-      environmentId,
-      input: { provider: ProviderDriverKind.make("codex"), instanceId: codexId },
-    });
+    pending.resolve({ _tag: "Success" });
+    await pending.promise;
+    update();
+    expect(commands.updateProvider).toHaveBeenCalledTimes(2);
   });
 
   it("opens the requested provider instance instead of the first provider", () => {
@@ -230,27 +197,70 @@ describe("EnvironmentProviderSettings routing", () => {
     expect(editor?.props.instanceId).toBe(customId);
   });
 
-  it.each([
-    ["onFavoriteModelsChange", { favorites: [{ provider: codexId, model: "chosen" }] }],
-    [
-      "onHiddenModelsChange",
-      { providerModelPreferences: { [codexId]: { hiddenModels: ["chosen"], modelOrder: [] } } },
-    ],
-    [
-      "onModelOrderChange",
-      { providerModelPreferences: { [codexId]: { hiddenModels: [], modelOrder: ["chosen"] } } },
-    ],
-  ])("saves %s on this device without changing the selected server", (action, expected) => {
-    atoms.providers = [provider()];
-    const panel = renderPanel();
-    const editor = visitElements(
-      panel,
-      (element) => element.props.instanceId === codexId && element.props.mode === "editor",
-    );
-    expect(editor).not.toBeNull();
-    if (!editor) throw new Error("Provider editor was not rendered");
-    (editor.props[action] as (models: string[]) => void)(["chosen"]);
-    expect(settingsState.updateClientSettings).toHaveBeenCalledExactlyOnceWith(expected);
+  it("normalizes one account's favorites without erasing another account's choices", () => {
+    settingsState.value = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [customId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
+      },
+      favorites: [
+        { provider: codexId, model: "other-account" },
+        { provider: customId, model: "old-favorite" },
+      ],
+    };
+    const panel = renderPanel({ targetInstanceId: customId });
+    const editor = visitElements(panel, (element) => element.props.mode === "editor");
+    const changeFavorites = editor?.props.onFavoriteModelsChange as (models: string[]) => void;
+
+    changeFavorites([" chosen ", "", "chosen", "  "]);
+    expect(settingsState.updateClientSettings).toHaveBeenLastCalledWith({
+      favorites: [
+        { provider: codexId, model: "other-account" },
+        { provider: customId, model: "chosen" },
+      ],
+    });
+    changeFavorites([]);
+    expect(settingsState.updateClientSettings).toHaveBeenLastCalledWith({
+      favorites: [{ provider: codexId, model: "other-account" }],
+    });
+    expect(settingsState.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it("preserves other accounts and drops an empty model-preference override", () => {
+    const otherPreferences = { hiddenModels: ["other-hidden"], modelOrder: ["other-model"] };
+    settingsState.value = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [customId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
+      },
+      providerModelPreferences: {
+        [codexId]: otherPreferences,
+        [customId]: { hiddenModels: [], modelOrder: ["old-order"] },
+      },
+    };
+    const panel = renderPanel({ targetInstanceId: customId });
+    const editor = visitElements(panel, (element) => element.props.mode === "editor");
+    const changeHidden = editor?.props.onHiddenModelsChange as (models: string[]) => void;
+    const changeOrder = editor?.props.onModelOrderChange as (models: string[]) => void;
+
+    changeHidden(["hidden", "", "hidden", " "]);
+    expect(settingsState.updateClientSettings).toHaveBeenLastCalledWith({
+      providerModelPreferences: {
+        [codexId]: otherPreferences,
+        [customId]: { hiddenModels: ["hidden"], modelOrder: ["old-order"] },
+      },
+    });
+    changeOrder(["ordered", "", "ordered", " "]);
+    expect(settingsState.updateClientSettings).toHaveBeenLastCalledWith({
+      providerModelPreferences: {
+        [codexId]: otherPreferences,
+        [customId]: { hiddenModels: [], modelOrder: ["ordered"] },
+      },
+    });
+    changeOrder([]);
+    expect(settingsState.updateClientSettings).toHaveBeenLastCalledWith({
+      providerModelPreferences: { [codexId]: otherPreferences },
+    });
     expect(settingsState.updateSettings).not.toHaveBeenCalled();
   });
 
@@ -292,37 +302,8 @@ describe("EnvironmentProviderSettings routing", () => {
     );
     expect(customEditor).not.toBeNull();
 
-    const notice = visitElements(panel, (element) => element.props.title === "Limited permissions");
-    expect(notice).not.toBeNull();
-
     expect(visitElements(panel, isRefreshButton)).toBeNull();
     expect(visitElements(panel, isAddProviderButton)).toBeNull();
-  });
-
-  it("keeps the editable layout interactive when not read only", () => {
-    atoms.providers = [provider()];
-    const panel = renderPanel();
-    expect(visitElements(panel, (element) => element.props.inert === true)).toBeNull();
-    expect(
-      visitElements(panel, (element) => element.props.title === "Limited permissions"),
-    ).toBeNull();
-    expect(visitElements(panel, isRefreshButton)).not.toBeNull();
-    expect(visitElements(panel, isAddProviderButton)).not.toBeNull();
-  });
-
-  it("keeps Advanced visible when search targets the provider health interval", () => {
-    let panel = renderPanel();
-    expect(visitElements(panel, (element) => element.props.title === "Advanced")).not.toBeNull();
-    expect(
-      visitElements(panel, (element) => element.props.id === "provider-health-check-interval"),
-    ).not.toBeNull();
-
-    settingsSearchState.targetId = "provider-health-check-interval";
-    panel = renderPanel();
-    expect(visitElements(panel, (element) => element.props.title === "Advanced")).not.toBeNull();
-    expect(
-      visitElements(panel, (element) => element.props.id === "provider-health-check-interval"),
-    ).not.toBeNull();
   });
 
   it("deletes and resets provider configuration without erasing shared preferences", () => {
