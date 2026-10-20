@@ -6,7 +6,7 @@ import { assert, describe, it, vi } from "vite-plus/test";
 
 const fixture = vi.hoisted(() => ({
   app: undefined as unknown as EventEmitter & {
-    setAsDefaultProtocolClient: ReturnType<typeof vi.fn>;
+    setAsDefaultProtocolClient: ReturnType<typeof vi.fn<(scheme: string) => boolean>>;
     hasSingleInstanceLock: () => boolean;
   },
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
@@ -54,7 +54,7 @@ const reset = () => {
   fixture.window.restore.mockClear();
   fixture.window.focus.mockClear();
   fixture.app = Object.assign(new EventEmitter(), {
-    setAsDefaultProtocolClient: vi.fn(() => true),
+    setAsDefaultProtocolClient: vi.fn<(scheme: string) => boolean>(() => true),
     hasSingleInstanceLock: () => true,
   });
 };

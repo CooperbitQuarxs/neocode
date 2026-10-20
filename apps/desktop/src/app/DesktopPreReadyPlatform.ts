@@ -12,6 +12,7 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as DesktopEarlyElectronStartup from "./DesktopEarlyElectronStartup.ts";
 import { resolveDesktopAppBranding } from "./DesktopEnvironment.ts";
 import * as DesktopUrlRegistration from "./DesktopUrlRegistration.ts";
+import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 
 export interface DesktopPreReadyCommandLineReader {
   readonly hasSwitch: (switchName: string) => boolean;
@@ -66,8 +67,8 @@ export const make = Effect.gen(function* () {
       // In the bundled main process this is the actual launchable main.cjs.
       // getAppPath may be only its containing directory for script launches.
       appPath: Electron.app.isPackaged ? Electron.app.getAppPath() : __filename,
-      appImagePath: process.env.APPIMAGE?.trim(),
-      devServerUrl: process.env.VITE_DEV_SERVER_URL?.trim(),
+      appImagePath: process.env.APPIMAGE?.trim() ?? "",
+      devServerUrl: process.env.VITE_DEV_SERVER_URL?.trim() ?? "",
       passwordStore: linuxPasswordStoreCommandLine,
     });
 
