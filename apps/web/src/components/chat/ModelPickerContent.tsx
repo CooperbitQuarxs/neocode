@@ -46,6 +46,7 @@ import {
   type ProviderInstanceEntry,
 } from "../../providerInstances";
 import { providerModelKey, sortProviderModelItems } from "../../modelOrdering";
+import { prioritizeNeoPiPickerEntries } from "../neopi/neopiPickerOrder";
 
 type ModelPickerItem = {
   slug: string;
@@ -411,7 +412,9 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
     return disabled;
   }, [instanceEntries, isLocked, matchesLockedProvider]);
   const sidebarInstanceEntries = useMemo(() => {
-    const enabledEntries = instanceEntries.filter(isProviderInstancePickerVisible);
+    const enabledEntries = prioritizeNeoPiPickerEntries(
+      instanceEntries.filter(isProviderInstancePickerVisible),
+    );
     if (!isLocked) {
       return enabledEntries;
     }
@@ -428,7 +431,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   }, [instanceEntries, isLocked, matchesLockedProvider]);
   const showSidebar = !isSearching && sidebarInstanceEntries.length > 0;
   const instanceOrder = useMemo(
-    () => instanceEntries.map((entry) => entry.instanceId),
+    () => prioritizeNeoPiPickerEntries(instanceEntries).map((entry) => entry.instanceId),
     [instanceEntries],
   );
 

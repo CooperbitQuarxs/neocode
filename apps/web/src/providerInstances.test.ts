@@ -10,6 +10,7 @@ import {
   resolveDefaultProviderModelSelection,
   resolveSelectableProviderInstance,
 } from "./providerInstances";
+import { prioritizeNeoPiPickerEntries } from "./components/neopi/neopiPickerOrder";
 
 function provider(input: {
   provider: ProviderDriverKind;
@@ -45,6 +46,35 @@ const model = (slug: string, isCustom = false, isDefault = false) => ({
   isCustom,
   ...(isDefault ? { isDefault: true } : {}),
   capabilities: {},
+});
+
+describe("NeoPi-first picker presentation", () => {
+  it("moves NeoPi accounts first while preserving account and other-harness order", () => {
+    const entries = deriveProviderInstanceEntries([
+      provider({ provider: ProviderDriverKind.make("codex"), instanceId: "codex" }),
+      provider({ provider: ProviderDriverKind.make("neopi"), instanceId: "neopi_work" }),
+      provider({ provider: ProviderDriverKind.make("claudeAgent"), instanceId: "claudeAgent" }),
+      provider({ provider: ProviderDriverKind.make("neopi"), instanceId: "neopi" }),
+      provider({ provider: ProviderDriverKind.make("codex"), instanceId: "codex_personal" }),
+    ]);
+    const originalOrder = entries.map((entry) => entry.instanceId);
+
+    expect(prioritizeNeoPiPickerEntries(entries).map((entry) => entry.instanceId)).toEqual([
+      "neopi_work", "neopi", "codex", "claudeAgent", "codex_personal",
+    ]);
+    expect(entries.map((entry) => entry.instanceId)).toEqual(originalOrder);
+  });
+
+  it("keeps existing harness order when NeoPi is not configured", () => {
+    const entries = deriveProviderInstanceEntries([
+      provider({ provider: ProviderDriverKind.make("claudeAgent"), instanceId: "claudeAgent" }),
+      provider({ provider: ProviderDriverKind.make("codex"), instanceId: "codex" }),
+    ]);
+
+    expect(prioritizeNeoPiPickerEntries(entries).map((entry) => entry.instanceId)).toEqual([
+      "claudeAgent", "codex",
+    ]);
+  });
 });
 
 describe("isProviderInstancePickerReady", () => {
