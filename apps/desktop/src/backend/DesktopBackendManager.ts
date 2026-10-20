@@ -479,7 +479,11 @@ export const runBackendProcess = Effect.fn("runBackendProcess")(function* (
     extendEnv: options.extendEnv,
     // In Electron main, process.execPath points to the Electron binary.
     // Run the child in Node mode so this backend process does not become a GUI app instance.
-    stdin: options.bootstrapDelivery === "stdin" ? bootstrapStream : "ignore",
+    // Keep stdin's writer open for the parent's lifetime, including across wsl.exe.
+    stdin:
+      options.bootstrapDelivery === "stdin"
+        ? Stream.concat(bootstrapStream, Stream.never)
+        : Stream.never,
     stdout: options.captureOutput ? "pipe" : "inherit",
     stderr: options.captureOutput ? "pipe" : "inherit",
     killSignal: "SIGTERM",

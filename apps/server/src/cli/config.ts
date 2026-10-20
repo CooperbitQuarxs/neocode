@@ -193,6 +193,7 @@ export interface CliServerFlags {
   readonly devUrl: Option.Option<URL>;
   readonly noBrowser: Option.Option<boolean>;
   readonly bootstrapFd: Option.Option<number>;
+  readonly exitOnStdinClose?: boolean;
   readonly autoBootstrapProjectFromCwd: Option.Option<boolean>;
   readonly logWebSocketEvents: Option.Option<boolean>;
   readonly tailscaleServeEnabled: Option.Option<boolean>;
@@ -227,6 +228,10 @@ export const sharedServerCommandFlags = {
   devUrl: devUrlFlag,
   noBrowser: noBrowserFlag,
   bootstrapFd: bootstrapFdFlag,
+  exitOnStdinClose: Flag.Boolean("exit-on-stdin-close").pipe(
+    Flag.withDescription("Stop an owned desktop backend when its parent closes stdin."),
+    Flag.withDefault(false),
+  ),
   autoBootstrapProjectFromCwd: autoBootstrapProjectFromCwdFlag,
   logWebSocketEvents: logWebSocketEventsFlag,
   tailscaleServeEnabled: tailscaleServeFlag,
@@ -270,6 +275,7 @@ export const resolveServerConfig = (
       devUrl: flags.devUrl ?? Option.none(),
       noBrowser: flags.noBrowser ?? Option.none(),
       bootstrapFd: flags.bootstrapFd ?? Option.none(),
+      exitOnStdinClose: flags.exitOnStdinClose ?? false,
       autoBootstrapProjectFromCwd: flags.autoBootstrapProjectFromCwd ?? Option.none(),
       logWebSocketEvents: flags.logWebSocketEvents ?? Option.none(),
       tailscaleServeEnabled: flags.tailscaleServeEnabled ?? Option.none(),
@@ -278,7 +284,12 @@ export const resolveServerConfig = (
     const bootstrapFd = Option.getOrUndefined(normalizedFlags.bootstrapFd) ?? env.bootstrapFd;
     const bootstrapEnvelope =
       bootstrapFd !== undefined
-        ? yield* readBootstrapEnvelope(DesktopBackendBootstrap, bootstrapFd)
+        ? yield* readBootstrapEnvelope(DesktopBackendBootstrap, bootstrapFd, {
+            // WSL carries both the envelope and parent lifetime over stdin.
+            ...(bootstrapFd === 0 && normalizedFlags.exitOnStdinClose
+              ? { input: process.stdin }
+              : {}),
+          })
         : Option.none();
     const bootstrap = Option.getOrUndefined(bootstrapEnvelope);
 

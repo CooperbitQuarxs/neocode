@@ -468,6 +468,7 @@ describe("DesktopBackendConfiguration", () => {
             `${linuxAppRoot}/t3`,
             "--bootstrap-fd",
             "0",
+            "--exit-on-stdin-close",
           ]);
           assert.notInclude(config.args, "/usr/bin/node");
           assert.equal(config.wslRuntimeId, `sha256-${archiveHash}`);
@@ -719,6 +720,7 @@ describe("DesktopBackendConfiguration", () => {
           linuxEntryPath,
           "--bootstrap-fd",
           "0",
+          "--exit-on-stdin-close",
           "--dev-url",
           devServerUrl,
         ]);
