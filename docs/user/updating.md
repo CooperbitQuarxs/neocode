@@ -1,9 +1,16 @@
-# Updating T3 Code
+# Updating NeoCode
 
 The app you use and the server running your agents can be on different machines.
 When a server is behind your web or desktop app, an update notice appears in the
 conversation and **Settings → Connections**. Update the machine named in that
 notice.
+
+CLI updates and background-service installation download from
+[NeoCode's releases](https://github.com/PsychedelicShayna/neocode/releases), not
+upstream T3 Code. The command remains `t3`, and existing data stays under `~/.t3`.
+Published CLI archives currently cover Linux x64 and Windows x64; there is no
+automatic upstream fallback when a platform or version is unavailable. Use a
+published fork version: a local source build may not have a matching archive.
 
 ## Before you update
 
@@ -15,7 +22,7 @@ Enable it to resume supported active threads after an update, crash, or machine
 restart. Changes are saved to connected environments that support this setting;
 update older servers first. If a supported environment was offline or has a
 different value, use **Apply to all** in Settings after it connects.
-T3 Code must start again on that machine;
+NeoCode must start again on that machine;
 the setting does not enable automatic startup. Terminal commands may still be
 interrupted, and threads without saved provider resume state need a new message.
 If you previously enabled continuation for updates, enable this setting once
@@ -43,9 +50,10 @@ asks before restarting the background service; if you decline, run
 stop it and start it again afterwards with your usual options such as `--host`
 or `--tailscale-serve`.
 
-If you run the server with `npx` rather than an installed `t3`, there is
-nothing to update on the host: stop the server and relaunch it as
-`npx t3@<client-version>` with the same subcommand and options.
+`npx t3` and `npx t3@<version>` install upstream T3 Code, not NeoCode. To run this
+fork, use its published CLI archive or follow the
+[source development workflow](../operations/development.md); do not substitute an
+upstream package when a fork version is unavailable.
 
 ## If an update fails
 
