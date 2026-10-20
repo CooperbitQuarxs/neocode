@@ -121,12 +121,16 @@ async function recoverySession() {
   return {
     engine,
     highlight: createIncrementalSnippet(engine, options.lang, options.theme, tokenizer),
-    arm: (next: typeof cutoff) => { cutoff = next; },
+    arm: (next: typeof cutoff) => {
+      cutoff = next;
+    },
     calls,
     jobs,
     takeJob: () => {
       const job = jobs.shift();
-      return job ? Promise.resolve(job) : new Promise<() => void>((resolve) => waiters.push(resolve));
+      return job
+        ? Promise.resolve(job)
+        : new Promise<() => void>((resolve) => waiters.push(resolve));
     },
   };
 }
@@ -219,9 +223,13 @@ describe("incremental cutoff checkpoints", () => {
       });
       const pending = session.highlight(code);
       (await session.takeJob())();
-      expect(rendered(await pending)).toEqual(rendered(highlighter.codeToTokensBase(code, options)));
+      expect(rendered(await pending)).toEqual(
+        rendered(highlighter.codeToTokensBase(code, options)),
+      );
       expect(session.calls.filter((call) => call.line === "/* start")).toHaveLength(1);
-      expect(session.calls.filter((call) => call.line === "closing */").map((call) => call.budget)).toEqual([500, 1_000]);
+      expect(
+        session.calls.filter((call) => call.line === "closing */").map((call) => call.budget),
+      ).toEqual([500, 1_000]);
     } finally {
       session.engine.dispose();
     }
@@ -231,7 +239,9 @@ describe("incremental cutoff checkpoints", () => {
     const session = await recoverySession();
     try {
       const error = new Error("grammar failed");
-      session.arm(() => { throw error; });
+      session.arm(() => {
+        throw error;
+      });
       await expect(session.highlight("const value = 1;")).rejects.toBe(error);
       expect(session.jobs).toHaveLength(0);
     } finally {

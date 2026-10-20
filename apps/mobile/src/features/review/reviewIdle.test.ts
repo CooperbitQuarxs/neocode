@@ -34,7 +34,9 @@ describe("review idle scheduling", () => {
     expect(timer).toHaveBeenCalledWith(expect.any(Function), 100);
     expect(callback).not.toHaveBeenCalled();
     scheduled!();
-    const deadline = callback.mock.calls[0]![0] as Parameters<Parameters<typeof scheduleIdle>[0]>[0];
+    const deadline = callback.mock.calls[0]![0] as Parameters<
+      Parameters<typeof scheduleIdle>[0]
+    >[0];
     expect(deadline.didTimeout).toBe(true);
     expect(deadline.timeRemaining()).toBe(0);
     cancelIdle(9);

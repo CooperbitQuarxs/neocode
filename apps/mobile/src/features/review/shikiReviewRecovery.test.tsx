@@ -7,7 +7,10 @@ import { act, useLayoutEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { useHighlightedCode, type HighlightedCode } from "../../../modules/t3-markdown-text/src/useHighlightedCode";
+import {
+  useHighlightedCode,
+  type HighlightedCode,
+} from "../../../modules/t3-markdown-text/src/useHighlightedCode";
 import { highlightNativeReviewDiffVisibleRows } from "../diffs/nativeReviewDiffHighlighter";
 import type { NativeReviewDiffFile } from "../diffs/nativeReviewDiffTypes";
 import type { NativeReviewDiffRow } from "../diffs/nativeReviewDiffSurface";
@@ -15,7 +18,11 @@ import { createSourceHighlightAtomFamily } from "../files/sourceHighlightingStat
 import { createMarkdownCodeHighlightAtomFamily } from "../threads/markdownCodeHighlightState";
 import type { ReviewRenderableLineRow } from "./reviewModel";
 import { IncompleteReviewHighlightingError } from "./reviewTokenization";
-import { highlightCodeSnippet, highlightReviewSelectedLines, highlightSourceFile } from "./shikiReviewHighlighter";
+import {
+  highlightCodeSnippet,
+  highlightReviewSelectedLines,
+  highlightSourceFile,
+} from "./shikiReviewHighlighter";
 
 type Grammar = ReturnType<HighlighterCore["getLanguage"]>;
 type RawResult = ReturnType<Grammar["tokenizeLine2"]>;
@@ -129,7 +136,9 @@ describe("complete mobile highlighting consumers", () => {
       const result = await completed;
       expect(AsyncResult.isSuccess(result)).toBe(true);
       if (AsyncResult.isSuccess(result)) expect(result.value).toEqual(expected);
-      expect(control.calls.filter((call) => call.line === code).map((call) => call.budget)).toEqual([500, 500, 1_000]);
+      expect(control.calls.filter((call) => call.line === code).map((call) => call.budget)).toEqual(
+        [500, 500, 1_000],
+      );
       expect(registry.get(atom)).toEqual(result);
     } finally {
       unmount();
@@ -165,8 +174,28 @@ describe("complete mobile highlighting consumers", () => {
     expect(await snippet).toEqual(expected);
 
     const lines: ReviewRenderableLineRow[] = [
-      { kind: "line", id: "add", oldLineNumber: null, newLineNumber: 1, content: code, change: "add", additionTokenIndex: 0, deletionTokenIndex: null, comparison: null },
-      { kind: "line", id: "delete", oldLineNumber: 1, newLineNumber: null, content: "const before: number = 41;", change: "delete", additionTokenIndex: null, deletionTokenIndex: 0, comparison: null },
+      {
+        kind: "line",
+        id: "add",
+        oldLineNumber: null,
+        newLineNumber: 1,
+        content: code,
+        change: "add",
+        additionTokenIndex: 0,
+        deletionTokenIndex: null,
+        comparison: null,
+      },
+      {
+        kind: "line",
+        id: "delete",
+        oldLineNumber: 1,
+        newLineNumber: null,
+        content: "const before: number = 41;",
+        change: "delete",
+        additionTokenIndex: null,
+        deletionTokenIndex: 0,
+        comparison: null,
+      },
     ];
     const request = { filePath: "answer.ts", lines, theme: "dark" as const };
     const selectedExpected = await highlightReviewSelectedLines(request);
@@ -191,9 +220,24 @@ describe("complete mobile highlighting consumers", () => {
         { id: "file", path: "answer.ts", language: "typescript", additions: 1, deletions: 0 },
       ];
       const rows: NativeReviewDiffRow[] = [
-        { kind: "line", id: "row", fileId: "file", content: code, change: "add", oldLineNumber: null, newLineNumber: 1 },
+        {
+          kind: "line",
+          id: "row",
+          fileId: "file",
+          content: code,
+          change: "add",
+          oldLineNumber: null,
+          newLineNumber: 1,
+        },
       ];
-      const request = { files, rows, engine, scheme: "dark" as const, firstRowIndex: 0, lastRowIndex: 0 };
+      const request = {
+        files,
+        rows,
+        engine,
+        scheme: "dark" as const,
+        firstRowIndex: 0,
+        lastRowIndex: 0,
+      };
       const expected = await highlightNativeReviewDiffVisibleRows(request);
       cutOnce();
       let fulfilled: Awaited<ReturnType<typeof highlightNativeReviewDiffVisibleRows>> | undefined;
@@ -215,7 +259,9 @@ describe("complete mobile highlighting consumers", () => {
       await rejected;
       expect(control.jobs).toHaveLength(0);
       control.cutoff = undefined;
-      expect((await highlightNativeReviewDiffVisibleRows(request)).tokensByRowId).toEqual(expected.tokensByRowId);
+      expect((await highlightNativeReviewDiffVisibleRows(request)).tokensByRowId).toEqual(
+        expected.tokensByRowId,
+      );
     },
   );
 
@@ -227,7 +273,12 @@ describe("complete mobile highlighting consumers", () => {
     (await takeJob())();
     const recovered = await pending;
     expect(recovered).toEqual(await highlightCodeSnippet(request));
-    expect(recovered.flat().map((token) => token.content).join("")).toBe(pythonCode);
+    expect(
+      recovered
+        .flat()
+        .map((token) => token.content)
+        .join(""),
+    ).toBe(pythonCode);
     expect(control.calls.slice(0, 2).map((call) => call.budget)).toEqual([500, 1_000]);
   });
 
@@ -241,7 +292,9 @@ describe("complete mobile highlighting consumers", () => {
     (await takeJob())();
     expect(await pending).toEqual(expected);
     expect(control.calls.filter((call) => call.line === "/* start")).toHaveLength(1);
-    expect(control.calls.filter((call) => call.line === "closing */").map((call) => call.budget)).toEqual([500, 1_000]);
+    expect(
+      control.calls.filter((call) => call.line === "closing */").map((call) => call.budget),
+    ).toEqual([500, 1_000]);
   });
 
   it("reports persistent cutoff through the source atom failure path without retrying forever", async () => {
@@ -298,7 +351,14 @@ describe("complete mobile highlighting consumers", () => {
     const hookCode = code + "\nconst seed = true;";
     const expected = await highlightCodeSnippet({ ...input, code: hookCode });
     const document = { nodeType: 9, addEventListener() {}, removeEventListener() {} };
-    const container = { nodeType: 1, tagName: "DIV", namespaceURI: "http://www.w3.org/1999/xhtml", ownerDocument: document, addEventListener() {}, removeEventListener() {} };
+    const container = {
+      nodeType: 1,
+      tagName: "DIV",
+      namespaceURI: "http://www.w3.org/1999/xhtml",
+      ownerDocument: document,
+      addEventListener() {},
+      removeEventListener() {},
+    };
     vi.stubGlobal("document", document);
     vi.stubGlobal("window", { document, HTMLIFrameElement: EventTarget });
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -307,7 +367,10 @@ describe("complete mobile highlighting consumers", () => {
     let renders = 0;
     function Probe({ source = hookCode }: { source?: string }) {
       const tokens = useHighlightedCode(source, "ts", "dark", highlightCodeSnippet);
-      useLayoutEffect(() => { committed = tokens; renders += 1; });
+      useLayoutEffect(() => {
+        committed = tokens;
+        renders += 1;
+      });
       return null;
     }
     cutOnce();
@@ -335,7 +398,9 @@ describe("complete mobile highlighting consumers", () => {
       expect(control.jobs).toHaveLength(0);
       await act(async () => appendRetry());
       expect(committed).toEqual(appendedExpected);
-      expect(control.calls.filter((call) => call.line === tail).map((call) => call.budget)).toEqual([500, 500, 1_000]);
+      expect(control.calls.filter((call) => call.line === tail).map((call) => call.budget)).toEqual(
+        [500, 500, 1_000],
+      );
 
       const persistentCode = "const persistent = true;";
       const persistentExpected = await highlightCodeSnippet({ ...input, code: persistentCode });
