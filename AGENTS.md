@@ -133,7 +133,7 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
 - Backend behavior changes ship with focused tests for that behavior.
 - The server is event-sourced and its async flows emit typed receipts. Wait on receipts and worker drains, never on sleeps or polling. A test that needs a timeout to pass is wrong.
 - Upon request, user-visible frontend changes should get one integrated pass in a real client: `test-t3-app` for web, `test-t3-mobile` for mobile. The primary agent does this once after integrating. Subagents do not launch their own dev servers.
-- Under the [workspace policy](../AGENTS.md), the owner's standing authorization covers NeoCode verification in the hidden Xvfb+i3 harness on display `:10` with private state, never her real display, database or running window; anything beyond that needs her authorization.
+- Under the [workspace policy](../AGENTS.md), the NeoCode operator owns its own Xvfb+i3 session with private state and MAY kill the NeoCode instance the owner launched on her real display, relaunch NeoCode inside its own session, and drive it with computer use. Her real database stays off-limits; anything else on her real display still needs her authorization.
 
 For authorized mobile verification, a missing or outdated native client is a build step, not a blocker. Run `node scripts/mobile-native-client.ts ensure <ios|android> <device-id>` on the simulator host before starting Metro. It checks the local Expo fingerprint and builds/installs when needed. See `test-t3-mobile` for the full workflow.
 
@@ -191,7 +191,7 @@ Full glossary with file links: `docs/internals/glossary.md`
 
 ## Additional tips
 
-- Browser and computer-use verification follows [Verifying](#verifying), including its standing `:10` authorization and boundaries.
+- Browser and computer-use verification follows [Verifying](#verifying): the operator owns its Xvfb+i3 session and MAY kill the owner's launched NeoCode instance and relaunch it there. Her real database stays off-limits; anything else on her real display still needs her authorization.
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
 
 ## Fork rule: NeoPi-first, upstream-aware

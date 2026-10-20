@@ -109,7 +109,7 @@ Verify from the integration worktree:
 
 - Targeted tests for every conflicted path (`vp test run <files>`), and the NeoPi-owned test suites.
 - Typecheck and lint for the touched packages. The full suite (`vp check`, `vpr typecheck`) is owned by CI.
-- Exercise the changed runtime path under the [verification authorization](../../AGENTS.md#verifying); use the hidden `:10` Xvfb+i3 harness with private state, never the owner's display.
+- Exercise the changed runtime path under the [verification authorization](../../AGENTS.md#verifying): the NeoCode operator owns its Xvfb+i3 session with private state and MAY kill the NeoCode instance the owner launched on her real display, relaunch it in its own session, and drive it with computer use. Her real database stays off-limits; anything else on her real display still needs her authorization.
 
 Record exact commands, pass counts, failures, and any unavailable check in the PR. A failure may be classified as pre-existing only with evidence from the unmodified base or the upstream tag.
 
