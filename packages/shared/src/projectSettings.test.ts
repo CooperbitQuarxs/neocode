@@ -91,13 +91,17 @@ describe("resolveProjectSettings", () => {
   });
 
   it("honours the aggregate's own fields only until the server has folded them", () => {
+    const settings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      providers: { codex: { enabled: true } },
+      defaultModelSelection: null,
+    });
     const aggregateModel = createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.5");
     const project = {
       defaultModelSelection: aggregateModel,
       defaultThreadEnvMode: "local" as const,
     };
     const unfolded = resolveProjectSettings(
-      { ...DEFAULT_SERVER_SETTINGS, projectSettingsFolded: false },
+      { ...settings, projectSettingsFolded: false },
       projectId,
       project,
     );
@@ -107,7 +111,7 @@ describe("resolveProjectSettings", () => {
     // A stored override still beats the aggregate before the fold.
     const overridden = resolveProjectSettings(
       {
-        ...DEFAULT_SERVER_SETTINGS,
+        ...settings,
         projectSettingsFolded: false,
         projectSettingsOverrides: { [projectId]: { defaultThreadEnvMode: "worktree" } },
       },
@@ -117,7 +121,7 @@ describe("resolveProjectSettings", () => {
     expect(overridden.settings.defaultThreadEnvMode).toBe("worktree");
     // After the fold a reset in the record wins over the stale aggregate.
     const folded = resolveProjectSettings(
-      { ...DEFAULT_SERVER_SETTINGS, projectSettingsFolded: true },
+      { ...settings, projectSettingsFolded: true },
       projectId,
       project,
     );
