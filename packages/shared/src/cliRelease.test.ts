@@ -11,6 +11,12 @@ import {
   parseChecksums,
 } from "./cliRelease.ts";
 
+const publishedRelease = (version: string, draft = false) => ({
+  tag_name: `v${version}`,
+  draft,
+  assets: [{ name: "SHA256SUMS" }, { name: cliArchiveFileName(version, "linux-x64") }],
+});
+
 describe("cliRelease", () => {
   it("names archives by version and platform, zip only on Windows", () => {
     expect(cliArchiveFileName("1.2.3-preview.20260911.4", "linux-x64")).toBe(
@@ -68,23 +74,65 @@ describe("cliRelease", () => {
     expect(cliReleaseChannelOf("1.2.3-preview.20260911.4")).toBe("preview");
     expect(cliReleaseChannelOf("1.2.3-nightly.20261020.39488899088.1")).toBe("nightly");
     expect(cliReleaseChannelOf("1.2.3-preview.20261020.39488899088.2")).toBe("preview");
+    expect(cliReleaseChannelOf("1.2.3+build.39488899088.1")).toBe("stable");
+    expect(cliReleaseChannelOf("1.2.3-nightly.20261020.39488899088.1+build.2")).toBe("nightly");
+    expect(cliReleaseChannelOf("1.2.3-preview.20261020.39488899088.1+build.2")).toBe("preview");
     // A prerelease that is not one of our trains is not silently a nightly.
     expect(cliReleaseChannelOf("1.2.3-rc.1")).toBe("stable");
   });
 
   it("picks the newest non-draft release on the requested channel", () => {
     const releases = [
-      { tag_name: "v1.2.4-preview.20260912.9.1", draft: true },
-      { tag_name: "v1.2.4-preview.20260912.8.2" },
-      { tag_name: "v1.2.4-nightly.20260912.7.1" },
-      { tag_name: "desktop-preview" },
-      { tag_name: "v1.2.3" },
-      { tag_name: "v1.2.3-nightly.20260911.2" },
+      publishedRelease("1.2.4-preview.20260912.9.1", true),
+      publishedRelease("1.2.4-preview.20260912.8.2"),
+      publishedRelease("1.2.4-nightly.20260912.7.1"),
+      { tag_name: "desktop-preview", assets: [] },
+      publishedRelease("1.2.3"),
+      publishedRelease("1.2.3-nightly.20260911.2"),
     ];
     expect(newestCliReleaseVersion(releases, "preview")).toBe("1.2.4-preview.20260912.8.2");
     expect(newestCliReleaseVersion(releases, "nightly")).toBe("1.2.4-nightly.20260912.7.1");
     expect(newestCliReleaseVersion(releases, "stable")).toBe("1.2.3");
-    expect(newestCliReleaseVersion([{ tag_name: "v1.2.3" }], "preview")).toBeUndefined();
+    expect(newestCliReleaseVersion([publishedRelease("1.2.3")], "preview")).toBeUndefined();
+  });
+
+  it("keeps the full stable build version for downloads, archives and mirrored checksums", () => {
+    const version = "1.2.3+build.39488899088.2";
+    const releases = [
+      publishedRelease("1.2.4-nightly.20261020.39488899088.1+build.3"),
+      publishedRelease("1.2.4-preview.20261020.39488899088.1+build.3"),
+      {
+        ...publishedRelease("1.2.3+build.39488899089.1"),
+        assets: publishedRelease("1.2.3").assets,
+      },
+      publishedRelease(version),
+    ];
+    const selected = newestCliReleaseVersion(releases, "stable", "linux-x64");
+    expect(selected).toBe(version);
+    const fileName = cliArchiveFileName(selected!, "linux-x64");
+    expect(fileName).toBe(`t3-${version}-linux-x64.tar.gz`);
+    expect(cliReleaseDownloadBaseUrl(selected!, "https://mirror.example/releases/")).toBe(
+      `https://mirror.example/releases/v${version}`,
+    );
+    expect(parseChecksums(`${"a".repeat(64)}  ./${fileName}\n`).get(fileName)).toBe("a".repeat(64));
+  });
+
+  it("skips incomplete releases and archives for other platforms", () => {
+    const release = publishedRelease("1.2.3+build.4.1");
+    expect(
+      newestCliReleaseVersion([{ ...release, assets: release.assets.slice(1) }], "stable"),
+    ).toBeUndefined();
+    expect(
+      newestCliReleaseVersion([{ ...release, assets: release.assets.slice(0, 1) }], "stable"),
+    ).toBeUndefined();
+    expect(newestCliReleaseVersion([release], "stable", "darwin-arm64")).toBeUndefined();
+    expect(
+      newestCliReleaseVersion(
+        [{ ...release, assets: publishedRelease("1.2.3").assets }, publishedRelease("1.2.2")],
+        "stable",
+        "linux-x64",
+      ),
+    ).toBe("1.2.2");
   });
 
   it("pages through the release index at the largest page GitHub allows", () => {

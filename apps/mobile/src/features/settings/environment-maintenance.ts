@@ -48,6 +48,7 @@ const Releases = Schema.Array(
   Schema.Struct({
     tag_name: Schema.String,
     draft: Schema.optionalKey(Schema.Boolean),
+    assets: Schema.Array(Schema.Struct({ name: Schema.String })),
   }),
 );
 const decodeReleases = Schema.decodeUnknownSync(Releases);

@@ -110,6 +110,11 @@ describe("environment maintenance access", () => {
 describe("environment release checks", () => {
   const signal = new AbortController().signal;
 
+  const release = (version: string, draft = false) => ({
+    tag_name: `v${version}`,
+    draft,
+    assets: [{ name: "SHA256SUMS" }, { name: `t3-${version}-linux-x64.tar.gz` }],
+  });
   it("keeps stable hosts on stable releases and ignores drafts", async () => {
     vi.stubGlobal(
       "fetch",
@@ -117,9 +122,9 @@ describe("environment release checks", () => {
         .fn()
         .mockImplementation(async () =>
           Response.json([
-            { tag_name: "v2.0.0-nightly.20260923.1" },
-            { tag_name: "v1.2.0", draft: true },
-            { tag_name: "v1.1.0" },
+            release("2.0.0-nightly.20260923.1"),
+            release("1.2.0", true),
+            release("1.1.0"),
           ]),
         ),
     );
@@ -131,16 +136,30 @@ describe("environment release checks", () => {
   it("walks release pages to find the host's channel", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(
-        Response.json(Array.from({ length: 100 }, () => ({ tag_name: "v2.0.0" }))),
-      )
-      .mockResolvedValueOnce(Response.json([{ tag_name: "v1.0.0-preview.20260923.2" }]));
+      .mockResolvedValueOnce(Response.json(Array.from({ length: 100 }, () => release("2.0.0"))))
+      .mockResolvedValueOnce(Response.json([release("1.0.0-preview.20260923.2")]));
     vi.stubGlobal("fetch", fetchMock);
     expect(await findEnvironmentUpdate("1.0.0-preview.20260923.1", signal)).toBe(
       "1.0.0-preview.20260923.2",
     );
     expect(fetchMock.mock.calls[1]?.[0]).toContain("page=2");
     expect(fetchMock.mock.calls[1]?.[1]).toEqual({ signal });
+  });
+
+  it("discovers stable build versions without offering mismatched archives or nightlies", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          Response.json([
+            release("2.0.0-nightly.20261020.39488899088.1+build.2"),
+            { ...release("1.2.3+build.39488899089.1"), assets: release("1.2.3").assets },
+            release("1.2.3+build.39488899088.2"),
+          ]),
+        ),
+    );
+    expect(await findEnvironmentUpdate("1.0.0", signal)).toBe("1.2.3+build.39488899088.2");
   });
 
   it("reports failed checks instead of claiming the server is current", async () => {
