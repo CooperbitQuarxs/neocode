@@ -12,7 +12,7 @@ T3 Code provides the foundation for the web, desktop and mobile clients. Its aut
 
 Download [NeoCode releases](https://github.com/PsychedelicShayna/neocode/releases), then follow [Install and first run](docs/user/install.md) for platform details and provider setup. For a source checkout, use the [development guide](docs/operations/development.md).
 
-NeoPi is enabled by default. Other supported harnesses remain available in Settings. Upstream T3 Code installers and package-manager entries install upstream T3 Code, not this fork.
+Fresh installations enable only NeoPi. Other supported harnesses remain available in Settings, and existing enabled harnesses stay enabled. Upstream T3 Code installers and package-manager entries install upstream T3 Code, not this fork.
 
 ## Some notes
 

@@ -136,10 +136,12 @@ and enable the provider you want. Installation, login, and configuration belong
 to that environment's machine, even when you connect from a phone or another
 computer.
 
-NeoCode enables NeoPi by default and lists it first. New threads prefer a ready
-NeoPi instance when no saved provider/model choice applies; a ready alternative
-remains available when NeoPi is not usable. Existing explicit provider toggles,
-project defaults and saved selections are preserved.
+Fresh installations enable only NeoPi and list it first. Enable other harnesses
+in Settings when you want to use them. Existing enabled harnesses stay enabled,
+including choices saved before provider toggles were written explicitly.
+New threads prefer a ready NeoPi instance when no saved provider/model choice
+applies; an enabled, ready alternative remains available when NeoPi is not usable.
+Project defaults and saved selections are preserved.
 
 | Provider                        | Install and authenticate                                                                                                                                    |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |

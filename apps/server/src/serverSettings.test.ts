@@ -187,6 +187,85 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       }),
   );
 
+  it.effect("keeps fresh harness defaults disabled after saving and reloading settings", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const initial = yield* service.getSettings;
+      assert.deepEqual(
+        Object.entries(initial.providers)
+          .filter(([, provider]) => provider.enabled)
+          .map(([driver]) => driver),
+        ["neopi"],
+      );
+      const codexId = ProviderInstanceId.make("codex_work");
+      const claudeId = ProviderInstanceId.make("claude_work");
+      yield* service.updateSettings({
+        addProjectBaseDirectory: "~/Development",
+        providerInstances: {
+          [codexId]: { driver: ProviderDriverKind.make("codex"), config: {} },
+          [claudeId]: { driver: ProviderDriverKind.make("claudeAgent"), config: {} },
+        },
+      });
+      const reloaded = yield* Effect.gen(function* () {
+        const fresh = yield* ServerSettingsModule.ServerSettingsService;
+        return yield* fresh.getSettings;
+      }).pipe(
+        Effect.provide(
+          Layer.fresh(ServerSettingsModule.layer).pipe(Layer.provide(ServerSecretStore.layer)),
+        ),
+      );
+      assert.isTrue(reloaded.providers.neopi.enabled);
+      assert.isFalse(reloaded.providers.codex.enabled);
+      assert.isFalse(reloaded.providers.claudeAgent.enabled);
+      assert.isFalse(resolveProviderInstanceEnabled(reloaded.providerInstances[codexId]!));
+      assert.isFalse(resolveProviderInstanceEnabled(reloaded.providerInstances[claudeId]!));
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  for (const enabled of [undefined, true, false]) {
+    it.effect(`preserves existing Codex and Claude enabled flags (${String(enabled)})`, () =>
+      Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const config = yield* ServerConfig.ServerConfig;
+        const fs = yield* FileSystem.FileSystem;
+        const codexId = ProviderInstanceId.make("codex_work");
+        const claudeId = ProviderInstanceId.make("claude_work");
+        yield* fs.writeFileString(
+          config.settingsPath,
+          JSON.stringify({
+            providers: { codex: { enabled }, claudeAgent: { enabled } },
+            providerInstances: {
+              [codexId]: { driver: "codex", enabled, config: {} },
+              [claudeId]: { driver: "claudeAgent", config: { enabled } },
+            },
+          }),
+        );
+        const initial = yield* service.getSettings;
+        yield* service.updateSettings({ addProjectBaseDirectory: "~/Development" });
+        const reloaded = yield* Effect.gen(function* () {
+          const fresh = yield* ServerSettingsModule.ServerSettingsService;
+          return yield* fresh.getSettings;
+        }).pipe(
+          Effect.provide(
+            Layer.fresh(ServerSettingsModule.layer).pipe(Layer.provide(ServerSecretStore.layer)),
+          ),
+        );
+        for (const settings of [initial, reloaded]) {
+          assert.equal(settings.providers.codex.enabled, enabled ?? true);
+          assert.equal(settings.providers.claudeAgent.enabled, enabled ?? true);
+          assert.equal(
+            resolveProviderInstanceEnabled(settings.providerInstances[codexId]!),
+            enabled ?? true,
+          );
+          assert.equal(
+            resolveProviderInstanceEnabled(settings.providerInstances[claudeId]!),
+            enabled ?? true,
+          );
+        }
+      }).pipe(Effect.provide(makeServerSettingsLayer())),
+    );
+  }
+
   it.effect("persists an automatic NeoPi selection once and reloads its provenance", () =>
     Effect.gen(function* () {
       const service = yield* ServerSettingsModule.ServerSettingsService;
@@ -260,10 +339,12 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       yield* serverSettings.updateSettings({
         providers: {
           codex: {
+            enabled: true,
             binaryPath: "/usr/local/bin/codex",
             homePath: "/Users/julius/.codex",
           },
           claudeAgent: {
+            enabled: true,
             binaryPath: "/usr/local/bin/claude",
             customModels: ["claude-custom"],
           },
@@ -293,22 +374,12 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         },
       });
 
-      assert.deepEqual(next.providers.codex, {
-        enabled: true,
-        binaryPath: "/opt/homebrew/bin/codex",
-        homePath: "/Users/julius/.codex",
-        shadowHomePath: "",
-        launchArgs: "",
-        customModels: [],
-      });
-      assert.deepEqual(next.providers.claudeAgent, {
-        enabled: true,
-        binaryPath: "/usr/local/bin/claude",
-        homePath: "",
-        customModels: ["claude-custom"],
-        launchArgs: "",
-        autoCompactWindow: "",
-      });
+      assert.equal(next.providers.codex.enabled, true);
+      assert.equal(next.providers.codex.binaryPath, "/opt/homebrew/bin/codex");
+      assert.equal(next.providers.codex.homePath, "/Users/julius/.codex");
+      assert.equal(next.providers.claudeAgent.enabled, true);
+      assert.equal(next.providers.claudeAgent.binaryPath, "/usr/local/bin/claude");
+      assert.deepEqual(next.providers.claudeAgent.customModels, ["claude-custom"]);
       assert.deepEqual(
         next.textGenerationModelSelection,
         createModelSelection(
@@ -406,6 +477,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
 
       // Start with Claude text generation selection
       yield* serverSettings.updateSettings({
+        providers: { codex: { enabled: true }, claudeAgent: { enabled: true } },
         textGenerationModelSelection: {
           instanceId: ProviderInstanceId.make("claudeAgent"),
           model: "claude-sonnet-4-6",
@@ -594,6 +666,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
 
       yield* serverSettings.updateSettings({
+        providers: { codex: { enabled: true } },
         textGenerationModelSelection: {
           instanceId: ProviderInstanceId.make("codex"),
           model: DEFAULT_SERVER_SETTINGS.textGenerationModelSelection.model,
@@ -1002,30 +1075,12 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         },
       });
 
-      assert.deepEqual(next.providers.codex, {
-        enabled: true,
-        binaryPath: "/opt/homebrew/bin/codex",
-        homePath: "",
-        shadowHomePath: "",
-        launchArgs: "",
-        customModels: [],
-      });
-      assert.deepEqual(next.providers.claudeAgent, {
-        enabled: true,
-        binaryPath: "/opt/homebrew/bin/claude",
-        homePath: "",
-        customModels: [],
-        launchArgs: "",
-        autoCompactWindow: "",
-      });
-      assert.deepEqual(next.providers.opencode, {
-        // OpenCode is disabled by default; this update only touches paths.
-        enabled: false,
-        binaryPath: "/opt/homebrew/bin/opencode",
-        serverUrl: "http://127.0.0.1:4096",
-        serverPassword: "secret-password",
-        customModels: [],
-      });
+      assert.equal(next.providers.codex.binaryPath, "/opt/homebrew/bin/codex");
+      assert.equal(next.providers.codex.homePath, "");
+      assert.equal(next.providers.claudeAgent.binaryPath, "/opt/homebrew/bin/claude");
+      assert.equal(next.providers.opencode.binaryPath, "/opt/homebrew/bin/opencode");
+      assert.equal(next.providers.opencode.serverUrl, "http://127.0.0.1:4096");
+      assert.equal(next.providers.opencode.serverPassword, "secret-password");
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
