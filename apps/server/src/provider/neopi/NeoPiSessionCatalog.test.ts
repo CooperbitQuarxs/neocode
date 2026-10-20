@@ -8,6 +8,7 @@ import {
   EventId,
   MessageId,
   NeoPiSettings,
+  NeoPiSessionError,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -130,6 +131,7 @@ const harness = (options?: {
   workspaceRoot?: string;
   capabilities?: string[];
   rows?: object[];
+  listOutput?: string | NeoPiSessionError;
   bindings?: ProviderRuntimeBindingWithMetadata[];
   threads?: OrchestrationThread[];
   read?: () => Record<string, unknown>;
@@ -138,6 +140,7 @@ const harness = (options?: {
     instanceId: ProviderInstanceId;
     capabilities: string[];
     rows: object[];
+    listOutput?: string | NeoPiSessionError;
     enabled?: boolean;
   }[];
 }) =>
@@ -218,7 +221,7 @@ const harness = (options?: {
     );
     const allInstances = [options?.instance ?? instance, ...extraInstances];
     const runCommand = (input: NeoPiSessionCommandInput) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         calls.push(input);
         if (input.args[1] === "read") {
           const transcript: Record<string, unknown> = options?.read?.() ?? {
@@ -241,6 +244,9 @@ const harness = (options?: {
         const extra = options?.extraInstances?.find(
           (entry) => entry.instanceId === input.source.profile,
         );
+        const output = extra?.listOutput ?? options?.listOutput;
+        if (output instanceof NeoPiSessionError) return yield* output;
+        if (output !== undefined) return output;
         return encodeJson({
           version: 1,
           sessions: extra?.rows ?? options?.rows ?? [session("free")],
@@ -789,6 +795,96 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
         expect(calls.every((call) => call.source.profile === capableId)).toBe(true);
       }),
     );
+    for (const failure of ["timeout", "bad JSON"] as const) {
+      for (const failingDefault of [false, true]) {
+        it.effect(
+          `keeps healthy sessions after ${failure}, failing default ${failingDefault}`,
+          () =>
+            Effect.gen(function* () {
+              const failingId = ProviderInstanceId.make("neopi-broken");
+              const { catalog, calls } = yield* harness({
+                rows: [session("healthy"), session("shared")],
+                defaultInstanceId: failingDefault ? failingId : instanceId,
+                extraInstances: [
+                  {
+                    instanceId: failingId,
+                    capabilities: ["session_catalog"],
+                    rows: [session("shared")],
+                    listOutput:
+                      failure === "timeout"
+                        ? new NeoPiSessionError({
+                            operation: "list",
+                            message: "Command timed out.",
+                          })
+                        : "{invalid json",
+                  },
+                ],
+              });
+              const result = yield* catalog.list({ projectId, scope: "all" });
+              expect(result.status).toBe("available");
+              if (result.status !== "available") return;
+              expect(result.sessions.map((row) => [row.sessionId, row.providerInstanceId])).toEqual(
+                [
+                  ["healthy", instanceId],
+                  ["shared", instanceId],
+                ],
+              );
+              expect(result.diagnostics).toEqual([
+                { providerInstanceId: failingId, message: expect.any(String) },
+              ]);
+              expect(calls.map((call) => call.source.binary)).toEqual(
+                failingDefault
+                  ? ["/opt/neopi-broken/npi", "/opt/npi"]
+                  : ["/opt/npi", "/opt/neopi-broken/npi"],
+              );
+            }),
+        );
+      }
+    }
+    it.effect(
+      "reports all failed instances as unavailable rather than an empty healthy catalog",
+      () =>
+        Effect.gen(function* () {
+          const failingId = ProviderInstanceId.make("neopi-broken");
+          const { catalog } = yield* harness({
+            listOutput: new NeoPiSessionError({ operation: "list", message: "Command timed out." }),
+            extraInstances: [
+              {
+                instanceId: failingId,
+                capabilities: ["session_catalog"],
+                rows: [],
+                listOutput: "{invalid json",
+              },
+            ],
+          });
+          const result = yield* catalog.list({ projectId, scope: "all" });
+          expect(result.status).toBe("unavailable");
+          expect(result.diagnostics.map((diagnostic) => diagnostic.providerInstanceId)).toEqual([
+            instanceId,
+            failingId,
+          ]);
+        }),
+    );
+    it.effect("keeps an empty healthy catalog available alongside a failed instance", () =>
+      Effect.gen(function* () {
+        const { catalog } = yield* harness({
+          rows: [],
+          extraInstances: [
+            {
+              instanceId: ProviderInstanceId.make("neopi-broken"),
+              capabilities: ["session_catalog"],
+              rows: [],
+              listOutput: "{invalid json",
+            },
+          ],
+        });
+        const result = yield* catalog.list({ projectId, scope: "all" });
+        expect(result.status).toBe("available");
+        if (result.status !== "available") return;
+        expect(result.sessions).toEqual([]);
+        expect(result.diagnostics).toHaveLength(1);
+      }),
+    );
   });
   it.effect(
     "installs the cursor before creating the thread, imports text, and resumes idempotently",
@@ -888,6 +984,41 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
       expect(commands).toEqual([]);
     }),
   );
+  for (const probeStatus of ["compatible", "unsupported", "unprobed"] as const) {
+    it.effect(`refuses non-catalog handoff before stopping with a ${probeStatus} probe`, () =>
+      Effect.gen(function* () {
+        const binding = bound("free", "running");
+        const thread = projectedThread(binding.threadId, {
+          session: {
+            threadId: binding.threadId,
+            status: "running",
+            providerName: "neopi",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: now,
+          },
+        });
+        const { catalog, source, bindings, threads, commands, calls } = yield* harness({
+          capabilities:
+            probeStatus === "unsupported"
+              ? ["session_catalog", "session_history_identity"]
+              : ["session_history_identity"],
+          bindings: [binding],
+          threads: [thread],
+        });
+        source.probe.status = probeStatus;
+        const error = yield* Effect.flip(catalog.handoff({ threadId: binding.threadId }));
+        expect(error.operation).toBe("handoff");
+        expect(error.message).toContain("session_catalog");
+        expect(error.message).toContain(source.binary);
+        expect(commands).toEqual([]);
+        expect(calls).toEqual([]);
+        expect(bindings[0]).toEqual(binding);
+        expect(threads.get(thread.id)).toEqual(thread);
+      }),
+    );
+  }
   it.effect("hands a bound thread back through orchestration and quotes its terminal command", () =>
     Effect.gen(function* () {
       const binding = bound("free", "running");

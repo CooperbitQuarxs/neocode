@@ -154,6 +154,9 @@ that support discovery. Shared session files appear once, preferring your defaul
 instance for new imports. Bound sessions retain their saved provider instance.
 GUI-created worktree sessions appear in their owning project under the saved
 NeoCode thread title, even if the native file has no title or message preview.
+If one instance cannot load its catalog, the picker identifies it and keeps
+sessions from healthy instances available. Fix that instance and refresh to
+include its sessions.
 The list shows which sessions are open in a terminal. The picker waits for
 imported history before opening the thread. Reopening an already-bound, stopped
 thread restores new terminal turns into that same thread without duplicating
