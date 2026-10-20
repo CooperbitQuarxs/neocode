@@ -2,12 +2,12 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
-import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
+import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
+import { hasConfiguredUrlHandler, renderUrlHandlerDesktopEntry } from "./DesktopUrlRegistration.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import { makeComponentLogger } from "./DesktopObservability.ts";
 
@@ -40,49 +40,6 @@ export class DesktopLinuxUrlHandlerRegistrationError extends Schema.TaggedError<
 
 const isRegistrationError = Schema.is(DesktopLinuxUrlHandlerRegistrationError);
 
-const escapeDesktopEntryString = (value: string): string =>
-  value
-    .replaceAll("\\", "\\\\")
-    .replaceAll("\n", "\\n")
-    .replaceAll("\r", "\\r")
-    .replaceAll("\t", "\\t");
-
-// Exec values are unescaped twice by implementations: first the general
-// string-value rules, then the Exec quoting rules — so writing composes the
-// layers in reverse. The argument is double-quoted with reserved characters
-// backslash-escaped and literal percent signs doubled (field codes), and the
-// general string escaping is applied on top: a literal backslash ends up as
-// four backslashes in the file, a quote as \\", a dollar sign as \\$.
-export function escapeDesktopEntryExecArgument(value: string): string {
-  const quoted = value
-    .replaceAll("\\", () => "\\\\")
-    .replaceAll("`", () => "\\`")
-    .replaceAll("$", () => "\\$")
-    .replaceAll('"', () => '\\"')
-    .replaceAll("%", () => "%%");
-  return escapeDesktopEntryString(`"${quoted}"`);
-}
-
-// The AppImage integration entry owns the window identity and icon. This
-// hidden URL-only entry must not compete with it for StartupWMClass matching.
-export function renderUrlHandlerDesktopEntry(input: {
-  readonly displayName: string;
-  readonly execTarget: string;
-  readonly scheme: string;
-}): string {
-  return [
-    "[Desktop Entry]",
-    "Type=Application",
-    `Name=${escapeDesktopEntryString(input.displayName)}`,
-    `Exec=${escapeDesktopEntryExecArgument(input.execTarget)} %U`,
-    "Terminal=false",
-    "NoDisplay=true",
-    "StartupNotify=false",
-    `MimeType=x-scheme-handler/${input.scheme};`,
-    "",
-  ].join("\n");
-}
-
 export class DesktopLinuxUrlHandler extends Context.Service<
   DesktopLinuxUrlHandler,
   {
@@ -95,20 +52,19 @@ export const make = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const fileSystem = yield* FileSystem.FileSystem;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const { urlRegistration } = yield* DesktopPreReadyPlatform.DesktopPreReadyElectronOptions;
 
-  const scheme = ElectronProtocol.getDesktopScheme(environment.isDevelopment);
+  const scheme = urlRegistration.scheme;
   const desktopEntryPath = environment.path.join(
     environment.linuxApplicationsDir,
     environment.linuxDesktopEntryName,
   );
 
   const writeDesktopEntry = Effect.gen(function* () {
-    // Inside the mounted AppImage, process.execPath points at a transient
-    // /tmp/.mount_* path — the handler must launch the AppImage itself.
-    const execTarget = Option.getOrElse(environment.appImagePath, () => process.execPath);
+    // The pre-ready decision contains the stable AppImage or complete source command.
     const content = renderUrlHandlerDesktopEntry({
       displayName: environment.displayName,
-      execTarget,
+      command: urlRegistration.command,
       scheme,
     });
     // Pre-ready setup normally wrote this already. Avoid truncating a valid
@@ -133,6 +89,10 @@ export const make = Effect.gen(function* () {
 
   const setDefaultHandler = Effect.scoped(
     Effect.gen(function* () {
+      const configured = yield* fileSystem.readFileString(
+        environment.path.join(environment.appDataDirectory, "mimeapps.list"),
+      ).pipe(Effect.orElseSucceed(() => ""));
+      if (hasConfiguredUrlHandler(configured, scheme, environment.linuxDesktopEntryName)) return;
       const command = ChildProcess.make(
         "xdg-mime",
         ["default", environment.linuxDesktopEntryName, `x-scheme-handler/${scheme}`],
@@ -165,11 +125,11 @@ export const make = Effect.gen(function* () {
   );
 
   const register = Effect.gen(function* () {
-    if (environment.platform !== "linux") {
+    if (environment.platform !== "linux" || !urlRegistration.prepareEntry) {
       return;
     }
     yield* writeDesktopEntry;
-    if (!environment.isPackaged) return;
+    if (!urlRegistration.ownsScheme) return;
     yield* setDefaultHandler;
     yield* logInfo("registered URL scheme handler", { scheme });
   }).pipe(

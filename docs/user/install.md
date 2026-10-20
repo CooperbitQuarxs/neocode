@@ -75,6 +75,20 @@ includes `npi` and runs it without a separate installation. To use its terminal
 agent, run `./T3-Code-npi.AppImage --npi --help` (or replace `--help` with any
 `npi` arguments). Authenticate with `npi` before using accounts that require it.
 
+On Linux, packaged NeoCode claims the `t3code:` login callback handler. Starting
+a source build normally leaves the installed handler unchanged. To use a built
+source checkout for callbacks instead, stop that checkout's running app and
+launch its Electron entrypoint with `--register-url-handler`:
+
+```bash
+apps/desktop/node_modules/.bin/electron apps/desktop/dist-electron/main.cjs --register-url-handler
+```
+
+Run this from the built checkout's root. The registered command includes the
+complete app entrypoint and forwards callback URLs unchanged. Development builds
+use the separate `t3code-dev:` scheme. To return callbacks to the packaged app,
+close the source app and launch the packaged app again.
+
 ### Windows Subsystem for Linux
 
 Choose a WSL distro in **Settings → Connections** to run agents and projects
