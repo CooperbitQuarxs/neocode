@@ -5,11 +5,12 @@ import { DESKTOP_HOST } from "../electron/ElectronProtocol.ts";
 import type { DesktopUrlRegistration } from "./DesktopUrlRegistration.ts";
 
 export function createDesktopClerkBridge(stateDir: string, registration: DesktopUrlRegistration) {
-  const create = () => createClerkBridge({
-    storage: storage({ path: stateDir }),
-    passkeys: true,
-    renderer: { scheme: registration.scheme, host: DESKTOP_HOST },
-  });
+  const create = () =>
+    createClerkBridge({
+      storage: storage({ path: stateDir }),
+      passkeys: true,
+      renderer: { scheme: registration.scheme, host: DESKTOP_HOST },
+    });
   if (registration.platform !== "linux") return create();
 
   // Clerk 0.0.44 registers synchronously and offers no opt-out. Keep its OAuth

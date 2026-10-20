@@ -9,53 +9,116 @@ import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawne
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopLinuxUrlHandler from "./DesktopLinuxUrlHandler.ts";
 import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
-import { resolveDesktopUrlRegistration, renderUrlHandlerDesktopEntry } from "./DesktopUrlRegistration.ts";
+import {
+  resolveDesktopUrlRegistration,
+  renderUrlHandlerDesktopEntry,
+} from "./DesktopUrlRegistration.ts";
 
-const makeFixture = (input: { packaged?: boolean; explicit?: boolean; development?: boolean; existing?: string; configuredDefault?: string; failWrite?: boolean; defaultExit?: number } = {}) => {
+const makeFixture = (
+  input: {
+    packaged?: boolean;
+    explicit?: boolean;
+    development?: boolean;
+    existing?: string;
+    configuredDefault?: string;
+    failWrite?: boolean;
+    defaultExit?: number;
+  } = {},
+) => {
   const files: Array<{ path: string; content: string }> = [];
   const directories: string[] = [];
   const commands: Array<{ command: string; args: readonly string[] }> = [];
   const registration = resolveDesktopUrlRegistration({
-    platform: "linux", isPackaged: input.packaged ?? true,
-    explicitRegistration: input.explicit ?? false, isDevelopment: input.development ?? false,
-    execPath: "/transient/.mount_neocode/electron", appPath: "/source/apps/desktop/dist-electron/main.cjs",
+    platform: "linux",
+    isPackaged: input.packaged ?? true,
+    explicitRegistration: input.explicit ?? false,
+    isDevelopment: input.development ?? false,
+    execPath: "/transient/.mount_neocode/electron",
+    appPath: "/source/apps/desktop/dist-electron/main.cjs",
     appImagePath: "/Applications/Neo Code.AppImage",
   });
-  const name = input.development ? "com.t3tools.T3Code.Development.desktop" : "com.t3tools.T3Code.desktop";
+  const name = input.development
+    ? "com.t3tools.T3Code.Development.desktop"
+    : "com.t3tools.T3Code.desktop";
   const environment = DesktopEnvironment.DesktopEnvironment.of({
-    platform: "linux", isPackaged: input.packaged ?? true, displayName: "NeoCode",
-    linuxApplicationsDir: "/xdg/applications", linuxDesktopEntryName: name,
+    platform: "linux",
+    isPackaged: input.packaged ?? true,
+    displayName: "NeoCode",
+    linuxApplicationsDir: "/xdg/applications",
+    linuxDesktopEntryName: name,
     appDataDirectory: "/xdg-config",
     path: { join: (...parts: string[]) => parts.join("/") },
   } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]);
-  const layer = DesktopLinuxUrlHandler.layer.pipe(Layer.provide(Layer.mergeAll(
-    Layer.succeed(DesktopEnvironment.DesktopEnvironment, environment),
-    Layer.succeed(DesktopPreReadyPlatform.DesktopPreReadyElectronOptions, {
-      linux: null, linuxPasswordStoreCommandLine: null, urlRegistration: registration,
-    }),
-    FileSystem.layerNoop({
-      readFileString: (path) => Effect.succeed(path.endsWith("mimeapps.list") ? input.configuredDefault ?? "" : input.existing ?? ""),
-      makeDirectory: (path) => Effect.sync(() => { directories.push(path); }),
-      writeFileString: (path, content) => input.failWrite
-        ? Effect.fail(PlatformError.systemError({ _tag: "PermissionDenied", module: "FileSystem", method: "writeFileString", pathOrDescriptor: path, description: "read-only filesystem" }))
-        : Effect.sync(() => { files.push({ path, content }); }),
-    }),
-    Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, ChildProcessSpawner.make((command) => {
-      const child = command as unknown as { command: string; args: readonly string[] };
-      commands.push(child);
-      return Effect.succeed(ChildProcessSpawner.makeHandle({
-        pid: ChildProcessSpawner.ProcessId(1),
-        exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(input.defaultExit ?? 0)),
-        isRunning: Effect.succeed(false), kill: () => Effect.void, unref: Effect.succeed(Effect.void),
-        stdin: Sink.drain, stdout: Stream.empty, stderr: Stream.empty, all: Stream.empty,
-        getInputFd: () => Sink.drain, getOutputFd: () => Stream.empty,
-      }));
-    })),
-  )));
-  return { files, directories, commands, registration, run: Effect.gen(function* () {
-    const handler = yield* DesktopLinuxUrlHandler.DesktopLinuxUrlHandler;
-    yield* handler.register;
-  }).pipe(Effect.provide(layer)) };
+  const layer = DesktopLinuxUrlHandler.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.succeed(DesktopEnvironment.DesktopEnvironment, environment),
+        Layer.succeed(DesktopPreReadyPlatform.DesktopPreReadyElectronOptions, {
+          linux: null,
+          linuxPasswordStoreCommandLine: null,
+          urlRegistration: registration,
+        }),
+        FileSystem.layerNoop({
+          readFileString: (path) =>
+            Effect.succeed(
+              path.endsWith("mimeapps.list")
+                ? (input.configuredDefault ?? "")
+                : (input.existing ?? ""),
+            ),
+          makeDirectory: (path) =>
+            Effect.sync(() => {
+              directories.push(path);
+            }),
+          writeFileString: (path, content) =>
+            input.failWrite
+              ? Effect.fail(
+                  PlatformError.systemError({
+                    _tag: "PermissionDenied",
+                    module: "FileSystem",
+                    method: "writeFileString",
+                    pathOrDescriptor: path,
+                    description: "read-only filesystem",
+                  }),
+                )
+              : Effect.sync(() => {
+                  files.push({ path, content });
+                }),
+        }),
+        Layer.succeed(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make((command) => {
+            const child = command as unknown as { command: string; args: readonly string[] };
+            commands.push(child);
+            return Effect.succeed(
+              ChildProcessSpawner.makeHandle({
+                pid: ChildProcessSpawner.ProcessId(1),
+                exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(input.defaultExit ?? 0)),
+                isRunning: Effect.succeed(false),
+                kill: () => Effect.void,
+                unref: Effect.succeed(Effect.void),
+                stdin: Sink.drain,
+                stdout: Stream.empty,
+                stderr: Stream.empty,
+                all: Stream.empty,
+                getInputFd: () => Sink.drain,
+                getOutputFd: () => Stream.empty,
+              }),
+            );
+          }),
+        ),
+      ),
+    ),
+  );
+  return {
+    files,
+    directories,
+    commands,
+    registration,
+    run: Effect.gen(function* () {
+      const handler = yield* DesktopLinuxUrlHandler.DesktopLinuxUrlHandler;
+      yield* handler.register;
+    }).pipe(Effect.provide(layer)),
+  };
 };
 
 describe("DesktopLinuxUrlHandler", () => {
@@ -77,8 +140,15 @@ describe("DesktopLinuxUrlHandler", () => {
       assert.equal(fixture.files[0]?.path, "/xdg/applications/com.t3tools.T3Code.desktop");
       assert.include(fixture.files[0]?.content, '"/Applications/Neo Code.AppImage"');
       assert.notInclude(fixture.files[0]?.content, "/transient/");
-      assert.deepEqual(fixture.commands.map(({ command }) => command), ["xdg-mime"]);
-      assert.deepEqual(fixture.commands[0]?.args, ["default", "com.t3tools.T3Code.desktop", "x-scheme-handler/t3code"]);
+      assert.deepEqual(
+        fixture.commands.map(({ command }) => command),
+        ["xdg-mime"],
+      );
+      assert.deepEqual(fixture.commands[0]?.args, [
+        "default",
+        "com.t3tools.T3Code.desktop",
+        "x-scheme-handler/t3code",
+      ]);
     });
   });
 
@@ -95,8 +165,15 @@ describe("DesktopLinuxUrlHandler", () => {
     const fixture = makeFixture({ packaged: false, explicit: true, development: true });
     return Effect.gen(function* () {
       yield* fixture.run;
-      assert.equal(fixture.files[0]?.path, "/xdg/applications/com.t3tools.T3Code.Development.desktop");
-      assert.deepEqual(fixture.commands.at(-1)?.args, ["default", "com.t3tools.T3Code.Development.desktop", "x-scheme-handler/t3code-dev"]);
+      assert.equal(
+        fixture.files[0]?.path,
+        "/xdg/applications/com.t3tools.T3Code.Development.desktop",
+      );
+      assert.deepEqual(fixture.commands.at(-1)?.args, [
+        "default",
+        "com.t3tools.T3Code.Development.desktop",
+        "x-scheme-handler/t3code-dev",
+      ]);
     });
   });
 
@@ -104,7 +181,10 @@ describe("DesktopLinuxUrlHandler", () => {
     const fixture = makeFixture({ packaged: false, development: true });
     return Effect.gen(function* () {
       yield* fixture.run;
-      assert.equal(fixture.files[0]?.path, "/xdg/applications/com.t3tools.T3Code.Development.desktop");
+      assert.equal(
+        fixture.files[0]?.path,
+        "/xdg/applications/com.t3tools.T3Code.Development.desktop",
+      );
       assert.include(fixture.files[0]?.content, "MimeType=x-scheme-handler/t3code-dev;");
       assert.deepEqual(fixture.commands, []);
     });
@@ -113,10 +193,14 @@ describe("DesktopLinuxUrlHandler", () => {
   it.effect("does not rewrite unchanged pre-ready metadata or an existing default", () => {
     const seed = makeFixture();
     const fixture = makeFixture({
-      configuredDefault: "[Default Applications]\nx-scheme-handler/t3code=com.t3tools.T3Code.desktop;\n",
+      configuredDefault:
+        "[Default Applications]\nx-scheme-handler/t3code=com.t3tools.T3Code.desktop;\n",
       existing: renderUrlHandlerDesktopEntry({
-      displayName: "NeoCode", command: seed.registration.command, scheme: "t3code",
-    }) });
+        displayName: "NeoCode",
+        command: seed.registration.command,
+        scheme: "t3code",
+      }),
+    });
     return Effect.gen(function* () {
       yield* fixture.run;
       assert.deepEqual(fixture.files, []);
@@ -125,10 +209,12 @@ describe("DesktopLinuxUrlHandler", () => {
     });
   });
 
-  it.effect("keeps default and file errors nonfatal", () => Effect.gen(function* () {
-    yield* makeFixture({ defaultExit: 1 }).run;
-    const write = makeFixture({ failWrite: true });
-    yield* write.run;
-    assert.deepEqual(write.commands, []);
-  }));
+  it.effect("keeps default and file errors nonfatal", () =>
+    Effect.gen(function* () {
+      yield* makeFixture({ defaultExit: 1 }).run;
+      const write = makeFixture({ failWrite: true });
+      yield* write.run;
+      assert.deepEqual(write.commands, []);
+    }),
+  );
 });

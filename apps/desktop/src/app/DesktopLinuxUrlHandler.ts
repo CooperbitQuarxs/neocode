@@ -89,9 +89,9 @@ export const make = Effect.gen(function* () {
 
   const setDefaultHandler = Effect.scoped(
     Effect.gen(function* () {
-      const configured = yield* fileSystem.readFileString(
-        environment.path.join(environment.appDataDirectory, "mimeapps.list"),
-      ).pipe(Effect.orElseSucceed(() => ""));
+      const configured = yield* fileSystem
+        .readFileString(environment.path.join(environment.appDataDirectory, "mimeapps.list"))
+        .pipe(Effect.orElseSucceed(() => ""));
       if (hasConfiguredUrlHandler(configured, scheme, environment.linuxDesktopEntryName)) return;
       const command = ChildProcess.make(
         "xdg-mime",

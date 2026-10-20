@@ -82,7 +82,10 @@ export const make = Effect.gen(function* () {
               NodePath.posix.join(NodeOS.homedir(), ".local", "share"),
             "applications",
           );
-          const desktopEntryPath = NodePath.posix.join(applicationsDir, linux.linuxDesktopEntryName);
+          const desktopEntryPath = NodePath.posix.join(
+            applicationsDir,
+            linux.linuxDesktopEntryName,
+          );
           const content = DesktopUrlRegistration.renderUrlHandlerDesktopEntry({
             displayName: resolveDesktopAppBranding({
               isDevelopment: linux.isDevelopment,
@@ -92,7 +95,11 @@ export const make = Effect.gen(function* () {
             scheme: urlRegistration.scheme,
           });
           let existing: string | null = null;
-          try { existing = NodeFS.readFileSync(desktopEntryPath, "utf8"); } catch { /* First registration. */ }
+          try {
+            existing = NodeFS.readFileSync(desktopEntryPath, "utf8");
+          } catch {
+            /* First registration. */
+          }
           if (existing !== content) {
             NodeFS.mkdirSync(applicationsDir, { recursive: true });
             NodeFS.writeFileSync(desktopEntryPath, content, "utf8");

@@ -30,8 +30,10 @@ export function resolveDesktopUrlRegistration(input: {
       // A valid, unquoted executable also works with generic xdg-utils, whose
       // first_word parser does not understand desktop-entry quote marks.
       "/usr/bin/env",
-      "-u", "ELECTRON_RUN_AS_NODE",
-      "-u", "VITE_DEV_SERVER_URL",
+      "-u",
+      "ELECTRON_RUN_AS_NODE",
+      "-u",
+      "VITE_DEV_SERVER_URL",
       ...(input.isDevelopment && input.devServerUrl
         ? [`VITE_DEV_SERVER_URL=${input.devServerUrl}`]
         : []),
@@ -43,7 +45,11 @@ export function resolveDesktopUrlRegistration(input: {
 }
 
 const escapeDesktopEntryString = (value: string): string =>
-  value.replaceAll("\\", "\\\\").replaceAll("\n", "\\n").replaceAll("\r", "\\r").replaceAll("\t", "\\t");
+  value
+    .replaceAll("\\", "\\\\")
+    .replaceAll("\n", "\\n")
+    .replaceAll("\r", "\\r")
+    .replaceAll("\t", "\\t");
 
 export function escapeDesktopEntryExecArgument(value: string): string {
   const quoted = value
@@ -75,14 +81,23 @@ export function renderUrlHandlerDesktopEntry(input: {
   ].join("\n");
 }
 
-export function hasConfiguredUrlHandler(content: string, scheme: string, desktopEntryName: string): boolean {
+export function hasConfiguredUrlHandler(
+  content: string,
+  scheme: string,
+  desktopEntryName: string,
+): boolean {
   let defaults = false;
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (line.startsWith("[")) {
       defaults = line === "[Default Applications]";
     } else if (defaults && line.startsWith(`x-scheme-handler/${scheme}=`)) {
-      return line.slice(line.indexOf("=") + 1).split(";")[0]?.trim() === desktopEntryName;
+      return (
+        line
+          .slice(line.indexOf("=") + 1)
+          .split(";")[0]
+          ?.trim() === desktopEntryName
+      );
     }
   }
   return false;

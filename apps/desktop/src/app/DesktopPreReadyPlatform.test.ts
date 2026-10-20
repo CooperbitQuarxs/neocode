@@ -32,7 +32,9 @@ vi.mock("electron", () => ({
     setDesktopName: setDesktopNameMock,
     getVersion: () => "0.0.37",
     getAppPath: () => "/source/apps/desktop/dist-electron/main.cjs",
-    get isPackaged() { return appState.isPackaged; },
+    get isPackaged() {
+      return appState.isPackaged;
+    },
     commandLine: {
       appendSwitch: appendSwitchMock,
       getSwitchValue: getSwitchValueMock,
@@ -198,8 +200,12 @@ describe("DesktopPreReadyPlatform", () => {
     vi.stubEnv("VITE_DEV_SERVER_URL", "");
     hasSwitchMock.mockImplementation((name) => name === "register-url-handler");
     let entry = "";
-    readFileSyncMock.mockImplementation((path: string) => path.endsWith(".desktop") ? entry : "{}");
-    writeFileSyncMock.mockImplementation((_path: string, content: string) => { entry = content; });
+    readFileSyncMock.mockImplementation((path: string) =>
+      path.endsWith(".desktop") ? entry : "{}",
+    );
+    writeFileSyncMock.mockImplementation((_path: string, content: string) => {
+      entry = content;
+    });
     return Effect.gen(function* () {
       const options = yield* DesktopPreReadyPlatform.make;
       yield* DesktopPreReadyPlatform.make;
