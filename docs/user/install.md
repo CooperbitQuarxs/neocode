@@ -1,14 +1,20 @@
-# Install T3 Code
+# Install NeoCode
 
-T3 Code runs coding agents on your computer and lets you control them from its
+NeoCode runs coding agents on your computer and lets you control them from its
 desktop, web, or mobile app. Set up the machine where the agents will work first.
+
+Download this fork from [NeoCode releases](https://github.com/PsychedelicShayna/neocode/releases).
+For a source checkout, follow the [development guide](../operations/development.md).
+The T3 Code installers and package-manager entries below install upstream T3 Code,
+not NeoCode. Existing `t3` commands, data directories and deep links retain their names.
 
 ## Requirements
 
 You need an installed, authenticated provider before starting a thread. You can
-launch T3 Code and configure providers afterwards.
+launch NeoCode and configure providers afterwards. NeoPi is enabled by default;
+explicit saved provider and model choices are preserved.
 
-## Command line
+## Upstream command line
 
 ```bash
 curl -fsSL https://t3.codes/install.sh | sh
@@ -53,7 +59,7 @@ node apps/server/dist/bin.mjs
 `t3 update` and the background service do not apply to a server run this way;
 update it with `git pull` and a rebuild.
 
-## Desktop app
+## Upstream desktop app
 
 Download a release from [GitHub Releases](https://github.com/pingdotgg/t3code/releases),
 or use a package manager:

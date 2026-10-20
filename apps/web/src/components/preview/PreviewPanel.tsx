@@ -1,6 +1,6 @@
-import { APP_BASE_NAME } from "~/branding";
 "use client";
 
+import { APP_BASE_NAME } from "~/branding";
 import type { PreviewAnnotationPayload, ScopedThreadRef } from "@t3tools/contracts";
 
 import type { ComposerImageAttachment } from "~/composerDraftStore";

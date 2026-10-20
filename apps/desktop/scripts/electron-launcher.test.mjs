@@ -8,6 +8,7 @@ import {
   makeDevelopmentEnvironmentScript,
   makeDevelopmentLauncherScript,
   resolveElectronBinaryPath,
+  resolveMacBundleInfoPlistStrings,
   resolveMacCodeSignArguments,
   resolveMacLauncherIconPaths,
   resolveMacLauncherPaths,
@@ -100,6 +101,12 @@ describe("electron development launcher", () => {
       "exec '/repo/apps/desktop/.electron-runtime/T3 Code (Dev).app/Contents/MacOS/Electron'",
     );
     assert.notInclude(script, "node_modules/electron");
+  });
+
+  it("declares protected-access reasons in the macOS app bundle", () => {
+    const values = resolveMacBundleInfoPlistStrings("Example App Launcher");
+    assert.isNotEmpty(values.NSScreenCaptureUsageDescription);
+    assert.isNotEmpty(values.NSDocumentsFolderUsageDescription);
   });
 
   it("ad-hoc signs the complete development app bundle", () => {
