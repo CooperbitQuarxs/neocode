@@ -1174,11 +1174,16 @@ it.live("takes advertised prompt entry ids rather than inferred ancestry", () =>
         const runtime = yield* make(() => Effect.succeed(peer.handle));
         const frames = yield* capture(runtime);
         yield* runtime.start;
+        yield* SubscriptionRef.update(runtime.cursor, (cursor) => ({
+          ...cursor,
+          historyLeafId: "imported-leaf",
+        }));
         yield* runtime.startTurn(turn("prompt"));
         yield* awaitOutcomes(frames, 1);
         NodeAssert.deepEqual((yield* SubscriptionRef.get(runtime.cursor)).turnBoundaries, [
           { turnId: "prompt", userEntryId: advertised ? "native-user" : "extension-user" },
         ]);
+        NodeAssert.equal((yield* SubscriptionRef.get(runtime.cursor)).historyLeafId, undefined);
         yield* runtime.stop;
       }
     }),

@@ -13,6 +13,8 @@ import {
 import { createModelSelection } from "@t3tools/shared/model";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
+import * as Fiber from "effect/Fiber";
 import * as Duration from "effect/Duration";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -26,6 +28,7 @@ import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as ServerConfig from "./config.ts";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import * as ServerSettingsModule from "./serverSettings.ts";
+import { neoPiBinarySelectionPatch } from "./provider/neopi/NeoPiBinarySelection.ts";
 import { resolveProviderInstanceTerminalEnvironment } from "./terminal/Manager.ts";
 
 const decodeSettingsPatch = Schema.decodeUnknownEffect(ServerSettingsPatch);
@@ -182,6 +185,72 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           options: [{ id: "reasoningEffort", value: "low" }],
         });
       }),
+  );
+
+  it.effect("persists an automatic NeoPi selection once and reloads its provenance", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const instanceId = ProviderInstanceId.make("neopi");
+      const before = yield* service.getSettings;
+      const binary = "/test/bin/npi-nightly";
+      yield* service.updateSettings((current) =>
+        neoPiBinarySelectionPatch(before, current, instanceId, binary),
+      );
+      const saved = yield* fs.readFileString(config.settingsPath);
+      const reloaded = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(ServerSettings))(
+        saved,
+      );
+      assert.equal(reloaded.providers.neopi.binaryPath, binary);
+      assert.equal(reloaded.providers.neopi.autoSelectedBinaryPath, binary);
+      // A later creation/refresh sees an explicit saved path, so it cannot write again.
+      const selected = yield* service.getSettings;
+      assert.equal(neoPiBinarySelectionPatch(selected, selected, instanceId, binary), null);
+      yield* service.updateSettings(() => null);
+      assert.equal(yield* fs.readFileString(config.settingsPath), saved);
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("keeps a user override made while an automatic NeoPi probe is in flight", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const fs = yield* FileSystem.FileSystem;
+      const config = yield* ServerConfig.ServerConfig;
+      const instanceId = ProviderInstanceId.make("neopi_work");
+      yield* service.updateSettings({
+        providerInstances: {
+          [instanceId]: { driver: ProviderDriverKind.make("neopi"), config: { binaryPath: "npi" } },
+        },
+      });
+      const before = yield* service.getSettings;
+      const probeEntered = yield* Deferred.make<void>();
+      const finishProbe = yield* Deferred.make<void>();
+      const selection = yield* Effect.gen(function* () {
+        yield* Deferred.succeed(probeEntered, undefined);
+        yield* Deferred.await(finishProbe);
+        return yield* service.updateSettings((current) =>
+          neoPiBinarySelectionPatch(before, current, instanceId, "/test/bin/npi-nightly"),
+        );
+      }).pipe(Effect.forkScoped);
+      yield* Deferred.await(probeEntered);
+      yield* service.updateSettings({
+        providerInstances: {
+          [instanceId]: {
+            driver: ProviderDriverKind.make("neopi"),
+            config: { binaryPath: "/user/chosen/npi", profile: "personal" },
+          },
+        },
+      });
+      const userSaved = yield* fs.readFileString(config.settingsPath);
+      yield* Deferred.succeed(finishProbe, undefined);
+      const result = yield* Fiber.join(selection);
+      assert.deepEqual(result.providerInstances[instanceId]?.config, {
+        binaryPath: "/user/chosen/npi",
+        profile: "personal",
+      });
+      assert.equal(yield* fs.readFileString(config.settingsPath), userSaved);
+    }).pipe(Effect.scoped, Effect.provide(makeServerSettingsLayer())),
   );
 
   it.effect("deep merges nested settings updates without dropping siblings", () =>

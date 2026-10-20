@@ -1121,6 +1121,20 @@ export const DesktopPreviewAutomationWaitForInputSchema = Schema.Struct({
 export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
+export const DesktopConnectionCatalogRecovery = Schema.Struct({
+  reason: Schema.Literals(["decrypt-failed", "encryption-unavailable"]),
+  status: Schema.Literals(["preserved", "blocked"]),
+  catalogPath: Schema.String,
+  preservedPath: Schema.NullOr(Schema.String),
+});
+export type DesktopConnectionCatalogRecovery = typeof DesktopConnectionCatalogRecovery.Type;
+
+export const DesktopConnectionCatalogRead = Schema.Struct({
+  catalog: Schema.NullOr(Schema.String),
+  recovery: Schema.NullOr(DesktopConnectionCatalogRecovery),
+});
+export type DesktopConnectionCatalogRead = typeof DesktopConnectionCatalogRead.Type;
+
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   /** Absolute path of a dropped or picked file; absent on desktop builds predating it. */
@@ -1146,7 +1160,7 @@ export interface DesktopBridge {
   getLocalEnvironmentBearerToken: () => Promise<string>;
   getClientSettings: () => Promise<ClientSettings | null>;
   setClientSettings: (settings: ClientSettings) => Promise<void>;
-  getConnectionCatalog?: () => Promise<string | null>;
+  getConnectionCatalog?: () => Promise<DesktopConnectionCatalogRead>;
   setConnectionCatalog?: (catalog: string) => Promise<boolean>;
   clearConnectionCatalog?: () => Promise<void>;
   discoverSshHosts: () => Promise<readonly DesktopDiscoveredSshHost[]>;

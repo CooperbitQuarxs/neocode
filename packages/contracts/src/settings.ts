@@ -755,18 +755,20 @@ export type GrokSettings = typeof GrokSettings.Type;
 
 export const NeoPiSettings = makeProviderSettingsSchema(
   {
-    // Off by default (like Grok): users opt in from Settings.
     enabled: Schema.Boolean.pipe(
-      Schema.withDecodingDefault(Effect.succeed(false)),
+      Schema.withDecodingDefault(Effect.succeed(true)),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
     binaryPath: makeBinaryPathSetting("npi").pipe(
       Schema.annotateKey({
         title: "Binary path",
         description:
-          "Path to the NeoPi/OMP (oh-my-pi compatible) CLI. Leave empty or use `npi` to prefer PATH `npi`, then bundled desktop `npi` (when available), then PATH `omp`. Other paths never fall back.",
+          "Leave empty or use `npi` to select a session-catalog-capable `npi-nightly`, then `npi`, bundled desktop `npi`, or `omp`. The selected executable is saved. Explicit paths never fall back.",
         providerSettingsForm: { placeholder: "npi", clearWhenEmpty: "omit" },
       }),
+    ),
+    autoSelectedBinaryPath: Schema.optionalKey(TrimmedString).pipe(
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
     profile: TrimmedString.pipe(
       Schema.withDecodingDefault(Effect.succeed("")),
@@ -1470,6 +1472,7 @@ const GrokSettingsPatch = Schema.Struct({
 const NeoPiSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
+  autoSelectedBinaryPath: Schema.optionalKey(TrimmedString),
   profile: Schema.optionalKey(TrimmedString),
   launchArgs: Schema.optionalKey(TrimmedString),
   customModels: Schema.optionalKey(Schema.Array(CustomModelSetting)),

@@ -52,6 +52,13 @@ export interface ProviderClientDefinition {
 
 const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = [
   {
+    value: ProviderDriverKind.make("neopi"),
+    label: "NeoPi/OMP",
+    description: "NeoPi/OMP (oh-my-pi compatible)",
+    icon: NeoPiIcon,
+    settingsSchema: NeoPiSettings,
+  },
+  {
     value: ProviderDriverKind.make("codex"),
     label: "Codex",
     icon: OpenAI,
@@ -76,13 +83,6 @@ const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = [
     icon: GrokIcon,
     badgeLabel: "Early Access",
     settingsSchema: GrokSettings,
-  },
-  {
-    value: ProviderDriverKind.make("neopi"),
-    label: "NeoPi/OMP",
-    description: "NeoPi/OMP (oh-my-pi compatible)",
-    icon: NeoPiIcon,
-    settingsSchema: NeoPiSettings,
   },
   {
     value: ProviderDriverKind.make("opencode"),

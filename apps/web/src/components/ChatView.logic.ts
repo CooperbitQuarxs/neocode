@@ -576,10 +576,6 @@ export function resolveComposerProviderSelection(input: {
         ),
       )
       .find((entry) => entry !== undefined) ??
-    resolveSelectableProviderInstanceEntry(
-      compatibleEntries.filter((entry) => entry.driverKind === requestedDriverKind),
-      undefined,
-    ) ??
     resolveSelectableProviderInstanceEntry(compatibleEntries, undefined);
   const unavailableProviderInstanceId = selectedProviderEntry
     ? undefined

@@ -6,13 +6,13 @@ RFC 2119 applies to MUST, REQUIRED, SHOULD, RECOMMENDED, MAY, OPTIONAL. `NEVER` 
 
 ## Invariants
 
-- MUST start from freshly fetched `origin/<default>` after every prerequisite PR has merged with checks and proof.
+- MUST start from freshly fetched `origin/<default>` after every prerequisite PR has merged under [Nightly delivery](policy.md#nightly-delivery).
 - MUST use the newest upstream stable release tag, not an arbitrary branch tip.
 - MUST preserve dirty work and local-ahead commits before integration.
 - MUST resolve conflicts personally, sequentially, one file at a time. NEVER delegate conflict resolution.
 - MUST record each resolution in the ledger while resolving it.
 - MUST preserve fork behavior unless upstream satisfies the same observable contract (`AGENTS.md` › Fork rule).
-- MUST land through a PR after checks and runtime proof pass. NEVER commit or push directly to `main` or `nightly`.
+- MUST land through a PR under [Nightly delivery](policy.md#nightly-delivery). NEVER commit or push directly to `main` or `nightly`.
 - MUST sign every commit with the agent signing key and attribute the actual executing provider/model.
 - NEVER install dependencies (`vp i`, pnpm, npm) without the Captain's per-call authorization.
 
@@ -109,7 +109,7 @@ Verify from the integration worktree:
 
 - Targeted tests for every conflicted path (`vp test run <files>`), and the NeoPi-owned test suites.
 - Typecheck and lint for the touched packages. The full suite (`vp check`, `vpr typecheck`) is owned by CI.
-- Exercise the changed runtime path, headless: GUI or desktop launches only inside `xvfb-run -a`, never on the owner's display.
+- Exercise the changed runtime path under the [verification authorization](../../AGENTS.md#verifying): the NeoCode operator owns its Xvfb+i3 session with private state and MAY kill the NeoCode instance the owner launched on her real display, relaunch it in its own session, and drive it with computer use. Her real database stays off-limits; anything else on her real display still needs her authorization.
 
 Record exact commands, pass counts, failures, and any unavailable check in the PR. A failure may be classified as pre-existing only with evidence from the unmodified base or the upstream tag.
 
@@ -125,7 +125,7 @@ Push the integration branch and create a PR targeting `nightly`. Summarize:
 - checks, focused tests, and runtime proof;
 - pre-existing failures with base evidence.
 
-Merge with a merge commit only after the local evidence is green and the PR's required checks pass. Do not bypass the PR by pushing the integration directly.
+Merge with a merge commit under [Nightly delivery](policy.md#nightly-delivery), then build, install and check launch as that policy requires. Local checks and CI provide evidence, not merge gates. Do not bypass the PR by pushing the integration directly.
 
 ## 7. Realign the main checkout safely
 

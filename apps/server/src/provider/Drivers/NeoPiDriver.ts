@@ -21,12 +21,14 @@ import {
 import { applyUsageLimits } from "../Layers/neopiUsageLimits.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import { makeNeoPiDiscoveryHub } from "../neopi/NeoPiDiscovery.ts";
+import { neoPiBinarySelectionPatch } from "../neopi/NeoPiBinarySelection.ts";
 import { neoPiUsageProviderId } from "../neopi/NeoPiModelCatalog.ts";
 import { makeNeoPiDiscoveryProbe } from "../neopi/NeoPiDiscoveryProbe.ts";
 import { makeNeoPiHostToolBridge } from "../neopi/NeoPiHostToolBridge.ts";
 import {
   registerNeoPiSessionCatalogSource,
   unregisterNeoPiSessionCatalogSource,
+  type NeoPiCapabilityProbe,
 } from "../neopi/NeoPiSessionCatalogSource.ts";
 import {
   defaultProviderContinuationIdentity,
@@ -87,12 +89,50 @@ export const NeoPiDriver: ProviderDriver<NeoPiSettings, NeoPiDriverEnv> = {
       const discovery = yield* makeNeoPiDiscoveryHub();
       const sharedSessionCapabilities = new Set<string>();
       const retainedCatalog = yield* Ref.make<NeoPiRetainedCatalog | null>(null);
+      const settingsBeforeProbe = yield* serverSettings.getSettings.pipe(
+        Effect.mapError(
+          (cause) =>
+            new ProviderDriverError({
+              driver: DRIVER_KIND,
+              instanceId,
+              detail: "Failed to read NeoPi executable settings",
+              cause,
+            }),
+        ),
+      );
       const resolved = enabled
         ? yield* resolveNeoPiBinary(effectiveConfig, env, serverConfig.cwd).pipe(
             Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
           )
         : null;
       const binary = resolved?.binary ?? (config.binaryPath || "npi");
+      if (resolved?.autoSelected && !resolved.error) {
+        yield* serverSettings
+          .updateSettings((current) =>
+            neoPiBinarySelectionPatch(
+              settingsBeforeProbe,
+              current,
+              instanceId,
+              binary,
+              resolved.bundled,
+            ),
+          )
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderDriverError({
+                  driver: DRIVER_KIND,
+                  instanceId,
+                  detail: "Failed to save NeoPi executable selection",
+                  cause,
+                }),
+            ),
+          );
+      }
+      const capabilityProbe: NeoPiCapabilityProbe = {
+        status: "unprobed",
+        version: resolved?.version ?? null,
+      };
       const commandProbe = makeNeoPiDiscoveryProbe({
         binary,
         profile: config.profile,
@@ -143,6 +183,8 @@ export const NeoPiDriver: ProviderDriver<NeoPiSettings, NeoPiDriverEnv> = {
               discovery,
               sharedSessionCapabilities,
               {
+                resolvedBinary: binary,
+                capabilityProbe,
                 ...(previous ? { previous } : {}),
                 onSuccessfulCatalog: (catalog) => Ref.set(retainedCatalog, catalog),
               },
@@ -201,6 +243,7 @@ export const NeoPiDriver: ProviderDriver<NeoPiSettings, NeoPiDriverEnv> = {
           env,
           profile: config.profile,
           capabilities: sharedSessionCapabilities,
+          probe: capabilityProbe,
         },
       );
       yield* Effect.addFinalizer(() =>

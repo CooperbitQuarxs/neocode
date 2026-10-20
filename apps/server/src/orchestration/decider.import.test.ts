@@ -14,6 +14,34 @@ import * as TestClock from "effect/testing/TestClock";
 import { decideOrchestrationCommand } from "./decider.ts";
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
 
+const appendThreadId = ThreadId.make("native-restoration");
+const appendTimestamp = "2026-10-19T05:00:00.000Z";
+const makeAppendReadModel = Effect.gen(function* () {
+  return yield* projectEvent(createEmptyReadModel(appendTimestamp), {
+    sequence: 1,
+    eventId: EventId.make("append-thread-created"),
+    aggregateKind: "thread",
+    aggregateId: appendThreadId,
+    type: "thread.created",
+    occurredAt: appendTimestamp,
+    commandId: CommandId.make("append-thread-created"),
+    causationEventId: null,
+    correlationId: null,
+    metadata: {},
+    payload: {
+      threadId: appendThreadId,
+      projectId: ProjectId.make("project"),
+      title: "Native restoration",
+      modelSelection: { instanceId: ProviderInstanceId.make("neopi"), model: "saved-model" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdAt: appendTimestamp,
+      updatedAt: appendTimestamp,
+    },
+  });
+});
 it.layer(NodeServices.layer)("thread history import", (it) => {
   it.effect("marks imported thread creation without changing live creation", () =>
     Effect.gen(function* () {
@@ -506,4 +534,122 @@ it.layer(NodeServices.layer)("thread history import", (it) => {
       }
     }),
   );
+  it.effect(
+    "appends native messages to existing stopped history without turns and deduplicates by identity",
+    () =>
+      Effect.gen(function* () {
+        let readModel = yield* makeAppendReadModel;
+        const old = yield* decideOrchestrationCommand({
+          readModel,
+          command: {
+            type: "thread.history.import",
+            commandId: CommandId.make("original-import"),
+            threadId: appendThreadId,
+            messages: [
+              {
+                messageId: MessageId.make("native:old"),
+                role: "user",
+                text: "repeat",
+                createdAt: appendTimestamp,
+              },
+            ],
+          },
+        });
+        let sequence = 2;
+        for (const event of Array.isArray(old) ? old : [old])
+          readModel = yield* projectEvent(readModel, { ...event, sequence: sequence++ });
+        const command = {
+          type: "thread.history.append" as const,
+          commandId: CommandId.make("restore"),
+          threadId: appendThreadId,
+          messages: [
+            {
+              messageId: MessageId.make("native:old"),
+              role: "user" as const,
+              text: "repeat",
+              createdAt: appendTimestamp,
+            },
+            {
+              messageId: MessageId.make("native:new"),
+              role: "user" as const,
+              text: "repeat",
+              createdAt: appendTimestamp,
+            },
+            {
+              messageId: MessageId.make("native:answer"),
+              role: "assistant" as const,
+              text: "repeat",
+              createdAt: appendTimestamp,
+            },
+          ],
+        };
+        const events = yield* decideOrchestrationCommand({ readModel, command });
+        expect(events).toMatchObject([
+          {
+            type: "thread.message-sent",
+            metadata: { historyImport: true },
+            payload: { messageId: "native:new", turnId: null, streaming: false },
+          },
+          {
+            type: "thread.message-sent",
+            metadata: { historyImport: true },
+            payload: { messageId: "native:answer", turnId: null, streaming: false },
+          },
+          { type: "thread.settled", metadata: { historyImport: true } },
+        ]);
+        for (const event of Array.isArray(events) ? events : [events])
+          readModel = yield* projectEvent(readModel, { ...event, sequence: sequence++ });
+        expect(readModel.threads[0]?.messages.map((message) => message.id)).toEqual([
+          "native:old",
+          "native:new",
+          "native:answer",
+        ]);
+        expect(readModel.threads[0]?.latestTurn).toBeNull();
+        expect(readModel.threads[0]?.modelSelection.model).toBe("saved-model");
+        expect(yield* decideOrchestrationCommand({ readModel, command })).toEqual([]);
+      }),
+  );
+  for (const status of ["starting", "running", "ready", "error"] as const) {
+    it.effect(`refuses foreign history append while the provider is ${status}`, () =>
+      Effect.gen(function* () {
+        const initial = yield* makeAppendReadModel;
+        const readModel = {
+          ...initial,
+          threads: initial.threads.map((thread) => ({
+            ...thread,
+            session: {
+              threadId: appendThreadId,
+              status,
+              providerName: "neopi",
+              runtimeMode: "full-access" as const,
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: appendTimestamp,
+            },
+          })),
+        };
+        const error = yield* Effect.flip(
+          decideOrchestrationCommand({
+            readModel,
+            command: {
+              type: "thread.history.append",
+              commandId: CommandId.make(`busy-${status}`),
+              threadId: appendThreadId,
+              messages: [
+                {
+                  messageId: MessageId.make("foreign"),
+                  role: "user",
+                  text: "outside",
+                  createdAt: appendTimestamp,
+                },
+              ],
+            },
+          }),
+        );
+        expect(error._tag).toBe("OrchestrationCommandInvariantError");
+        expect(error.message).toContain("stopped and idle");
+        expect(readModel.threads[0]?.messages).toEqual([]);
+      }),
+    );
+  }
 });

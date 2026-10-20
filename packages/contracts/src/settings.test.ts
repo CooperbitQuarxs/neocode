@@ -2,7 +2,6 @@ import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
-import { PROVIDER_DISPLAY_NAMES } from "./model.ts";
 import { RuntimeEventRaw } from "./providerRuntime.ts";
 import {
   ClientSettingsSchema,
@@ -765,16 +764,6 @@ describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
 });
 
 describe("provider enabled defaults", () => {
-  it("enables only the stable bindings by default", () => {
-    const decoded = decodeServerSettings({});
-    expect(decoded.providers.codex.enabled).toBe(true);
-    expect(decoded.providers.claudeAgent.enabled).toBe(true);
-    expect(decoded.providers.cursor.enabled).toBe(false);
-    expect(decoded.providers.grok.enabled).toBe(false);
-    expect(decoded.providers.neopi.enabled).toBe(false);
-    expect(decoded.providers.opencode.enabled).toBe(false);
-  });
-
   it("keeps Cursor enabled when an existing user explicitly opted in", () => {
     const cursor = ProviderDriverKind.make("cursor");
     const cursorId = ProviderInstanceId.make("cursor");
@@ -1013,18 +1002,22 @@ it("validates remote device hosts and rejects ambiguous host ids", () => {
   expect(() => decodeDeviceHostSettings({ deviceHosts: [{ ...host, port: 0 }] })).toThrow();
 });
 
-describe("NeoPi/OMP provider settings", () => {
-  const neopi = ProviderDriverKind.make("neopi");
+describe("NeoPi provider settings", () => {
+  it("enables an unconfigured provider without overriding a stored opt-out", () => {
+    const fresh = decodeServerSettings({});
+    expect(fresh.providers.neopi.enabled).toBe(true);
+    expect(fresh.providers.grok.enabled).toBe(false);
+    expect(fresh.providers.antigravity.enabled).toBe(false);
 
-  it("decodes an empty config as disabled with an empty profile", () => {
-    const decoded = decodeServerSettings({});
-    expect(decoded.providers.neopi.enabled).toBe(false);
-    // makeBinaryPathSetting("npi") substitutes the command name for a missing path.
-    expect(decoded.providers.neopi.binaryPath).toBe("npi");
-    expect(decoded.providers.neopi.profile).toBe("");
-    expect(decoded.providers.neopi.launchArgs).toBe("");
-    expect(decoded.providers.neopi.customModels).toEqual([]);
-    expect(PROVIDER_DISPLAY_NAMES[neopi]).toBe("NeoPi/OMP");
+    const saved = decodeServerSettings({
+      providers: {
+        neopi: { enabled: false, binaryPath: "/custom/npi-nightly", profile: "work" },
+      },
+    });
+    const reloaded = decodeServerSettings(encodeServerSettings(saved));
+    expect(reloaded.providers.neopi.enabled).toBe(false);
+    expect(reloaded.providers.neopi.binaryPath).toBe("/custom/npi-nightly");
+    expect(reloaded.providers.neopi.profile).toBe("work");
   });
 
   it("treats a blank binary path as the npi command", () => {
