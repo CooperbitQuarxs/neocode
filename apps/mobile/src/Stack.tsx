@@ -1,3 +1,4 @@
+import { APP_BASE_NAME } from "./lib/mobileBranding";
 import {
   createPathConfigForStaticNavigation,
   getPathFromState,
@@ -232,7 +233,7 @@ const SettingsContentStack = createNativeStackNavigator({
     SettingsAbout: createNativeStackScreen({
       screen: SettingsAboutRouteScreen,
       linking: "about",
-      options: { title: "About T3 Code" },
+      options: { title: `About ${APP_BASE_NAME}` },
     }),
     SettingsEnvironmentNew: createNativeStackScreen({
       screen: ConnectionsNewRouteScreen,
