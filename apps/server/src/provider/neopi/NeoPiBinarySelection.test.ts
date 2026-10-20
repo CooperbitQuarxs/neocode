@@ -34,7 +34,7 @@ describe("NeoPi executable selection persistence", () => {
       ...before,
       providerInstances: {
         [instanceId]: {
-          ...before.providerInstances[instanceId],
+          ...before.providerInstances[instanceId]!,
           config: { binaryPath: "npi", profile: "work", autoSelectedBinaryPath: binary },
         },
       },
@@ -84,7 +84,7 @@ describe("NeoPi executable selection persistence", () => {
       ...before,
       providerInstances: {
         [instanceId]: {
-          ...before.providerInstances[instanceId],
+          ...before.providerInstances[instanceId]!,
           config: { binaryPath: "/custom/omp" },
         },
       },
@@ -97,7 +97,7 @@ describe("NeoPi executable selection persistence", () => {
       ...before,
       providerInstances: {
         [instanceId]: {
-          ...before.providerInstances[instanceId],
+          ...before.providerInstances[instanceId]!,
           environment: [{ name: "PATH", value: "/other/bin", sensitive: false }],
         },
       },

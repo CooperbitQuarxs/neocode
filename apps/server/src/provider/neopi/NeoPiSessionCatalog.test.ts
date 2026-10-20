@@ -59,6 +59,9 @@ const instanceId = ProviderInstanceId.make("neopi-personal");
 const cwd = "/tmp/neocode-session-catalog-workspace";
 const now = "2026-10-18T12:00:00.000Z";
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const decodeProbeCommand = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.Struct({ id: Schema.String, type: Schema.String })),
+);
 const decodeNeoPiSettings = Schema.decodeEffect(NeoPiSettings);
 const project: OrchestrationProjectShell = {
   id: projectId,
@@ -390,7 +393,7 @@ const heldProbe = Effect.gen(function* () {
         pending += new TextDecoder().decode(chunk);
         let newline: number;
         while ((newline = pending.indexOf("\n")) >= 0) {
-          const command = JSON.parse(pending.slice(0, newline)) as { id: string; type: string };
+          const command = decodeProbeCommand(pending.slice(0, newline));
           pending = pending.slice(newline + 1);
           yield* emit({
             type: "response",
@@ -436,7 +439,7 @@ const heldProbe = Effect.gen(function* () {
   };
 });
 
-it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
+it.layer(NodeServices.layer, { excludeTestServices: true })("NeoPiSessionCatalog probes", (it) => {
   it.effect(
     "uses the configured nightly for real probe, adapter, and catalog processes, not stale PATH npi",
     () =>
@@ -463,12 +466,12 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
         import path from "node:path";
         import readline from "node:readline";
         const args = process.argv.slice(2);
-        fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ args, profile: process.env.OMP_PROFILE }) + "\\n");
+        fs.appendFileSync(${encodeJson(log)}, JSON.stringify({ args, profile: process.env.OMP_PROFILE }) + "\\n");
         if (args[0] === "--version") {
           console.log("npi v9.8.7"); process.exit(0);
         }
         if (args[0] === "sessions") {
-          console.log(JSON.stringify({ version: 1, sessions: [${JSON.stringify(row)}] })); process.exit(0);
+          console.log(JSON.stringify({ version: 1, sessions: [${encodeJson(row)}] })); process.exit(0);
         }
         if (args[0] === "usage") {
           console.log(JSON.stringify({ generatedAt: Date.now(), reports: [] })); process.exit(0);
@@ -481,7 +484,7 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
         readline.createInterface({ input: process.stdin }).on("line", line => {
           const command = JSON.parse(line);
           const data = command.type === "negotiate_protocol" ? { protocolVersion: 2 }
-            : command.type === "get_state" ? { sessionId: "configured", sessionFile: path.join(sessionDir || ${JSON.stringify(dir)}, "configured.jsonl"), messageCount: 0 }
+            : command.type === "get_state" ? { sessionId: "configured", sessionFile: path.join(sessionDir || ${encodeJson(dir)}, "configured.jsonl"), messageCount: 0 }
             : command.type === "get_available_models" ? { models: [{ provider: "openai-codex", id: "gpt-6-luna" }] }
             : {};
           console.log(JSON.stringify({ type: "response", id: command.id, command: command.type, success: true, data }));
@@ -503,7 +506,7 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
           instanceId,
           displayName: "Configured nightly",
           enabled: true,
-          environment: [{ name: "PATH", value: dir }],
+          environment: [{ name: "PATH", value: dir, sensitive: false }],
           config: {
             ...NeoPiDriver.defaultConfig(),
             binaryPath: binary,
@@ -621,7 +624,9 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
       }),
     );
   }
+});
 
+it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
   it.effect("distinguishes unprobed and failed handshakes from unsupported capabilities", () =>
     Effect.gen(function* () {
       const { catalog, source } = yield* harness({ capabilities: [] });

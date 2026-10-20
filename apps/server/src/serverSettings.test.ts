@@ -199,7 +199,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         neoPiBinarySelectionPatch(before, current, instanceId, binary),
       );
       const saved = yield* fs.readFileString(config.settingsPath);
-      const reloaded = yield* Schema.decodeUnknownEffect(ServerSettings)(JSON.parse(saved));
+      const reloaded = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(ServerSettings))(
+        saved,
+      );
       assert.equal(reloaded.providers.neopi.binaryPath, binary);
       assert.equal(reloaded.providers.neopi.autoSelectedBinaryPath, binary);
       // A later creation/refresh sees an explicit saved path, so it cannot write again.
