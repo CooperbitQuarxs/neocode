@@ -1,15 +1,16 @@
 # Repository policy
 
-This repository is self-contained: this file owns branches, commits, signing,
-publication and merging. [pr-review-bots.md](pr-review-bots.md) owns review
-mechanics; [triage.md](triage.md) owns tracker reconciliation.
+The [workspace policy](../../../AGENTS.md) governs branches, commits, signing,
+publication and merging; this file adds NeoCode-specific details.
+[pr-review-bots.md](pr-review-bots.md) owns review mechanics;
+[triage.md](triage.md) owns tracker reconciliation.
 
 ## Branches
 
 | Role               | Branch    | Local checkout                                    | Ships as                                                                                                                                 |
 | ------------------ | --------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | Default (promoted) | `main`    | Main repository checkout                          | Stable GitHub releases (see [Releases](#releases)); the desktop entry runs `apps/desktop/scripts/start-electron.mjs` from this checkout. |
-| Integration        | `nightly` | Topic worktree or a separate integration checkout | Built, installed and launch-checked after each merge or batch; source of owner-decided promotion.                                        |
+| Integration        | `nightly` | Topic worktree or a separate integration checkout | Nightly desktop application; source of owner-decided promotion. |
 
 - Topic branches: `git fetch origin && git worktree add ../neocode-wt-<slug> -b <type>/<slug> origin/nightly`.
 - PRs target `nightly`. `hotfix/` PRs target `main` and are followed by a PR merging `main` back into `nightly`.
@@ -18,20 +19,15 @@ mechanics; [triage.md](triage.md) owns tracker reconciliation.
 
 ## Nightly delivery
 
-`nightly` exists for the owner to use changes and give feedback. Her feedback,
-not CI or a review bot, decides whether a change stays.
+Follow [workspace Nightly delivery](../../../AGENTS.md#nightly-delivery) for merge
+eligibility, lockout-only canaries, artifact-changing rebuilds, installation,
+rollback retention, continuous intake, delegation and machine discipline;
+NeoCode's desktop application is built with
+`vp run build:desktop` and launched with `apps/desktop/scripts/start-electron.mjs`.
 
-- Merge at about 80% confidence that the change works; lower is acceptable. Record confidence in the merge note.
-- Use merge commits: `gh pr merge --merge`. Subject: `Merge PR #<number>: <conventional PR subject> (@<author>)`.
-- After every merge or batch, build and install the nightly application, then check that it launches. Failure to start blocks delivery; CI and test results do not.
-- Use the existing build/install and desktop launcher procedures; preserve private diagnostic state and process-ownership safety below. A proof session may hold the destination-scoped runtime install lock for at most ten minutes and releases it as soon as proof ends. Use [NeoPi #386](https://github.com/PsychedelicShayna/neopi/pull/386), with the same `NPI_DEST` for `hold`, `status`, `release` and installation; expired holds do not defer delivery. Do not invent a repository-local lock.
-- A changed base invalidates nothing. Merge the base into a topic branch only for an actual conflict, never to refresh or rebase.
-- A branch with commits gets a PR in the same turn it is declared done. Every opened PR merges; revert a wrong change through a PR rather than leaving it open.
-- The authoring agent merges into `nightly`. Promotion and hotfix merges into `main` belong to the owner.
+- Merge subjects read `Merge PR #<number>: <conventional PR subject> (@<author>)`.
+- Preserve private diagnostic state and process-ownership safety below. A proof session may hold the destination-scoped runtime install lock for at most ten minutes and releases it as soon as proof ends. Use [NeoPi #386](https://github.com/PsychedelicShayna/neopi/pull/386), with the same `NPI_DEST` for `hold`, `status`, `release` and installation; expired holds do not defer delivery. Do not invent a repository-local lock.
 - Contributor heads are never executed on the owner's machine; see [Running PR code](pr-review-bots.md#running-pr-code).
-
-Delegate any CI or review watching to a cheap poller and keep moving other
-actionable work. The integrator never waits for those results.
 
 ## CI
 
@@ -43,10 +39,8 @@ PR preview workflows use hosted runners too. The fork release lane packages
 Linux and unsigned Windows x64 on hosted runners. Upstream production mobile,
 publish, and manual Windows lanes retain their existing runners.
 
-CI and test suites never block `nightly`. Note suspected PR-caused failures in
-the merge note and fix them in a follow-up if they matter. Record observed
-evidence rather than require paired base/head runs. Checks still matter for
-promotion to `main`, which the owner decides.
+Follow [workspace Checks](../../../AGENTS.md#checks) for CI/test evidence and
+nightly merge decisions; promotion to NeoCode's `main` remains the owner's decision.
 
 Diagnostic startup must not outrun process ownership: establish the launcher's
 identity before permitting application descendants. Failed process discovery

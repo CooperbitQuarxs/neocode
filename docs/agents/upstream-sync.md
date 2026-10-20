@@ -6,7 +6,7 @@ RFC 2119 applies to MUST, REQUIRED, SHOULD, RECOMMENDED, MAY, OPTIONAL. `NEVER` 
 
 ## Invariants
 
-- MUST start from freshly fetched `origin/<default>` after every prerequisite PR has merged with checks and proof.
+- MUST start from freshly fetched `origin/<default>` after every prerequisite PR has merged under [Nightly delivery](policy.md#nightly-delivery).
 - MUST use the newest upstream stable release tag, not an arbitrary branch tip.
 - MUST preserve dirty work and local-ahead commits before integration.
 - MUST resolve conflicts personally, sequentially, one file at a time. NEVER delegate conflict resolution.
@@ -109,7 +109,7 @@ Verify from the integration worktree:
 
 - Targeted tests for every conflicted path (`vp test run <files>`), and the NeoPi-owned test suites.
 - Typecheck and lint for the touched packages. The full suite (`vp check`, `vpr typecheck`) is owned by CI.
-- Exercise the changed runtime path, headless: GUI or desktop launches only inside `xvfb-run -a`, never on the owner's display.
+- Exercise the changed runtime path under the [verification authorization](../../AGENTS.md#verifying); use the hidden `:10` Xvfb+i3 harness with private state, never the owner's display.
 
 Record exact commands, pass counts, failures, and any unavailable check in the PR. A failure may be classified as pre-existing only with evidence from the unmodified base or the upstream tag.
 
