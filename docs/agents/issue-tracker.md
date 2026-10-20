@@ -11,6 +11,23 @@ Issues and specs for this repo live in GitHub Issues at `PsychedelicShayna/neoco
 - Posting rules and authority are in [policy.md](policy.md). Read [triage.md](triage.md) for classification/reconciliation and [triage-labels.md](triage-labels.md) for vocabulary.
 - Upstream `AGENTS.md` still applies: implementation plans and scratch notes stay out of the worktree; the issue owns the checklist, the merged PR is the record.
 
+## Provenance
+
+When an issue or idea originates in the owner's spoken or written explanation,
+put a structured summary first, then preserve each message verbatim under
+`## Owner's words (verbatim)`, with each message in its own `<details>` block.
+For speech, transcribe it as dictated: do not clean it up. The verbatim words
+take precedence wherever they differ from the summary. Do not make a local file
+path the only source; readers outside the owner's machine must be able to read
+the words in the issue itself.
+
+This keeps the reasoning that produced the issue available to implementers and
+to anyone upstream who follows a link downstream. Trackers often preserve the
+decision while losing the thought process behind it.
+
+Examples: [NeoPi #443](https://github.com/PsychedelicShayna/neopi/issues/443)
+and [NeoPi #444](https://github.com/PsychedelicShayna/neopi/issues/444).
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.**
