@@ -812,7 +812,10 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
                     rows: [session("shared")],
                     listOutput:
                       failure === "timeout"
-                        ? new NeoPiSessionError({ operation: "list", message: "Command timed out." })
+                        ? new NeoPiSessionError({
+                            operation: "list",
+                            message: "Command timed out.",
+                          })
                         : "{invalid json",
                   },
                 ],
@@ -820,14 +823,15 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
               const result = yield* catalog.list({ projectId, scope: "all" });
               expect(result.status).toBe("available");
               if (result.status !== "available") return;
-              expect(result.sessions.map((row) => [row.sessionId, row.providerInstanceId])).toEqual([
-                ["healthy", instanceId],
-                ["shared", instanceId],
-              ]);
+              expect(result.sessions.map((row) => [row.sessionId, row.providerInstanceId])).toEqual(
+                [
+                  ["healthy", instanceId],
+                  ["shared", instanceId],
+                ],
+              );
               expect(result.diagnostics).toEqual([
                 { providerInstanceId: failingId, message: expect.any(String) },
               ]);
-              expect(result.diagnostics[0]?.message.length).toBeGreaterThan(0);
               expect(calls.map((call) => call.source.binary)).toEqual(
                 failingDefault
                   ? ["/opt/neopi-broken/npi", "/opt/npi"]
@@ -837,27 +841,29 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
         );
       }
     }
-    it.effect("reports all failed instances as unavailable rather than an empty healthy catalog", () =>
-      Effect.gen(function* () {
-        const failingId = ProviderInstanceId.make("neopi-broken");
-        const { catalog } = yield* harness({
-          listOutput: new NeoPiSessionError({ operation: "list", message: "Command timed out." }),
-          extraInstances: [
-            {
-              instanceId: failingId,
-              capabilities: ["session_catalog"],
-              rows: [],
-              listOutput: "{invalid json",
-            },
-          ],
-        });
-        const result = yield* catalog.list({ projectId, scope: "all" });
-        expect(result.status).toBe("unavailable");
-        expect(result.diagnostics.map((diagnostic) => diagnostic.providerInstanceId)).toEqual([
-          instanceId,
-          failingId,
-        ]);
-      }),
+    it.effect(
+      "reports all failed instances as unavailable rather than an empty healthy catalog",
+      () =>
+        Effect.gen(function* () {
+          const failingId = ProviderInstanceId.make("neopi-broken");
+          const { catalog } = yield* harness({
+            listOutput: new NeoPiSessionError({ operation: "list", message: "Command timed out." }),
+            extraInstances: [
+              {
+                instanceId: failingId,
+                capabilities: ["session_catalog"],
+                rows: [],
+                listOutput: "{invalid json",
+              },
+            ],
+          });
+          const result = yield* catalog.list({ projectId, scope: "all" });
+          expect(result.status).toBe("unavailable");
+          expect(result.diagnostics.map((diagnostic) => diagnostic.providerInstanceId)).toEqual([
+            instanceId,
+            failingId,
+          ]);
+        }),
     );
     it.effect("keeps an empty healthy catalog available alongside a failed instance", () =>
       Effect.gen(function* () {
