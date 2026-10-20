@@ -131,11 +131,16 @@ project defaults and saved selections are preserved.
 | NeoPi/OMP (oh-my-pi compatible) | On Linux, the NeoPi-enabled AppImage includes `npi`; elsewhere install the NeoPi `npi` CLI or a compatible `omp` CLI. Configure authentication in that CLI. |
 | Antigravity                     | Install and sign in with Google from T3 Code's provider settings.                                                                                           |
 
-NeoPi/OMP prefers `npi` on the server's PATH, then the `npi` bundled with the
-NeoPi-enabled Linux desktop app, then `omp` on PATH. A PATH `npi` overrides the
-bundled one. Set **Binary path** for a specific executable; a broken configured
-path never falls back to another installation. Set **Profile** to select an
-`OMP_PROFILE`.
+NeoPi/OMP automatically checks `npi-nightly`, then `npi`, the desktop app's bundled
+`npi` (when available), and `omp` for session-catalog support. A version string
+alone is not enough. The first capable executable's path is saved in
+**Settings → Providers → NeoPi/OMP**, with a visible automatic-selection note.
+Set **Binary path** to override it; explicit paths are never replaced or given a
+fallback. Clear the field or enter `npi` to select automatically again. Set
+**Profile** to select an `OMP_PROFILE`.
+For a bundled desktop executable, NeoCode records the selection but resolves its
+installation location again on startup, so an AppImage's changing mount path is
+not saved as an explicit override.
 T3 reads OAuth login status but cannot log you in; API-key and local models can
 work even when the card reports authentication as unknown. Model, thinking level,
 and fast mode are selected in the composer when the CLI advertises them. With a
