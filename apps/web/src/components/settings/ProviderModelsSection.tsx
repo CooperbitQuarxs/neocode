@@ -558,7 +558,22 @@ export function ProviderModelsSection({
         <LegendList
           ref={listRef}
           data={visibleModels}
-          extraData={editingSlug}
+          // Model objects can stay identical while their preferences or callbacks change.
+          extraData={{
+            editingSlug,
+            isFiltering,
+            favoriteModelSet,
+            hiddenModelSet,
+            visibleModels,
+            customModels,
+            builtInModels,
+            instanceId,
+            driverKind,
+            onChange,
+            onHiddenModelsChange,
+            onFavoriteModelsChange,
+            onModelOrderChange,
+          }}
           keyExtractor={(model) => model.slug}
           estimatedItemSize={28}
           drawDistance={160}
