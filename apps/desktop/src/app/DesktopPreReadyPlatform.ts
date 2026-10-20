@@ -11,7 +11,7 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 
 import * as DesktopEarlyElectronStartup from "./DesktopEarlyElectronStartup.ts";
 import { resolveDesktopAppBranding } from "./DesktopEnvironment.ts";
-import { renderUrlHandlerDesktopEntry } from "./DesktopLinuxUrlHandler.ts";
+import * as DesktopUrlRegistration from "./DesktopUrlRegistration.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 
 export interface DesktopPreReadyCommandLineReader {
@@ -45,6 +45,7 @@ export class DesktopPreReadyElectronOptions extends Context.Service<
   {
     readonly linux: DesktopEarlyElectronStartup.EarlyLinuxElectronOptions | null;
     readonly linuxPasswordStoreCommandLine: string | null;
+    readonly urlRegistration: DesktopUrlRegistration.DesktopUrlRegistration;
   }
 >()("@t3tools/desktop/app/DesktopPreReadyPlatform/DesktopPreReadyElectronOptions") {}
 
@@ -57,31 +58,55 @@ export const make = Effect.gen(function* () {
         ? readCommandLineSwitchValue(Electron.app.commandLine, "password-store")
         : null;
     const linux = platform === "linux" ? resolveEarlyLinuxElectronOptionsFromProcess() : null;
+    const urlRegistration = DesktopUrlRegistration.resolveDesktopUrlRegistration({
+      platform,
+      isPackaged: Electron.app.isPackaged,
+      isDevelopment: linux?.isDevelopment ?? Boolean(process.env.VITE_DEV_SERVER_URL?.trim()),
+      explicitRegistration: Electron.app.commandLine.hasSwitch("register-url-handler"),
+      execPath: process.execPath,
+      // In the bundled main process this is the actual launchable main.cjs.
+      // getAppPath may be only its containing directory for script launches.
+      appPath: Electron.app.isPackaged ? Electron.app.getAppPath() : __filename,
+      appImagePath: process.env.APPIMAGE?.trim() ?? "",
+      devServerUrl: process.env.VITE_DEV_SERVER_URL?.trim() ?? "",
+      passwordStore: linuxPasswordStoreCommandLine,
+    });
 
     if (linux !== null) {
       // The portal also requires a valid desktop entry. An AppImage update may
       // have removed the executable referenced by the previous launch's entry.
-      try {
-        const applicationsDir = NodePath.posix.join(
-          process.env.XDG_DATA_HOME?.trim() ||
-            NodePath.posix.join(NodeOS.homedir(), ".local", "share"),
-          "applications",
-        );
-        NodeFS.mkdirSync(applicationsDir, { recursive: true });
-        NodeFS.writeFileSync(
-          NodePath.posix.join(applicationsDir, linux.linuxDesktopEntryName),
-          renderUrlHandlerDesktopEntry({
+      if (urlRegistration.prepareEntry) {
+        try {
+          const applicationsDir = NodePath.posix.join(
+            process.env.XDG_DATA_HOME?.trim() ||
+              NodePath.posix.join(NodeOS.homedir(), ".local", "share"),
+            "applications",
+          );
+          const desktopEntryPath = NodePath.posix.join(
+            applicationsDir,
+            linux.linuxDesktopEntryName,
+          );
+          const content = DesktopUrlRegistration.renderUrlHandlerDesktopEntry({
             displayName: resolveDesktopAppBranding({
               isDevelopment: linux.isDevelopment,
               appVersion: Electron.app.getVersion(),
             }).displayName,
-            execTarget: process.env.APPIMAGE?.trim() || process.execPath,
-            scheme: ElectronProtocol.getDesktopScheme(linux.isDevelopment),
-          }),
-          "utf8",
-        );
-      } catch {
-        // The URL handler retries with the full environment and logs failures.
+            command: urlRegistration.command,
+            scheme: urlRegistration.scheme,
+          });
+          let existing: string | null = null;
+          try {
+            existing = NodeFS.readFileSync(desktopEntryPath, "utf8");
+          } catch {
+            /* First registration. */
+          }
+          if (existing !== content) {
+            NodeFS.mkdirSync(applicationsDir, { recursive: true });
+            NodeFS.writeFileSync(desktopEntryPath, content, "utf8");
+          }
+        } catch {
+          // The URL handler retries with the full environment and logs failures.
+        }
       }
       // Chromium caches its portal registration during startup. Set the identity
       // before any asynchronous work can initialize it with Electron's default.
@@ -92,7 +117,7 @@ export const make = Effect.gen(function* () {
       }
     }
 
-    return { linux, linuxPasswordStoreCommandLine };
+    return { linux, linuxPasswordStoreCommandLine, urlRegistration };
   });
 }).pipe(Effect.withSpan("desktop.electron.configureBeforeReady"));
 

@@ -2,255 +2,219 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
-
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopLinuxUrlHandler from "./DesktopLinuxUrlHandler.ts";
+import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
+import {
+  resolveDesktopUrlRegistration,
+  renderUrlHandlerDesktopEntry,
+} from "./DesktopUrlRegistration.ts";
 
-interface RecordedRegistration {
-  readonly directories: string[];
-  readonly files: Array<{ readonly path: string; readonly content: string }>;
-  readonly commands: Array<{ readonly command: string; readonly args: ReadonlyArray<string> }>;
-}
-
-const makeEnvironment = (overrides: Record<string, unknown> = {}) =>
-  DesktopEnvironment.DesktopEnvironment.of({
-    platform: "linux",
-    isPackaged: true,
-    isDevelopment: false,
-    displayName: "T3 Code (Alpha)",
-    linuxDesktopEntryName: "com.t3tools.T3Code.desktop",
-    linuxWmClass: "t3code",
-    linuxApplicationsDir: "/home/alice/.local/share/applications",
-    appImagePath: Option.some("/home/alice/Applications/T3-Code.AppImage"),
-    path: { join: (...parts: ReadonlyArray<string>) => parts.join("/") },
-    ...overrides,
-  } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]);
-
-const mockProcess = (exitCode: number) =>
-  ChildProcessSpawner.makeHandle({
-    pid: ChildProcessSpawner.ProcessId(1),
-    exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(exitCode)),
-    isRunning: Effect.succeed(false),
-    kill: () => Effect.void,
-    unref: Effect.succeed(Effect.void),
-    stdin: Sink.drain,
-    stdout: Stream.empty,
-    stderr: Stream.empty,
-    all: Stream.empty,
-    getInputFd: () => Sink.drain,
-    getOutputFd: () => Stream.empty,
-  });
-
-const makeHandlerLayer = (
-  recorded: RecordedRegistration,
+const makeFixture = (
   input: {
-    readonly environment?: Record<string, unknown>;
-    readonly xdgMimeExitCode?: number;
-    readonly writeError?: PlatformError.PlatformError;
-    readonly existingEntry?: string;
+    packaged?: boolean;
+    explicit?: boolean;
+    development?: boolean;
+    existing?: string;
+    configuredDefault?: string;
+    failWrite?: boolean;
+    defaultExit?: number;
   } = {},
-) =>
-  DesktopLinuxUrlHandler.layer.pipe(
+) => {
+  const files: Array<{ path: string; content: string }> = [];
+  const directories: string[] = [];
+  const commands: Array<{ command: string; args: readonly string[] }> = [];
+  const registration = resolveDesktopUrlRegistration({
+    platform: "linux",
+    isPackaged: input.packaged ?? true,
+    explicitRegistration: input.explicit ?? false,
+    isDevelopment: input.development ?? false,
+    execPath: "/transient/.mount_neocode/electron",
+    appPath: "/source/apps/desktop/dist-electron/main.cjs",
+    appImagePath: "/Applications/Neo Code.AppImage",
+  });
+  const name = input.development
+    ? "com.t3tools.T3Code.Development.desktop"
+    : "com.t3tools.T3Code.desktop";
+  const environment = DesktopEnvironment.DesktopEnvironment.of({
+    platform: "linux",
+    isPackaged: input.packaged ?? true,
+    displayName: "NeoCode",
+    linuxApplicationsDir: "/xdg/applications",
+    linuxDesktopEntryName: name,
+    appDataDirectory: "/xdg-config",
+    path: { join: (...parts: string[]) => parts.join("/") },
+  } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]);
+  const layer = DesktopLinuxUrlHandler.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
-        Layer.succeed(DesktopEnvironment.DesktopEnvironment, makeEnvironment(input.environment)),
+        Layer.succeed(DesktopEnvironment.DesktopEnvironment, environment),
+        Layer.succeed(DesktopPreReadyPlatform.DesktopPreReadyElectronOptions, {
+          linux: null,
+          linuxPasswordStoreCommandLine: null,
+          urlRegistration: registration,
+        }),
         FileSystem.layerNoop({
-          readFileString: () => Effect.succeed(input.existingEntry ?? ""),
+          readFileString: (path) =>
+            Effect.succeed(
+              path.endsWith("mimeapps.list")
+                ? (input.configuredDefault ?? "")
+                : (input.existing ?? ""),
+            ),
           makeDirectory: (path) =>
             Effect.sync(() => {
-              recorded.directories.push(path);
+              directories.push(path);
             }),
           writeFileString: (path, content) =>
-            input.writeError
-              ? Effect.fail(input.writeError)
+            input.failWrite
+              ? Effect.fail(
+                  PlatformError.systemError({
+                    _tag: "PermissionDenied",
+                    module: "FileSystem",
+                    method: "writeFileString",
+                    pathOrDescriptor: path,
+                    description: "read-only filesystem",
+                  }),
+                )
               : Effect.sync(() => {
-                  recorded.files.push({ path, content });
+                  files.push({ path, content });
                 }),
         }),
         Layer.succeed(
           ChildProcessSpawner.ChildProcessSpawner,
           ChildProcessSpawner.make((command) => {
-            const childProcess = command as unknown as {
-              readonly command: string;
-              readonly args: ReadonlyArray<string>;
-            };
-            recorded.commands.push({
-              command: childProcess.command,
-              args: childProcess.args,
-            });
-            return Effect.succeed(mockProcess(input.xdgMimeExitCode ?? 0));
+            const child = command as unknown as { command: string; args: readonly string[] };
+            commands.push(child);
+            return Effect.succeed(
+              ChildProcessSpawner.makeHandle({
+                pid: ChildProcessSpawner.ProcessId(1),
+                exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(input.defaultExit ?? 0)),
+                isRunning: Effect.succeed(false),
+                kill: () => Effect.void,
+                unref: Effect.succeed(Effect.void),
+                stdin: Sink.drain,
+                stdout: Stream.empty,
+                stderr: Stream.empty,
+                all: Stream.empty,
+                getInputFd: () => Sink.drain,
+                getOutputFd: () => Stream.empty,
+              }),
+            );
           }),
         ),
       ),
     ),
   );
-
-const runRegister = (
-  recorded: RecordedRegistration,
-  input: Parameters<typeof makeHandlerLayer>[1] = {},
-) =>
-  Effect.gen(function* () {
-    const handler = yield* DesktopLinuxUrlHandler.DesktopLinuxUrlHandler;
-    yield* handler.register;
-  }).pipe(Effect.provide(makeHandlerLayer(recorded, input)));
-
-const emptyRecording = (): RecordedRegistration => ({
-  directories: [],
-  files: [],
-  commands: [],
-});
+  return {
+    files,
+    directories,
+    commands,
+    registration,
+    run: Effect.gen(function* () {
+      const handler = yield* DesktopLinuxUrlHandler.DesktopLinuxUrlHandler;
+      yield* handler.register;
+    }).pipe(Effect.provide(layer)),
+  };
+};
 
 describe("DesktopLinuxUrlHandler", () => {
-  it("renders a scheme-handler desktop entry with freedesktop Exec quoting", () => {
-    const entry = DesktopLinuxUrlHandler.renderUrlHandlerDesktopEntry({
-      displayName: "T3 Code (Nightly)",
-      execTarget: '/home/al ice/Apps/T3 "100%" $HOME\\x.AppImage',
-      scheme: "t3code",
-    });
-
-    assert.include(entry, "[Desktop Entry]");
-    assert.include(entry, "Name=T3 Code (Nightly)");
-    // Exec composes both escaping layers: a literal backslash becomes four
-    // backslashes in the file, a quote three characters, a dollar sign two
-    // backslashes plus the sign.
-    assert.include(
-      entry,
-      'Exec="/home/al ice/Apps/T3 \\\\"100%%\\\\" \\\\$HOME\\\\\\\\x.AppImage" %U',
-    );
-    assert.include(entry, "NoDisplay=true");
-    assert.notInclude(entry, "StartupWMClass=");
-    assert.include(entry, "MimeType=x-scheme-handler/t3code;");
-  });
-
-  it("carries structured context on registration errors", () => {
-    const writeError = new DesktopLinuxUrlHandler.DesktopLinuxUrlHandlerRegistrationError({
-      step: "write-desktop-entry",
-      scheme: "t3code",
-      desktopEntryPath: "/home/alice/.local/share/applications/com.t3tools.T3Code.desktop",
-      cause: new Error("boom"),
-    });
-    assert.equal(
-      writeError.message,
-      "Failed to register the t3code:// URL handler (step: write-desktop-entry).",
-    );
-    assert.equal(
-      writeError.desktopEntryPath,
-      "/home/alice/.local/share/applications/com.t3tools.T3Code.desktop",
-    );
-
-    const exitError = new DesktopLinuxUrlHandler.DesktopLinuxUrlHandlerRegistrationError({
-      step: "set-default-handler",
-      scheme: "t3code",
-      exitCode: 4,
-    });
-    assert.equal(
-      exitError.message,
-      "Failed to register the t3code:// URL handler (step: set-default-handler, xdg-mime exit code 4).",
-    );
-  });
-
-  it.effect("writes the handler entry and claims the scheme default via xdg-mime", () => {
-    const recorded = emptyRecording();
-
+  it.effect("preserves installed metadata and defaults on ordinary source startup", () => {
+    const fixture = makeFixture({ packaged: false, existing: "valid installed packaged owner" });
     return Effect.gen(function* () {
-      yield* runRegister(recorded);
+      yield* fixture.run;
+      yield* fixture.run;
+      assert.deepEqual(fixture.files, []);
+      assert.deepEqual(fixture.directories, []);
+      assert.deepEqual(fixture.commands, []);
+    });
+  });
 
-      assert.deepEqual(recorded.directories, ["/home/alice/.local/share/applications"]);
-      assert.equal(recorded.files.length, 1);
-      assert.equal(
-        recorded.files[0]?.path,
-        "/home/alice/.local/share/applications/com.t3tools.T3Code.desktop",
+  it.effect("registers the stable packaged command", () => {
+    const fixture = makeFixture();
+    return Effect.gen(function* () {
+      yield* fixture.run;
+      assert.equal(fixture.files[0]?.path, "/xdg/applications/com.t3tools.T3Code.desktop");
+      assert.include(fixture.files[0]?.content, '"/Applications/Neo Code.AppImage"');
+      assert.notInclude(fixture.files[0]?.content, "/transient/");
+      assert.deepEqual(
+        fixture.commands.map(({ command }) => command),
+        ["xdg-mime"],
       );
-      assert.include(
-        recorded.files[0]?.content,
-        'Exec="/home/alice/Applications/T3-Code.AppImage" %U',
-      );
-      assert.include(recorded.files[0]?.content, "MimeType=x-scheme-handler/t3code;");
-      assert.deepEqual(recorded.commands, [
-        {
-          command: "xdg-mime",
-          args: ["default", "com.t3tools.T3Code.desktop", "x-scheme-handler/t3code"],
-        },
+      assert.deepEqual(fixture.commands[0]?.args, [
+        "default",
+        "com.t3tools.T3Code.desktop",
+        "x-scheme-handler/t3code",
       ]);
     });
   });
 
-  it.effect("falls back to the process executable outside an AppImage", () => {
-    const recorded = emptyRecording();
-
+  it.effect("explicitly registers the full source app, not bare Electron", () => {
+    const fixture = makeFixture({ packaged: false, explicit: true });
     return Effect.gen(function* () {
-      yield* runRegister(recorded, { environment: { appImagePath: Option.none() } });
-
-      assert.include(
-        recorded.files[0]?.content,
-        `Exec=${DesktopLinuxUrlHandler.escapeDesktopEntryExecArgument(process.execPath)} %U`,
-      );
+      yield* fixture.run;
+      assert.include(fixture.files[0]?.content, '"/source/apps/desktop/dist-electron/main.cjs" %U');
+      assert.equal(fixture.commands.at(-1)?.command, "xdg-mime");
     });
   });
 
-  it.effect("does not rewrite the pre-ready entry while the portal can be reading it", () => {
-    const recorded = emptyRecording();
-
+  it.effect("keeps explicit development registration separate", () => {
+    const fixture = makeFixture({ packaged: false, explicit: true, development: true });
     return Effect.gen(function* () {
-      yield* runRegister(recorded, {
-        existingEntry: DesktopLinuxUrlHandler.renderUrlHandlerDesktopEntry({
-          displayName: "T3 Code (Alpha)",
-          execTarget: "/home/alice/Applications/T3-Code.AppImage",
-          scheme: "t3code",
-        }),
-      });
-
-      assert.deepEqual(recorded.files, []);
-      assert.deepEqual(recorded.directories, []);
-      assert.equal(recorded.commands.length, 1);
-    });
-  });
-
-  it.effect("writes the portal identity without claiming the URL scheme in development", () => {
-    const nonLinux = emptyRecording();
-    const unpackaged = emptyRecording();
-
-    return Effect.gen(function* () {
-      yield* runRegister(nonLinux, { environment: { platform: "darwin" } });
-      yield* runRegister(unpackaged, {
-        environment: {
-          isPackaged: false,
-          linuxDesktopEntryName: "com.t3tools.T3Code.Development.desktop",
-        },
-      });
-
-      assert.deepEqual(nonLinux.files, []);
+      yield* fixture.run;
       assert.equal(
-        unpackaged.files[0]?.path,
-        "/home/alice/.local/share/applications/com.t3tools.T3Code.Development.desktop",
+        fixture.files[0]?.path,
+        "/xdg/applications/com.t3tools.T3Code.Development.desktop",
       );
-      assert.deepEqual(unpackaged.commands, []);
+      assert.deepEqual(fixture.commands.at(-1)?.args, [
+        "default",
+        "com.t3tools.T3Code.Development.desktop",
+        "x-scheme-handler/t3code-dev",
+      ]);
     });
   });
 
-  it.effect("never fails startup when registration cannot complete", () => {
-    const xdgMimeFailed = emptyRecording();
-    const writeFailed = emptyRecording();
-
+  it.effect("prepares only the separate development portal identity on normal dev startup", () => {
+    const fixture = makeFixture({ packaged: false, development: true });
     return Effect.gen(function* () {
-      yield* runRegister(xdgMimeFailed, { xdgMimeExitCode: 1 });
-      yield* runRegister(writeFailed, {
-        writeError: PlatformError.systemError({
-          _tag: "PermissionDenied",
-          module: "FileSystem",
-          method: "writeFileString",
-          description: "read-only filesystem",
-          pathOrDescriptor: "/home/alice/.local/share/applications/com.t3tools.T3Code.desktop",
-        }),
-      });
-
-      assert.equal(xdgMimeFailed.files.length, 1);
-      assert.deepEqual(writeFailed.commands, []);
+      yield* fixture.run;
+      assert.equal(
+        fixture.files[0]?.path,
+        "/xdg/applications/com.t3tools.T3Code.Development.desktop",
+      );
+      assert.include(fixture.files[0]?.content, "MimeType=x-scheme-handler/t3code-dev;");
+      assert.deepEqual(fixture.commands, []);
     });
   });
+
+  it.effect("does not rewrite unchanged pre-ready metadata or an existing default", () => {
+    const seed = makeFixture();
+    const fixture = makeFixture({
+      configuredDefault:
+        "[Default Applications]\nx-scheme-handler/t3code=com.t3tools.T3Code.desktop;\n",
+      existing: renderUrlHandlerDesktopEntry({
+        displayName: "NeoCode",
+        command: seed.registration.command,
+        scheme: "t3code",
+      }),
+    });
+    return Effect.gen(function* () {
+      yield* fixture.run;
+      assert.deepEqual(fixture.files, []);
+      assert.deepEqual(fixture.directories, []);
+      assert.deepEqual(fixture.commands, []);
+    });
+  });
+
+  it.effect("keeps default and file errors nonfatal", () =>
+    Effect.gen(function* () {
+      yield* makeFixture({ defaultExit: 1 }).run;
+      const write = makeFixture({ failWrite: true });
+      yield* write.run;
+      assert.deepEqual(write.commands, []);
+    }),
+  );
 });

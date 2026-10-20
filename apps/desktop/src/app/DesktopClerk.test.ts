@@ -28,6 +28,8 @@ import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopClerk from "./DesktopClerk.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
+import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
+import { resolveDesktopUrlRegistration } from "./DesktopUrlRegistration.ts";
 
 const makeDesktopClerkLayer = (isDevelopment = true, events: string[] = []) => {
   const environment = DesktopEnvironment.DesktopEnvironment.of({
@@ -51,6 +53,18 @@ const makeDesktopClerkLayer = (isDevelopment = true, events: string[] = []) => {
       Layer.mergeAll(
         Layer.succeed(DesktopEnvironment.DesktopEnvironment, environment),
         Layer.succeed(ElectronApp.ElectronApp, electronApp),
+        Layer.succeed(DesktopPreReadyPlatform.DesktopPreReadyElectronOptions, {
+          linux: null,
+          linuxPasswordStoreCommandLine: null,
+          urlRegistration: resolveDesktopUrlRegistration({
+            platform: "darwin",
+            isDevelopment,
+            isPackaged: false,
+            explicitRegistration: false,
+            execPath: "/electron",
+            appPath: "/app",
+          }),
+        }),
         FileSystem.layerNoop({ exists: () => Effect.succeed(false) }),
       ),
     ),

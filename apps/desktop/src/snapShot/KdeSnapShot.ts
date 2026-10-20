@@ -8,7 +8,7 @@ import * as NodeURL from "node:url";
 import * as Schema from "effect/Schema";
 import type { DesktopCaptureHelperState } from "@t3tools/contracts";
 
-import { escapeDesktopEntryExecArgument } from "../app/DesktopLinuxUrlHandler.ts";
+import { escapeDesktopEntryExecArgument } from "../app/DesktopUrlRegistration.ts";
 import type { LinuxWindowSnapshot } from "./LinuxSnapShot.ts";
 import { readPortalPng } from "./linuxCaptureSession.ts";
 import { startNativeCaptureFeedback } from "./NativeCaptureFeedback.ts";
