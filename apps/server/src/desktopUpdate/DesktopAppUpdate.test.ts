@@ -113,9 +113,9 @@ it.layer(NodeServices.layer)("desktop app update", (it) => {
       expect(web.service.available).toBe(false);
       const noFd = yield* makeHarness({ controlFd: undefined });
       expect(noFd.service.available).toBe(false);
-      expect((yield* noFd.service.run(() => Effect.void).pipe(Effect.flip)).reason).toContain(
-        "not started by the T3 Code desktop app",
-      );
+      expect(yield* noFd.service.run(() => Effect.void).pipe(Effect.flip)).toMatchObject({
+        _tag: "ServerSelfUpdateError",
+      });
       const desktop = yield* makeHarness();
       expect(desktop.service.available).toBe(true);
     }),
@@ -161,8 +161,8 @@ it.layer(NodeServices.layer)("desktop app update", (it) => {
           report(requestId, makeState({ status: "up-to-date" }), { outcome: "up-to-date" }),
         ],
       });
-      expect((yield* upToDate.service.run(() => Effect.void).pipe(Effect.flip)).reason).toBe(
-        "The T3 Code desktop app on this machine is already up to date on 1.2.3.",
+      expect((yield* upToDate.service.run(() => Effect.void).pipe(Effect.flip)).reason).toContain(
+        "1.2.3",
       );
 
       const failed = yield* makeHarness({

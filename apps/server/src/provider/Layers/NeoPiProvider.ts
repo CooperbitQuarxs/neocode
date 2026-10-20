@@ -128,7 +128,7 @@ export const buildInitialNeoPiProviderSnapshot = (settings: NeoPiSettings) =>
           : {
               installed: false,
               status: "warning",
-              message: "NeoPi/OMP is disabled in T3 Code settings.",
+              message: "NeoPi/OMP is disabled in app settings.",
             },
       ),
     ),

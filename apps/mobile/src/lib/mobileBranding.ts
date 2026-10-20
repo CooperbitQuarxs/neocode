@@ -1,3 +1,5 @@
+export const APP_BASE_NAME = "NeoCode";
+
 export type MobileStageLabel = "Alpha" | "Dev" | "Nightly";
 
 export function resolveMobileStageLabel(appVariant: unknown): MobileStageLabel {

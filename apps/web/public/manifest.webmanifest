@@ -1,4 +1,6 @@
 {
+  "name": "NeoCode",
+  "short_name": "NeoCode",
   "id": "/",
   "start_url": "/",
   "scope": "/",
