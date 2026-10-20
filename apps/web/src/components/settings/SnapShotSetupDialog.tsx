@@ -30,8 +30,7 @@ const SETUP_STEPS = [
 const GNOME_ACCESS_COPY = {
   "not-installed": {
     title: "Install the extension",
-    description:
-      `The ${APP_BASE_NAME} GNOME extension lets you capture other windows and bring them into your draft. Sign out once after installing.`,
+    description: `The ${APP_BASE_NAME} GNOME extension lets you capture other windows and bring them into your draft. Sign out once after installing.`,
   },
   "restart-required": {
     title: "Extension installed",
@@ -174,8 +173,7 @@ export function SnapShotSetupDialog({
                     helper?.status === "update-required"
                       ? "Update the capture helper"
                       : "Allow snapshots",
-                  description:
-                    `${APP_BASE_NAME}'s capture helper lets you capture other apps and return to your draft. It's included with ${APP_BASE_NAME}.`,
+                  description: `${APP_BASE_NAME}'s capture helper lets you capture other apps and return to your draft. It's included with ${APP_BASE_NAME}.`,
                 }
           : backend === "niri"
             ? {

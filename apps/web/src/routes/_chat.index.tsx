@@ -142,7 +142,8 @@ function HostedStaticOnboardingState() {
               </div>
               <EmptyTitle>Connect to a computer running {APP_BASE_NAME}</EmptyTitle>
               <EmptyDescription>
-                This app connects to {APP_BASE_NAME} running on your computer or a server. Start the {APP_BASE_NAME}
+                This app connects to {APP_BASE_NAME} running on your computer or a server. Start the{" "}
+                {APP_BASE_NAME}
                 desktop app or command-line server on that machine and keep it running.
               </EmptyDescription>
               <EmptyDescription>{description}</EmptyDescription>

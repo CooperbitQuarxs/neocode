@@ -103,7 +103,11 @@ export class DesktopAppActivationBroker {
 
   cancel(requestId: string): void {
     this.#settle(
-      failure(requestId, "renderer-unavailable", "The command closed before the desktop app was ready."),
+      failure(
+        requestId,
+        "renderer-unavailable",
+        "The command closed before the desktop app was ready.",
+      ),
     );
   }
 
@@ -112,7 +116,11 @@ export class DesktopAppActivationBroker {
     this.#renderer = null;
     for (const pending of this.#pending.values()) {
       this.#settle(
-        failure(pending.request.requestId, "renderer-unavailable", "The desktop app is shutting down."),
+        failure(
+          pending.request.requestId,
+          "renderer-unavailable",
+          "The desktop app is shutting down.",
+        ),
       );
     }
   }

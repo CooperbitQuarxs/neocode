@@ -316,7 +316,8 @@ export function SnapShotSettings() {
     try {
       if (state?.macPermissions) {
         saveSnapShotSetupResume(wizard?.wasEnabled ?? settings.snapShotEnabled);
-        if (!bridge?.setupSnapShot) throw new Error(`Restart ${APP_BASE_NAME} to finish capture setup.`);
+        if (!bridge?.setupSnapShot)
+          throw new Error(`Restart ${APP_BASE_NAME} to finish capture setup.`);
         await bridge.setupSnapShot("test-mac-capture");
       }
       if (state?.mode === "direct")

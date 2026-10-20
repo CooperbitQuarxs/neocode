@@ -253,8 +253,7 @@ const config: ExpoConfig = {
       NSAppTransportSecurity: {
         NSAllowsArbitraryLoads: true,
       },
-      NSLocalNetworkUsageDescription:
-        `Allow ${APP_BASE_NAME} to connect to servers on your local network or tailnet.`,
+      NSLocalNetworkUsageDescription: `Allow ${APP_BASE_NAME} to connect to servers on your local network or tailnet.`,
       NSPhotoLibraryAddUsageDescription: `Allow ${APP_BASE_NAME} to save images to your photo library.`,
       ITSAppUsesNonExemptEncryption: false,
       // The App Store screenshot harness rotates the iPad interface from

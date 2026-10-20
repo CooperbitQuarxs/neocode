@@ -270,7 +270,6 @@ describe("desktop update UI helpers", () => {
       }),
     ).not.toMatch(/\bnull\b|\bundefined\b/);
   });
-
 });
 
 describe("canCheckForUpdate", () => {
