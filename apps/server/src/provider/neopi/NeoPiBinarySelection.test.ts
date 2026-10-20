@@ -57,7 +57,7 @@ describe("NeoPi executable selection persistence", () => {
       providerInstances: {
         [instanceId]: {
           ...before.providerInstances[instanceId],
-          environment: [{ name: "PATH", value: "/other/bin" }],
+          environment: [{ name: "PATH", value: "/other/bin", sensitive: false }],
         },
       },
     };
