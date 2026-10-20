@@ -184,9 +184,9 @@ export const resolveNeoPiBinary = Effect.fn("resolveNeoPiBinary")(function* (
               : [""];
           const roots = NodePath.isAbsolute(candidate)
             ? [candidate]
-            : (environment.PATH ?? "").split(NodePath.delimiter).map((directory) =>
-                NodePath.resolve(cwd, directory, candidate),
-              );
+            : (environment.PATH ?? "")
+                .split(NodePath.delimiter)
+                .map((directory) => NodePath.resolve(cwd, directory, candidate));
           for (const root of roots) {
             for (const extension of extensions) {
               const path = root + extension;
@@ -209,14 +209,13 @@ export const resolveNeoPiBinary = Effect.fn("resolveNeoPiBinary")(function* (
       Result.isSuccess(probe) && Option.isSome(probe.success) && probe.success.value.code === 0
         ? parseGenericCliVersion(probe.success.value.stdout + probe.success.value.stderr)
         : null;
-    let error =
-      Result.isSuccess(probe)
-        ? Option.isNone(probe.success)
-          ? "version probe timed out"
-          : probe.success.value.code === 0
-            ? null
-            : `version probe exited ${probe.success.value.code}`
-        : String(probe.failure);
+    let error = Result.isSuccess(probe)
+      ? Option.isNone(probe.success)
+        ? "version probe timed out"
+        : probe.success.value.code === 0
+          ? null
+          : `version probe exited ${probe.success.value.code}`
+      : String(probe.failure);
     if (!useDefaultSearch) return { binary, version, error, autoSelected: false, bundled: false };
     if (!error) {
       const capability = yield* Effect.scoped(
@@ -225,27 +224,38 @@ export const resolveNeoPiBinary = Effect.fn("resolveNeoPiBinary")(function* (
             spawn: spawner.spawn,
             command: binary,
             args: [
-              "--mode", "rpc-ui", "--cwd", cwd, "--no-session", "--no-tools",
-              "--no-extensions", "--no-skills", "--no-rules", "--no-title",
+              "--mode",
+              "rpc-ui",
+              "--cwd",
+              cwd,
+              "--no-session",
+              "--no-tools",
+              "--no-extensions",
+              "--no-skills",
+              "--no-rules",
+              "--no-title",
             ],
             cwd,
             env: environment,
             requestTimeoutMs: 30_000,
           });
           return (
-            neopiCompatibility(client.ready, client.capabilities.has("v2")).status === "supported" &&
-            client.capabilities.has(NEOPI_CAPABILITIES.sessionCatalog)
+            neopiCompatibility(client.ready, client.capabilities.has("v2")).status ===
+              "supported" && client.capabilities.has(NEOPI_CAPABILITIES.sessionCatalog)
           );
         }),
       ).pipe(Effect.timeoutOption(HANDSHAKE_TIMEOUT), Effect.result);
-      if (Result.isSuccess(capability) && Option.isSome(capability.success) && capability.success.value)
+      if (
+        Result.isSuccess(capability) &&
+        Option.isSome(capability.success) &&
+        capability.success.value
+      )
         return { binary, version, error: null, autoSelected: true, bundled: candidate === bundled };
-      error =
-        Result.isFailure(capability)
-          ? `session_catalog probe failed: ${String(capability.failure)}`
-          : Option.isNone(capability.success)
-            ? "session_catalog probe timed out"
-            : "missing protocol v2 or session_catalog capability";
+      error = Result.isFailure(capability)
+        ? `session_catalog probe failed: ${String(capability.failure)}`
+        : Option.isNone(capability.success)
+          ? "session_catalog probe timed out"
+          : "missing protocol v2 or session_catalog capability";
     }
     failures.push(`${candidate}: ${error}`);
   }

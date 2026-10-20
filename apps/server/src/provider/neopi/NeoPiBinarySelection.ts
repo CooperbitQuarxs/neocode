@@ -14,7 +14,10 @@ export function neoPiBinarySelectionPatch(
   if (instance) {
     if (instance.driver !== "neopi") return null;
     const config = instance.config;
-    if (config !== undefined && (config === null || typeof config !== "object" || Array.isArray(config)))
+    if (
+      config !== undefined &&
+      (config === null || typeof config !== "object" || Array.isArray(config))
+    )
       return null;
     const fields = (config ?? {}) as Record<string, unknown>;
     if (bundled && fields.autoSelectedBinaryPath === binary) return null;
@@ -35,7 +38,8 @@ export function neoPiBinarySelectionPatch(
     };
   }
   if (instanceId !== "neopi") return null;
-  if (JSON.stringify(before.providers.neopi) !== JSON.stringify(current.providers.neopi)) return null;
+  if (JSON.stringify(before.providers.neopi) !== JSON.stringify(current.providers.neopi))
+    return null;
   const configured = current.providers.neopi.binaryPath;
   if (configured && configured !== "npi") return null;
   if (bundled && current.providers.neopi.autoSelectedBinaryPath === binary) return null;

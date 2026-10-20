@@ -155,17 +155,21 @@ it.live(
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
 );
-it.live("selects a capable nightly before stale npi regardless of PATH entry order", () =>
-  Effect.gen(function* () {
-    const root = NodePath.join(NodeOS.homedir(), ".cache", "npi-canary");
-    NodeFS.mkdirSync(root, { recursive: true });
-    const dir = NodeFS.mkdtempSync(NodePath.join(root, "neopi-selection-"));
-    const stableDir = NodePath.join(dir, "stable");
-    const nightlyDir = NodePath.join(dir, "nightly");
-    NodeFS.mkdirSync(stableDir);
-    NodeFS.mkdirSync(nightlyDir);
-    const writePeer = (path: string, capable: boolean) =>
-      NodeFS.writeFileSync(path, `#!${process.execPath}
+it.live(
+  "selects a capable nightly before stale npi regardless of PATH entry order",
+  () =>
+    Effect.gen(function* () {
+      const root = NodePath.join(NodeOS.homedir(), ".cache", "npi-canary");
+      NodeFS.mkdirSync(root, { recursive: true });
+      const dir = NodeFS.mkdtempSync(NodePath.join(root, "neopi-selection-"));
+      const stableDir = NodePath.join(dir, "stable");
+      const nightlyDir = NodePath.join(dir, "nightly");
+      NodeFS.mkdirSync(stableDir);
+      NodeFS.mkdirSync(nightlyDir);
+      const writePeer = (path: string, capable: boolean) =>
+        NodeFS.writeFileSync(
+          path,
+          `#!${process.execPath}
 if (process.argv.includes("--version")) { console.log("npi v1.2.3"); process.exit(0); }
 const send = (frame) => console.log(JSON.stringify(frame));
 require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
@@ -176,59 +180,69 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
 send({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1,2],
   maxFrameBytes: 1048576, maxReassembledFrameBytes: 67108864,
   capabilities: ${JSON.stringify(capable ? ["session_catalog"] : [])} });
-`, { mode: 0o755 });
-    try {
-      const stable = NodePath.join(stableDir, "npi");
-      const nightly = NodePath.join(nightlyDir, "npi-nightly");
-      writePeer(stable, false);
-      writePeer(nightly, true);
-      const env = { PATH: [stableDir, nightlyDir].join(NodePath.delimiter) };
-      const selected = yield* resolveNeoPiBinary({ binaryPath: "npi" }, env, dir);
-      assert.equal(selected?.binary, nightly);
-      assert.equal(selected?.version, "1.2.3");
-      assert.equal(selected?.error, null);
-      assert.equal(selected?.autoSelected, true);
+`,
+          { mode: 0o755 },
+        );
+      try {
+        const stable = NodePath.join(stableDir, "npi");
+        const nightly = NodePath.join(nightlyDir, "npi-nightly");
+        writePeer(stable, false);
+        writePeer(nightly, true);
+        const env = { PATH: [stableDir, nightlyDir].join(NodePath.delimiter) };
+        const selected = yield* resolveNeoPiBinary({ binaryPath: "npi" }, env, dir);
+        assert.equal(selected?.binary, nightly);
+        assert.equal(selected?.version, "1.2.3");
+        assert.equal(selected?.error, null);
+        assert.equal(selected?.autoSelected, true);
 
-      // Explicit choices are not capability-filtered or rewritten.
-      const explicit = yield* resolveNeoPiBinary({ binaryPath: stable }, env, dir);
-      assert.equal(explicit?.binary, stable);
-      assert.equal(explicit?.autoSelected, false);
-      assert.equal(explicit?.error, null);
+        // Explicit choices are not capability-filtered or rewritten.
+        const explicit = yield* resolveNeoPiBinary({ binaryPath: stable }, env, dir);
+        assert.equal(explicit?.binary, stable);
+        assert.equal(explicit?.autoSelected, false);
+        assert.equal(explicit?.error, null);
 
-      writePeer(stable, true);
-      writePeer(nightly, false);
-      assert.equal((yield* resolveNeoPiBinary({ binaryPath: "" }, env, dir))?.binary, stable);
-      NodeFS.unlinkSync(nightly);
-      assert.equal((yield* resolveNeoPiBinary({ binaryPath: "npi" }, env, dir))?.binary, stable);
+        writePeer(stable, true);
+        writePeer(nightly, false);
+        assert.equal((yield* resolveNeoPiBinary({ binaryPath: "" }, env, dir))?.binary, stable);
+        NodeFS.unlinkSync(nightly);
+        assert.equal((yield* resolveNeoPiBinary({ binaryPath: "npi" }, env, dir))?.binary, stable);
 
-      // A failing candidate must not hide a later capable executable.
-      NodeFS.writeFileSync(nightly, "#!/bin/sh\nexit 17\n", { mode: 0o755 });
-      assert.equal((yield* resolveNeoPiBinary({ binaryPath: "npi" }, env, dir))?.binary, stable);
-      NodeFS.writeFileSync(nightly, `#!${process.execPath}\nsetInterval(() => {}, 1000);\n`, { mode: 0o755 });
-      assert.equal((yield* resolveNeoPiBinary({ binaryPath: "npi" }, env, dir))?.binary, stable);
+        // A failing candidate must not hide a later capable executable.
+        NodeFS.writeFileSync(nightly, "#!/bin/sh\nexit 17\n", { mode: 0o755 });
+        assert.equal((yield* resolveNeoPiBinary({ binaryPath: "npi" }, env, dir))?.binary, stable);
+        NodeFS.writeFileSync(nightly, `#!${process.execPath}\nsetInterval(() => {}, 1000);\n`, {
+          mode: 0o755,
+        });
+        assert.equal((yield* resolveNeoPiBinary({ binaryPath: "npi" }, env, dir))?.binary, stable);
 
-      const resources = NodePath.join(dir, "resources");
-      const bundled = NodePath.join(resources, "bin", "npi");
-      NodeFS.mkdirSync(NodePath.dirname(bundled), { recursive: true });
-      writePeer(bundled, true);
-      writePeer(stable, false);
-      const packagedEnv = { ...env, T3CODE_DESKTOP_RESOURCES_PATH: resources };
-      assert.equal((yield* resolveNeoPiBinary({ binaryPath: "npi" }, packagedEnv, dir))?.binary, bundled);
-      writePeer(nightly, true);
-      assert.equal((yield* resolveNeoPiBinary({ binaryPath: "npi" }, packagedEnv, dir))?.binary, nightly);
+        const resources = NodePath.join(dir, "resources");
+        const bundled = NodePath.join(resources, "bin", "npi");
+        NodeFS.mkdirSync(NodePath.dirname(bundled), { recursive: true });
+        writePeer(bundled, true);
+        writePeer(stable, false);
+        const packagedEnv = { ...env, T3CODE_DESKTOP_RESOURCES_PATH: resources };
+        assert.equal(
+          (yield* resolveNeoPiBinary({ binaryPath: "npi" }, packagedEnv, dir))?.binary,
+          bundled,
+        );
+        writePeer(nightly, true);
+        assert.equal(
+          (yield* resolveNeoPiBinary({ binaryPath: "npi" }, packagedEnv, dir))?.binary,
+          nightly,
+        );
 
-      NodeFS.unlinkSync(nightly);
-      NodeFS.unlinkSync(bundled);
-      const absent = yield* resolveNeoPiBinary({ binaryPath: "npi" }, env, dir);
-      assert.match(absent?.error ?? "", /No compatible NeoPi executable with session_catalog/);
-      const missingOverride = NodePath.join(dir, "absent");
-      const failed = yield* resolveNeoPiBinary({ binaryPath: missingOverride }, packagedEnv, dir);
-      assert.equal(failed?.binary, missingOverride);
-      assert.notEqual(failed?.error, null);
-    } finally {
-      NodeFS.rmSync(dir, { recursive: true, force: true });
-    }
-  }).pipe(Effect.provide(NodeServices.layer)),
+        NodeFS.unlinkSync(nightly);
+        NodeFS.unlinkSync(bundled);
+        const absent = yield* resolveNeoPiBinary({ binaryPath: "npi" }, env, dir);
+        assert.match(absent?.error ?? "", /No compatible NeoPi executable with session_catalog/);
+        const missingOverride = NodePath.join(dir, "absent");
+        const failed = yield* resolveNeoPiBinary({ binaryPath: missingOverride }, packagedEnv, dir);
+        assert.equal(failed?.binary, missingOverride);
+        assert.notEqual(failed?.error, null);
+      } finally {
+        NodeFS.rmSync(dir, { recursive: true, force: true });
+      }
+    }).pipe(Effect.provide(NodeServices.layer)),
   30_000,
 );
 

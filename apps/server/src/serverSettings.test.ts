@@ -199,9 +199,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         neoPiBinarySelectionPatch(before, current, instanceId, binary),
       );
       const saved = yield* fs.readFileString(config.settingsPath);
-      const reloaded = yield* Schema.decodeUnknownEffect(ServerSettings)(
-        JSON.parse(saved),
-      );
+      const reloaded = yield* Schema.decodeUnknownEffect(ServerSettings)(JSON.parse(saved));
       assert.equal(reloaded.providers.neopi.binaryPath, binary);
       assert.equal(reloaded.providers.neopi.autoSelectedBinaryPath, binary);
       // A later creation/refresh sees an explicit saved path, so it cannot write again.
@@ -246,7 +244,8 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       yield* Deferred.succeed(finishProbe, undefined);
       const result = yield* Fiber.join(selection);
       assert.deepEqual(result.providerInstances[instanceId]?.config, {
-        binaryPath: "/user/chosen/npi", profile: "personal",
+        binaryPath: "/user/chosen/npi",
+        profile: "personal",
       });
       assert.equal(yield* fs.readFileString(config.settingsPath), userSaved);
     }).pipe(Effect.scoped, Effect.provide(makeServerSettingsLayer())),

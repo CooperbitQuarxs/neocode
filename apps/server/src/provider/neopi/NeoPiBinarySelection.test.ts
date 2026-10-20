@@ -1,4 +1,8 @@
-import { DEFAULT_SERVER_SETTINGS, ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  ProviderDriverKind,
+  ProviderInstanceId,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import { neoPiBinarySelectionPatch } from "./NeoPiBinarySelection.ts";
 
@@ -37,7 +41,9 @@ describe("NeoPi executable selection persistence", () => {
     };
     expect(neoPiBinarySelectionPatch(selected, selected, instanceId, binary, true)).toBeNull();
     const nextMount = "/mount/next/resources/bin/npi";
-    expect(neoPiBinarySelectionPatch(selected, selected, instanceId, nextMount, true)).not.toBeNull();
+    expect(
+      neoPiBinarySelectionPatch(selected, selected, instanceId, nextMount, true),
+    ).not.toBeNull();
   });
 
   it("preserves current sibling instances while saving the selected executable", () => {
@@ -52,7 +58,8 @@ describe("NeoPi executable selection persistence", () => {
         [instanceId]: {
           ...before.providerInstances[instanceId],
           config: {
-            binaryPath: "/bin/npi-nightly", profile: "work",
+            binaryPath: "/bin/npi-nightly",
+            profile: "work",
             autoSelectedBinaryPath: "/bin/npi-nightly",
           },
         },
@@ -62,7 +69,14 @@ describe("NeoPi executable selection persistence", () => {
   });
 
   it("does not restore an instance removed while probing", () => {
-    expect(neoPiBinarySelectionPatch(before, { ...before, providerInstances: {} }, instanceId, "/bin/npi-nightly")).toBeNull();
+    expect(
+      neoPiBinarySelectionPatch(
+        before,
+        { ...before, providerInstances: {} },
+        instanceId,
+        "/bin/npi-nightly",
+      ),
+    ).toBeNull();
   });
 
   it("does not replace explicit settings or a changed provider environment", () => {
@@ -75,7 +89,9 @@ describe("NeoPi executable selection persistence", () => {
         },
       },
     };
-    expect(neoPiBinarySelectionPatch(explicit, explicit, instanceId, "/bin/npi-nightly")).toBeNull();
+    expect(
+      neoPiBinarySelectionPatch(explicit, explicit, instanceId, "/bin/npi-nightly"),
+    ).toBeNull();
     expect(neoPiBinarySelectionPatch(before, explicit, instanceId, "/bin/npi-nightly")).toBeNull();
     const changed = {
       ...before,
