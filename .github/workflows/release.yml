@@ -101,7 +101,8 @@ jobs:
             prerelease=false
             [[ "$version" != *-* ]] || prerelease=true
           elif [[ "$channel" == stable ]]; then
-            tag="v${version}+build.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
+            version="${version}+build.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
+            tag="v${version}"
             prerelease=false
           else
             version="${version}-${channel}.$(date -u +%Y%m%d).${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"

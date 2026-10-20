@@ -18,7 +18,7 @@ optionally overrides the packaged version; otherwise it uses the desktop
 package's base `X.Y.Z`. Manual `nightly` and `preview` channels remain available.
 The Actions UI exposes manual dispatch once the workflow is on `main`.
 
-- Stable branch/manual tags: `v<X.Y.Z>+build.<run_id>.<attempt>`.
+- Stable branch/manual versions: `<X.Y.Z>+build.<run_id>.<attempt>`, with tag `v<version>`. The CLI archive filename and executable's `--version` retain the same build suffix.
 - Nightly tags: `v<X.Y.Z>-nightly.<YYYYMMDD>.<run_id>.<attempt>`.
 - Manual preview tags use `preview` in place of `nightly`.
 - Existing `v*.*.*` tag pushes still build the tagged commit and retain that tag;
@@ -32,6 +32,13 @@ Every release retains its tag and assets. Generated tag collisions and existing
 releases fail rather than deleting, replacing, or updating anything. A rerun has
 a new attempt suffix. A tag-triggered run may use its existing source tag, but
 cannot replace an existing release.
+
+CLI discovery requires `SHA256SUMS` and an archive named for the full tagged
+version. The CLI updater also requires an archive for its host platform.
+Older mismatched stable releases are skipped, not renamed or overwritten.
+After the owner's next normal stable release, verify its published archive
+against `SHA256SUMS` and check that `--version` reports the full tagged version.
+Local tests cannot prove those published bytes before that release exists.
 
 The fork reuses `release-desktop.yml` on hosted Ubuntu and Windows x64 runners:
 Linux AppImage and `.deb`, unsigned Windows NSIS installer, both platform CLI

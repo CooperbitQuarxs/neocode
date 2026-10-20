@@ -151,6 +151,7 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
   const control: {
     failCommand: string | undefined;
     stateAfterStop?: string;
+    reportedVersion?: string;
     linger: string;
     enabled: boolean;
     active: boolean;
@@ -184,7 +185,7 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
           input.args[0] === "--version"
             ? // The runtime under test reports the version of the directory it
               // was launched from, like the real executable.
-              `t3 v${/versions\/([^/]+)\//.exec(input.command)?.[1] ?? "1.2.3"}\n`
+              `t3 v${control.reportedVersion ?? /versions\/([^/]+)\//.exec(input.command)?.[1] ?? "1.2.3"}\n`
             : input.command === "loginctl" && input.args[0] === "show-user"
               ? `${control.linger}\n`
               : input.args[1] === "is-enabled"
@@ -251,6 +252,26 @@ const makeHarness = Effect.fn("test.make_boot_service_harness")(function* (
 });
 
 it.layer(NodeServices.layer)("boot service install", (it) => {
+  it.effect("accepts the full stable build version and rejects a base-version executable", () =>
+    Effect.gen(function* () {
+      const version = "1.2.3+build.39488899088.2";
+      const { makeService, control, commands } = yield* makeHarness();
+      const service = yield* makeService(undefined, version);
+      const plan = yield* service.install({ start: false });
+      expect(plan.program[0]).toContain(`/versions/${version}/t3`);
+      commands.length = 0;
+      control.reportedVersion = "1.2.3";
+      const error = yield* service.install().pipe(Effect.flip);
+      expect(error).toMatchObject({
+        _tag: "BootServiceCommandError",
+        step: "verifying the pinned t3 runtime",
+      });
+      expect(
+        commands.some((command) => command.includes(" stop ") || command.includes(" restart ")),
+      ).toBe(false);
+    }),
+  );
+
   it.effect(
     "fails before installing files or validating a runtime when lingering needs an administrator",
     () =>

@@ -88,7 +88,9 @@ export const CLI_RELEASE_CHANNELS: ReadonlyArray<CliReleaseChannel> = [
 
 /** The release train a version was published on, derived from its prerelease tag. */
 export function cliReleaseChannelOf(version: string): CliReleaseChannel {
-  const channel = /^[^-+]+-(nightly|preview)\.\d{8}\.\d+(?:\.\d+)?$/.exec(version)?.[1];
+  const channel = /^[^-+]+-(nightly|preview)\.\d{8}\.\d+(?:\.\d+)?(?:\+[0-9A-Za-z.-]+)?$/.exec(
+    version,
+  )?.[1];
   return channel === "nightly" || channel === "preview" ? channel : "stable";
 }
 
@@ -104,21 +106,30 @@ export function cliReleaseIndexPageUrl(page: number): string {
 /**
  * Picks the newest version on a channel from the release index. Tags are
  * `v<version>`; the channel is decided by the same rule the runtime uses, so
- * a preview tag never satisfies a nightly lookup and vice versa. Drafts are
- * skipped because their assets are not downloadable.
+ * a preview tag never satisfies a nightly lookup and vice versa. Drafts and
+ * releases without matching archives and checksums are skipped. Without a
+ * platform key, discovery accepts any supported CLI archive.
  */
 export function newestCliReleaseVersion(
   releases: ReadonlyArray<{
     readonly tag_name: string;
     readonly draft?: boolean | undefined;
+    readonly assets: ReadonlyArray<{ readonly name: string }>;
   }>,
   channel: CliReleaseChannel,
+  platformKey?: CliArchivePlatformKey,
 ): string | undefined {
   for (const release of releases) {
     if (release.draft) continue;
-    const version = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(release.tag_name)?.[1];
-    if (version === undefined) continue;
-    if (cliReleaseChannelOf(version) === channel) return version;
+    const version =
+      /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)$/.exec(
+        release.tag_name,
+      )?.[1];
+    if (version === undefined || cliReleaseChannelOf(version) !== channel) continue;
+    const hasAsset = (name: string) => release.assets.some((asset) => asset.name === name);
+    if (!hasAsset(CLI_RELEASE_CHECKSUMS_FILE)) continue;
+    const platforms = platformKey === undefined ? CLI_ARCHIVE_PLATFORM_KEYS : [platformKey];
+    if (platforms.some((key) => hasAsset(cliArchiveFileName(version, key)))) return version;
   }
   return undefined;
 }

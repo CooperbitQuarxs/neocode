@@ -5,13 +5,54 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import {
+  HostProcessArchitecture,
   HostProcessEnvironment,
   HostProcessInvokedAs,
   HostProcessPlatform,
   HostProcessWorkingDirectory,
 } from "@t3tools/shared/hostProcess";
+import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 
-import { repointLauncher, resolveLauncherPath } from "./update.ts";
+import { repointLauncher, resolveLauncherPath, resolveNewestVersion } from "./update.ts";
+
+it.effect("finds a stable build only when its host archive and checksums are published", () => {
+  const version = "1.2.3+build.39488899088.2";
+  const requests: string[] = [];
+  const client = HttpClient.make((request) => {
+    requests.push(request.url);
+    const releases =
+      requests.length === 1
+        ? [
+            { tag_name: "v1.2.4-nightly.20261020.39488899088.1+build.2", assets: [] },
+            {
+              tag_name: `v${version}`,
+              assets: [{ name: "SHA256SUMS" }, { name: "t3-1.2.3-linux-x64.tar.gz" }],
+            },
+            {
+              tag_name: `v${version}`,
+              assets: [{ name: "SHA256SUMS" }, { name: `t3-${version}-win32-x64.zip` }],
+            },
+          ]
+        : [
+            {
+              tag_name: `v${version}`,
+              assets: [{ name: "SHA256SUMS" }, { name: `t3-${version}-linux-x64.tar.gz` }],
+            },
+          ];
+    return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(releases)));
+  });
+  return Effect.gen(function* () {
+    assert.equal(yield* resolveNewestVersion("stable"), version);
+    assert.deepEqual(requests, [
+      "https://api.github.com/repos/PsychedelicShayna/neocode/releases?per_page=100&page=1",
+      "https://api.github.com/repos/PsychedelicShayna/neocode/releases?per_page=100&page=2",
+    ]);
+  }).pipe(
+    Effect.provideService(HttpClient.HttpClient, client),
+    Effect.provideService(HostProcessPlatform, "linux"),
+    Effect.provideService(HostProcessArchitecture, "x64"),
+  );
+});
 
 it.layer(NodeServices.layer)("t3 update launcher", (it) => {
   it.effect("repoints a symlink that lives in a runtime versions tree", () =>
