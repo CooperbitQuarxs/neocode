@@ -26,6 +26,7 @@ import type { NeoPiDiscoveryHub } from "../neopi/NeoPiDiscovery.ts";
 import type { NeoPiDiscoveryProbe } from "../neopi/NeoPiDiscoveryProbe.ts";
 import { NEOPI_CAPABILITIES, neopiCompatibility } from "../neopi/NeoPiCompatibility.ts";
 import { neoPiRolesFromRpc, toServerProviderModels } from "../neopi/NeoPiModelCatalog.ts";
+import type { NeoPiCapabilityProbe } from "../neopi/NeoPiSessionCatalogSource.ts";
 
 const PRESENTATION = {
   displayName: "NeoPi/OMP",
@@ -52,6 +53,8 @@ export interface NeoPiRetainedCatalog {
 }
 
 export interface NeoPiProviderProbeOptions {
+  readonly resolvedBinary?: string;
+  readonly capabilityProbe?: NeoPiCapabilityProbe;
   readonly previous?: NeoPiRetainedCatalog;
   readonly handshakeTimeout?: Duration.Input;
   readonly metadataTimeout?: Duration.Input;
@@ -164,14 +167,18 @@ export const resolveNeoPiBinary = Effect.fn("resolveNeoPiBinary")(function* (
   settings: Pick<NeoPiSettings, "binaryPath">,
   environment: Record<string, string>,
   cwd: string,
+  pinnedBinary?: string,
 ) {
-  const useDefaultSearch = !settings.binaryPath || settings.binaryPath === "npi";
+  const useDefaultSearch =
+    pinnedBinary === undefined && (!settings.binaryPath || settings.binaryPath === "npi");
   const bundled = environment.T3CODE_DESKTOP_RESOURCES_PATH
     ? NodePath.join(environment.T3CODE_DESKTOP_RESOURCES_PATH, "bin", "npi")
     : undefined;
-  const commands = useDefaultSearch
-    ? ["npi-nightly", "npi", ...(bundled ? [bundled] : []), "omp"]
-    : [settings.binaryPath];
+  const commands = pinnedBinary
+    ? [pinnedBinary]
+    : useDefaultSearch
+      ? ["npi-nightly", "npi", ...(bundled ? [bundled] : []), "omp"]
+      : [settings.binaryPath];
   const failures: string[] = [];
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   for (const candidate of commands) {
@@ -301,13 +308,18 @@ export const checkNeoPiProviderStatus = Effect.fn("checkNeoPiProviderStatus")(fu
   sharedSessionCapabilities?: Set<string>,
   options?: NeoPiProviderProbeOptions,
 ): Effect.fn.Return<ServerProviderDraft, never, ChildProcessSpawner.ChildProcessSpawner> {
-  sharedSessionCapabilities?.clear();
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   if (!settings.enabled)
     return fromProbe(settings, checkedAt, { installed: false, status: "warning" });
   const env = { ...environment, ...(settings.profile ? { OMP_PROFILE: settings.profile } : {}) };
-  const resolved = yield* resolveNeoPiBinary(settings, env, cwd);
-  if (!resolved || resolved.error)
+  const resolved = yield* resolveNeoPiBinary(settings, env, cwd, options?.resolvedBinary);
+  const capabilityProbe = options?.capabilityProbe;
+  if (capabilityProbe) capabilityProbe.version = resolved?.version ?? null;
+  const failedProbe = (message: string) => {
+    if (capabilityProbe) capabilityProbe.failure = message;
+  };
+  if (!resolved || resolved.error) {
+    failedProbe(resolved?.error ?? "The configured executable could not be resolved.");
     return fromProbe(settings, checkedAt, {
       installed: false,
       status: "error",
@@ -317,6 +329,7 @@ export const checkNeoPiProviderStatus = Effect.fn("checkNeoPiProviderStatus")(fu
           ? "NeoPi/OMP CLI (`npi` or `omp`) is not installed or not on PATH."
           : `Configured NeoPi/OMP binary '${settings.binaryPath}' could not be executed.`,
     });
+  }
   const { binary: selected, version } = resolved;
   const handshakeTimeout = options?.handshakeTimeout ?? HANDSHAKE_TIMEOUT;
   const metadataTimeout = options?.metadataTimeout ?? METADATA_TIMEOUT;
@@ -364,16 +377,36 @@ export const checkNeoPiProviderStatus = Effect.fn("checkNeoPiProviderStatus")(fu
         env,
         requestTimeoutMs,
       }).pipe(Effect.timeoutOption(handshakeTimeout), Effect.result);
-      if (Result.isFailure(made)) return { phase: "handshake-failed" as const };
-      if (Option.isNone(made.success)) return { phase: "handshake-timeout" as const };
+      if (Result.isFailure(made)) {
+        failedProbe(`RPC handshake failed: ${String(made.failure)}`);
+        return { phase: "handshake-failed" as const };
+      }
+      if (Option.isNone(made.success)) {
+        failedProbe(probeTimeoutMessage("handshake"));
+        return { phase: "handshake-timeout" as const };
+      }
       const client = made.success.value;
       // Capabilities and compatibility are fixed once ready+v2 returns. A later
       // metadata timeout must not discard them.
       observed.readyCapabilities = [...(client.ready.capabilities ?? [])];
       observed.compatibility = neopiCompatibility(client.ready, client.capabilities.has("v2"));
-      if (observed.compatibility.status === "unsupported") return { phase: "unsupported" as const };
+      if (observed.compatibility.status === "unsupported") {
+        if (capabilityProbe) {
+          capabilityProbe.status = "unsupported";
+          delete capabilityProbe.failure;
+        }
+        return { phase: "unsupported" as const };
+      }
+      // This synchronous replacement cannot expose an empty set to consumers.
+      // Failed refreshes keep the last compatible handshake; successful ones
+      // replace it, including capabilities that have been removed.
+      sharedSessionCapabilities?.clear();
       for (const capability of observed.readyCapabilities)
         sharedSessionCapabilities?.add(capability);
+      if (capabilityProbe) {
+        capabilityProbe.status = "compatible";
+        delete capabilityProbe.failure;
+      }
       const metadata = yield* requestNeoPiProviderMetadata(client).pipe(
         Effect.timeoutOption(metadataTimeout),
         Effect.result,
@@ -416,6 +449,7 @@ export const checkNeoPiProviderStatus = Effect.fn("checkNeoPiProviderStatus")(fu
         capabilityWarning("NeoPi/OMP RPC metadata probe failed; check the CLI and profile.", false),
       );
     }
+    failedProbe("RPC handshake failed; check the CLI and profile.");
     return fromProbe(settings, checkedAt, {
       installed: true,
       version,

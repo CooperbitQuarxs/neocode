@@ -174,9 +174,16 @@ command. After terminal continuation, close that session and use **Resume NeoPi
 session** again to return to the same NeoCode thread with its new turns.
 
 Discovery and attachment need `session_catalog` and `control_pipe`; restoration
-and handoff also require `session_history_identity`. Update NeoPi if the app
-reports a missing capability. Older bindings without a saved history boundary
-can be restored only when their completed GUI turn and clean native shutdown
+and handoff also require `session_history_identity`. Capability errors identify
+the server's configured executable and its probed version. Update that executable
+when a compatible handshake confirms a missing capability; an uncompleted or
+failed initial check means support is not yet known, not that an update is needed.
+Discovery stays usable during refresh and transient probe failures once support
+has been confirmed. A successful compatible refresh replaces the previous
+capabilities; an incompatible handshake blocks discovery.
+
+Older bindings without a saved history boundary can be restored only when
+their completed GUI turn and clean native shutdown
 prove an exact boundary. Diverged branches or ambiguous older histories are
 refused without replacing the thread; the error includes the native session path
 for continuing safely in NeoPi. Pre-v2 native journals must first be continued

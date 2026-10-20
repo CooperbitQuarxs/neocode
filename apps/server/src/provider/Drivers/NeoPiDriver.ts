@@ -28,6 +28,7 @@ import { makeNeoPiHostToolBridge } from "../neopi/NeoPiHostToolBridge.ts";
 import {
   registerNeoPiSessionCatalogSource,
   unregisterNeoPiSessionCatalogSource,
+  type NeoPiCapabilityProbe,
 } from "../neopi/NeoPiSessionCatalogSource.ts";
 import {
   defaultProviderContinuationIdentity,
@@ -128,6 +129,10 @@ export const NeoPiDriver: ProviderDriver<NeoPiSettings, NeoPiDriverEnv> = {
             ),
           );
       }
+      const capabilityProbe: NeoPiCapabilityProbe = {
+        status: "unprobed",
+        version: resolved?.version ?? null,
+      };
       const commandProbe = makeNeoPiDiscoveryProbe({
         binary,
         profile: config.profile,
@@ -178,6 +183,8 @@ export const NeoPiDriver: ProviderDriver<NeoPiSettings, NeoPiDriverEnv> = {
               discovery,
               sharedSessionCapabilities,
               {
+                resolvedBinary: binary,
+                capabilityProbe,
                 ...(previous ? { previous } : {}),
                 onSuccessfulCatalog: (catalog) => Ref.set(retainedCatalog, catalog),
               },
@@ -236,6 +243,7 @@ export const NeoPiDriver: ProviderDriver<NeoPiSettings, NeoPiDriverEnv> = {
           env,
           profile: config.profile,
           capabilities: sharedSessionCapabilities,
+          probe: capabilityProbe,
         },
       );
       yield* Effect.addFinalizer(() =>
