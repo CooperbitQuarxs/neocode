@@ -34,12 +34,22 @@ export const NeoPiSessionSummary = Schema.Struct({
   projectId: Schema.NullOr(ProjectId),
 });
 export type NeoPiSessionSummary = typeof NeoPiSessionSummary.Type;
+export const NeoPiSessionDiagnostic = Schema.Struct({
+  providerInstanceId: ProviderInstanceId,
+  message: Schema.String,
+});
+export type NeoPiSessionDiagnostic = typeof NeoPiSessionDiagnostic.Type;
 export const NeoPiSessionListResult = Schema.Union([
   Schema.Struct({
     status: Schema.Literal("available"),
     sessions: Schema.Array(NeoPiSessionSummary),
+    diagnostics: Schema.Array(NeoPiSessionDiagnostic),
   }),
-  Schema.Struct({ status: Schema.Literal("unavailable"), reason: Schema.String }),
+  Schema.Struct({
+    status: Schema.Literal("unavailable"),
+    reason: Schema.String,
+    diagnostics: Schema.Array(NeoPiSessionDiagnostic),
+  }),
 ]);
 export type NeoPiSessionListResult = typeof NeoPiSessionListResult.Type;
 export const NeoPiSessionResumeInput = Schema.Struct({
