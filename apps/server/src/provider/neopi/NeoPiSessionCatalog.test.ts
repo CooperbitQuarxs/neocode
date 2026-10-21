@@ -250,8 +250,8 @@ const harness = (options?: {
           (entry) => entry.instanceId === input.source.profile,
         );
         const output = extra?.listOutput ?? options?.listOutput;
-        if (output instanceof NeoPiSessionError) return yield* output;
-        if (output !== undefined) return output;
+        if (typeof output === "string") return output;
+        if (output !== undefined) return yield* output;
         return encodeJson({
           version: 1,
           sessions: extra?.rows ?? options?.rows ?? [session("free")],

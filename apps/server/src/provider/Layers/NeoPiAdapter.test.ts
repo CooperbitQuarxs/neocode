@@ -1,4 +1,4 @@
-import { isDeepStrictEqual } from "node:util";
+import * as NodeUtil from "node:util";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -967,7 +967,7 @@ it.live(
           !observed.some(
             (event) =>
               event.type === "runtime.warning" &&
-              isDeepStrictEqual(event.payload.detail, {
+              NodeUtil.isDeepStrictEqual(event.payload.detail, {
                 neopiUi: { kind: "plan-mode", mode: "default" },
               }),
           );
@@ -977,7 +977,7 @@ it.live(
         const nativeDefaultAt = observed.findIndex(
           (event) =>
             event.type === "runtime.warning" &&
-            isDeepStrictEqual(event.payload.detail, {
+            NodeUtil.isDeepStrictEqual(event.payload.detail, {
               neopiUi: { kind: "plan-mode", mode: "default" },
             }),
         );
@@ -991,7 +991,7 @@ it.live(
           !observed.slice(nativeDefaultAt + 1).some(
             (event) =>
               event.type === "runtime.warning" &&
-              isDeepStrictEqual(event.payload.detail, {
+              NodeUtil.isDeepStrictEqual(event.payload.detail, {
                 neopiUi: { kind: "plan-mode", mode: "plan" },
               }),
           );
@@ -1002,7 +1002,7 @@ it.live(
           observed.slice(nativeDefaultAt + 1).some(
             (event) =>
               event.type === "runtime.warning" &&
-              isDeepStrictEqual(event.payload.detail, {
+              NodeUtil.isDeepStrictEqual(event.payload.detail, {
                 neopiUi: { kind: "plan-mode", mode: "plan" },
               }),
           ),

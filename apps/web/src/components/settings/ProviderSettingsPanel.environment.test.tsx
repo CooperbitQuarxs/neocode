@@ -165,8 +165,11 @@ describe("EnvironmentProviderSettings routing", () => {
       },
     };
     atoms.providers = [{ ...provider(), instanceId: customId }];
-    const pending = Promise.withResolvers<{ _tag: "Success" }>();
-    commands.updateProvider.mockReturnValueOnce(pending.promise);
+    let resolveUpdate!: (value: { _tag: "Success" }) => void;
+    const pending = new Promise<{ _tag: "Success" }>((resolve) => {
+      resolveUpdate = resolve;
+    });
+    commands.updateProvider.mockReturnValueOnce(pending);
     const panel = renderPanel({ targetInstanceId: customId });
     const editor = visitElements(panel, (element) => element.props.mode === "editor");
     const update = editor?.props.onRunUpdate as () => void;
@@ -178,8 +181,8 @@ describe("EnvironmentProviderSettings routing", () => {
       input: { provider: ProviderDriverKind.make("codex"), instanceId: customId },
     });
 
-    pending.resolve({ _tag: "Success" });
-    await pending.promise;
+    resolveUpdate({ _tag: "Success" });
+    await pending;
     update();
     expect(commands.updateProvider).toHaveBeenCalledTimes(2);
   });
