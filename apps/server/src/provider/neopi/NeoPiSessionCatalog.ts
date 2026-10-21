@@ -20,6 +20,8 @@ import {
   type NeoPiSessionResumeResult,
   type NeoPiSessionHandoffInput,
   type NeoPiSessionHandoffResult,
+  type NeoPiSessionConfigurationInput,
+  type NeoPiSessionConfigurationResult,
 } from "@t3tools/contracts";
 import { normalizeProjectPathForComparison } from "@t3tools/shared/path";
 import * as Crypto from "effect/Crypto";
@@ -840,5 +842,56 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
     Effect.mapError(operationError("handoff")),
   );
 
-  return { list, resume, handoff };
+  const configuration = Effect.fn("NeoPiSessionCatalog.configuration")(
+    function* (
+      input: NeoPiSessionConfigurationInput,
+    ): Effect.fn.Return<NeoPiSessionConfigurationResult, unknown> {
+      const unavailable = (reason: string) => ({ status: "unavailable" as const, reason });
+      const binding = yield* directory.getBinding(input.threadId);
+      if (Option.isNone(binding) || binding.value.provider !== "neopi")
+        return unavailable("This thread has no bound NeoPi session.");
+      if (binding.value.status !== "running")
+        return unavailable("This thread's NeoPi session is not connected.");
+      const cursor = decodeCursor(binding.value.resumeCursor);
+      if (Option.isNone(cursor) || !cursor.value.sessionId || !cursor.value.sessionFile)
+        return unavailable("This thread has no saved native NeoPi session identity.");
+      const instance = binding.value.providerInstanceId
+        ? yield* instances.getInstance(binding.value.providerInstanceId)
+        : undefined;
+      if (!instance || instance.driverKind !== "neopi")
+        return unavailable("The bound NeoPi provider instance is unavailable.");
+      const source = neoPiSessionCatalogSource(instance);
+      if (!source?.configuration)
+        return unavailable("The bound NeoPi provider has no connected configuration reader.");
+      const result = yield* source.configuration(input.threadId, cursor.value);
+      if (
+        result.status === "available" &&
+        (result.providerInstanceId !== instance.instanceId ||
+          result.sessionId !== cursor.value.sessionId)
+      )
+        return unavailable("The NeoPi reader returned a different bound session.");
+      const current = yield* directory.getBinding(input.threadId);
+      if (
+        Option.isNone(current) ||
+        current.value.provider !== "neopi" ||
+        current.value.status !== "running" ||
+        current.value.providerInstanceId !== instance.instanceId ||
+        current.value.adapterKey !== binding.value.adapterKey ||
+        (yield* instances.getInstance(instance.instanceId)) !== instance
+      )
+        return unavailable("The bound NeoPi connection changed during the snapshot.");
+      const currentCursor = decodeCursor(current.value.resumeCursor);
+      if (
+        Option.isNone(currentCursor) ||
+        currentCursor.value.sessionId !== cursor.value.sessionId ||
+        NodePath.resolve(currentCursor.value.sessionFile) !==
+          NodePath.resolve(cursor.value.sessionFile)
+      )
+        return unavailable("The bound native NeoPi session changed during the snapshot.");
+      return result;
+    },
+    Effect.mapError(operationError("configuration")),
+  );
+
+  return { list, resume, handoff, configuration };
 });

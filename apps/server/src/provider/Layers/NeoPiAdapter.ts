@@ -51,6 +51,7 @@ import { NEOPI_CAPABILITIES } from "../neopi/NeoPiCompatibility.ts";
 import type { NeoPiDiscoveryHub } from "../neopi/NeoPiDiscovery.ts";
 import { makeNeoPiHostToolBridge, type NeoPiHostToolBridge } from "../neopi/NeoPiHostToolBridge.ts";
 import { makeNeoPiSessionRuntime, type NeoPiRuntimeInput } from "../neopi/NeoPiSessionRuntime.ts";
+import { readNeoPiSessionConfiguration } from "../neopi/NeoPiSessionConfiguration.ts";
 import {
   groupNeoPiHistory,
   NeoPiRollbackIntegrityError,
@@ -818,6 +819,26 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
         );
       }),
     readThread,
+    getConfiguration: (threadId, expected) =>
+      Effect.gen(function* () {
+        const session = sessions.get(threadId);
+        if (!session)
+          return {
+            status: "unavailable" as const,
+            reason: "This thread has no connected NeoPi runtime.",
+          };
+        const result = yield* readNeoPiSessionConfiguration(session.runtime, expected).pipe(
+          Effect.mapError((cause) => rpcError(threadId, "configuration", cause)),
+        );
+        if (sessions.get(threadId) !== session)
+          return {
+            status: "unavailable" as const,
+            reason: "The NeoPi runtime was replaced during the snapshot.",
+          };
+        return result.status === "available"
+          ? { ...result, providerInstanceId: options.instanceId }
+          : result;
+      }),
     getLiveUsage: (activeProvider) =>
       Effect.gen(function* () {
         for (const session of sessions.values()) {

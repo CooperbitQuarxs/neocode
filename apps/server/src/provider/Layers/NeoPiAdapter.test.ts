@@ -65,12 +65,17 @@ it.live("streams a turn, steers the same turn, routes UI responses, and stops it
       const steers: string[] = [];
       const replies: unknown[] = [];
       let stopCount = 0;
+      let startCount = 0;
+      const configurationReads: string[] = [];
       const runtime: NeoPiSessionRuntimeShape = {
         threadId,
         state,
         cursor,
+        processGeneration: 1,
         capabilities: new Set(["v2"]),
-        start: SubscriptionRef.set(state, "ready"),
+        start: Effect.sync(() => {
+          startCount++;
+        }).pipe(Effect.andThen(SubscriptionRef.set(state, "ready"))),
         startTurn: (input) =>
           SubscriptionRef.set(state, "running").pipe(Effect.as({ turnId: input.turnId })),
         steer: (input) =>
@@ -88,7 +93,15 @@ it.live("streams a turn, steers the same turn, routes UI responses, and stops it
           Effect.sync(() => {
             replies.push(frame);
           }),
-        request: (cmd) => Effect.succeed(cmd.type === "get_messages_page" ? { messages: [] } : {}),
+        request: (cmd) =>
+          Effect.gen(function* () {
+            configurationReads.push(cmd.type);
+            if (cmd.type === "get_state") {
+              const saved = yield* SubscriptionRef.get(cursor);
+              return { sessionId: saved.sessionId, sessionFile: saved.sessionFile };
+            }
+            return cmd.type === "get_messages_page" ? { messages: [] } : {};
+          }),
         frames: Stream.fromQueue(frames),
         restart: () => Effect.void,
         stop: Effect.sync(() => {
@@ -134,6 +147,11 @@ it.live("streams a turn, steers the same turn, routes UI responses, and stops it
         .pipe(Effect.flip);
       assert.equal(invalid._tag, "ProviderAdapterValidationError");
       assert.equal(yield* adapter.hasSession(threadId), false);
+      assert.equal(
+        (yield* adapter.getConfiguration(threadId, yield* SubscriptionRef.get(cursor))).status,
+        "unavailable",
+      );
+      assert.equal(startCount, 0);
       yield* adapter.startSession({
         threadId,
         provider: ProviderDriverKind.make("neopi"),
@@ -141,6 +159,22 @@ it.live("streams a turn, steers the same turn, routes UI responses, and stops it
         cwd: home,
         runtimeMode: "auto",
       });
+      const boundCursor = yield* SubscriptionRef.get(cursor);
+      configurationReads.length = 0;
+      const configuration = yield* adapter.getConfiguration(threadId, boundCursor);
+      assert.equal(configuration.status, "available");
+      if (configuration.status !== "available") throw new Error(configuration.reason);
+      assert.equal(configuration.providerInstanceId, instanceId);
+      assert.equal(configuration.sessionId, boundCursor.sessionId);
+      assert.equal(configuration.attachment, "owned");
+      assert.deepEqual(configurationReads, ["get_state", "get_state"]);
+      assert.equal(startCount, 1);
+      const mismatched = yield* adapter.getConfiguration(threadId, {
+        ...boundCursor,
+        sessionId: "another-session",
+      });
+      assert.equal(mismatched.status, "unavailable");
+      assert.equal(startCount, 1);
       const first = yield* adapter.sendTurn({ threadId, input: "say hi" });
       const second = yield* adapter.sendTurn({ threadId, input: "one more thing" });
       assert.equal(second.turnId, first.turnId);

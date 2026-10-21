@@ -53,6 +53,7 @@ import { useIsMobile } from "~/hooks/useMediaQuery";
 import { Button } from "../ui/button";
 import { Menu, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { NeoPiTerminalHandoff } from "../neopi/NeoPiTerminalHandoff";
+import { NeoPiSessionConfiguration } from "../neopi/NeoPiSessionConfiguration";
 
 interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
@@ -489,6 +490,7 @@ export const ChatHeader = memo(function ChatHeader({
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
       <NeoPiTerminalHandoff threadRef={isServerThread ? activeThreadRef : null} />
+      <NeoPiSessionConfiguration threadRef={isServerThread ? activeThreadRef : null} />
       <div
         ref={headerActionsRef}
         data-chat-header-actions

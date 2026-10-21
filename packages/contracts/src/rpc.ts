@@ -47,6 +47,8 @@ import {
   NeoPiSessionResumeResult,
   NeoPiSessionHandoffInput,
   NeoPiSessionHandoffResult,
+  NeoPiSessionConfigurationInput,
+  NeoPiSessionConfigurationResult,
 } from "./neopiSessions.ts";
 import {
   AssetAccessError,
@@ -304,6 +306,7 @@ export const WS_METHODS = {
   neopiSessionsList: "neopiSessions.list",
   neopiSessionsResume: "neopiSessions.resume",
   neopiSessionsHandoff: "neopiSessions.handoff",
+  neopiSessionsConfiguration: "neopiSessions.configuration",
   assetsCreateUrl: "assets.createUrl",
   attachmentsCreateUploadUrl: "attachments.createUploadUrl",
   attachmentsDelete: "attachments.delete",
@@ -1010,6 +1013,11 @@ const WsNeoPiSessionsHandoffRpc = Rpc.make(WS_METHODS.neopiSessionsHandoff, {
   success: NeoPiSessionHandoffResult,
   error: Schema.Union([NeoPiSessionError, EnvironmentAuthorizationError]),
 });
+const WsNeoPiSessionsConfigurationRpc = Rpc.make(WS_METHODS.neopiSessionsConfiguration, {
+  payload: NeoPiSessionConfigurationInput,
+  success: NeoPiSessionConfigurationResult,
+  error: Schema.Union([NeoPiSessionError, EnvironmentAuthorizationError]),
+});
 
 const WsAssetsCreateUrlRpc = Rpc.make(WS_METHODS.assetsCreateUrl, {
   payload: AssetCreateUrlInput,
@@ -1504,6 +1512,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsNeoPiSessionsListRpc,
   WsNeoPiSessionsResumeRpc,
   WsNeoPiSessionsHandoffRpc,
+  WsNeoPiSessionsConfigurationRpc,
   WsAssetsCreateUrlRpc,
   WsAttachmentsCreateUploadUrlRpc,
   WsAttachmentsDeleteRpc,

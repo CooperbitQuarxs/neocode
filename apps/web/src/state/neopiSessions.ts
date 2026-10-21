@@ -22,3 +22,8 @@ export const neopiSessionHandoff = createEnvironmentRpcCommand(connectionAtomRun
   label: "environment-data:neopi-sessions:handoff",
   tag: WS_METHODS.neopiSessionsHandoff,
 });
+
+export const neopiSessionConfiguration = createEnvironmentRpcCommand(connectionAtomRuntime, {
+  label: "environment-data:neopi-sessions:configuration",
+  tag: WS_METHODS.neopiSessionsConfiguration,
+});

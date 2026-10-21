@@ -118,6 +118,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.neopiSessionsList]: AuthOrchestrationReadScope,
   [WS_METHODS.neopiSessionsResume]: AuthOrchestrationOperateScope,
   [WS_METHODS.neopiSessionsHandoff]: AuthOrchestrationOperateScope,
+  [WS_METHODS.neopiSessionsConfiguration]: AuthOrchestrationReadScope,
   [WS_METHODS.assetsCreateUrl]: AuthOrchestrationReadScope,
   [WS_METHODS.attachmentsCreateUploadUrl]: AuthOrchestrationOperateScope,
   [WS_METHODS.attachmentsDelete]: AuthOrchestrationOperateScope,
