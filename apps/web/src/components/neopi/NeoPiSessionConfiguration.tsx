@@ -19,7 +19,6 @@ import {
   DialogPanel,
   DialogPopup,
   DialogTitle,
-  DialogTrigger,
 } from "../ui/dialog";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
@@ -53,16 +52,21 @@ export function NeoPiSessionConfiguration({ threadRef }: { threadRef: ScopedThre
 
 function SessionConfigurationControl({ threadRef }: { threadRef: ScopedThreadRef }) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <Tooltip>
         <TooltipTrigger
           render={
-            <DialogTrigger
-              render={
-                <Button size="icon-sm" variant="ghost" aria-label="NeoPi session configuration" />
-              }
+            <Button
+              ref={triggerRef}
+              size="icon-sm"
+              variant="ghost"
+              aria-label="NeoPi session configuration"
+              aria-haspopup="dialog"
+              aria-expanded={open}
+              onClick={() => setOpen(true)}
             />
           }
         >
@@ -70,7 +74,7 @@ function SessionConfigurationControl({ threadRef }: { threadRef: ScopedThreadRef
         </TooltipTrigger>
         <TooltipPopup>NeoPi session configuration</TooltipPopup>
       </Tooltip>
-      <DialogPopup>
+      <DialogPopup finalFocus={triggerRef}>
         <DialogHeader>
           <DialogTitle>NeoPi session configuration</DialogTitle>
           <DialogDescription>
