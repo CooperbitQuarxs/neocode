@@ -1,13 +1,19 @@
+import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import type { NeoPiSessionConfigurationResult, ScopedThreadRef } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import { AsyncResult } from "effect/unstable/reactivity";
 import { InfoIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useServerConfigs, useThreadShell } from "../../state/entities";
-import { neopiSessionConfiguration } from "../../state/neopiSessions";
+import {
+  neopiSessionConfiguration,
+  neopiSessionConfigurationChanges,
+} from "../../state/neopiSessions";
+import { formatEnvironmentQueryError } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import {
@@ -22,6 +28,7 @@ import {
   DialogTrigger,
 } from "../ui/dialog";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { Switch } from "../ui/switch";
 
 type SnapshotState =
   | { status: "loading" }
@@ -74,9 +81,9 @@ function SessionConfigurationControl({ threadRef }: { threadRef: ScopedThreadRef
         <DialogHeader>
           <DialogTitle>NeoPi session configuration</DialogTitle>
           <DialogDescription>
-            Read-only snapshot of the connected native session. Values are read separately and may
-            change during observation. This view does not update continuously. Refresh to read
-            again.
+            Read-only view of the connected native session. Values are read separately and may
+            change during observation. Refresh to read again, or follow model and effort changes
+            while this inspector is open.
           </DialogDescription>
         </DialogHeader>
         {open ? <SessionConfigurationSnapshot threadRef={threadRef} /> : null}
@@ -86,6 +93,48 @@ function SessionConfigurationControl({ threadRef }: { threadRef: ScopedThreadRef
 }
 
 function SessionConfigurationSnapshot({ threadRef }: { threadRef: ScopedThreadRef }) {
+  const [follow, setFollow] = useState(false);
+
+  return (
+    <>
+      <DialogPanel>
+        <div className="space-y-2 text-sm">
+          <label className="flex items-center justify-between gap-4">
+            Follow model changes
+            <Switch checked={follow} onCheckedChange={setFollow} />
+          </label>
+          <p className="text-muted-foreground">
+            Follows native model and effort events. Use Refresh for role-definition changes. Advisor
+            configuration is not shown here.
+          </p>
+        </div>
+      </DialogPanel>
+      {follow ? (
+        <FollowingSessionConfiguration threadRef={threadRef} />
+      ) : (
+        <ManualSessionConfiguration threadRef={threadRef} />
+      )}
+    </>
+  );
+}
+
+function FollowingSessionConfiguration({ threadRef }: { threadRef: ScopedThreadRef }) {
+  const atom = neopiSessionConfigurationChanges({
+    environmentId: threadRef.environmentId,
+    input: { threadId: threadRef.threadId },
+  });
+  const result = useAtomValue(atom);
+  const refresh = useAtomRefresh(atom);
+  const state: SnapshotState = AsyncResult.isFailure(result)
+    ? { status: "error", message: formatEnvironmentQueryError(result.cause) }
+    : result.waiting || !AsyncResult.isSuccess(result) || result.value === null
+      ? { status: "loading" }
+      : { status: "loaded", result: result.value };
+
+  return <SessionConfigurationView state={state} refresh={refresh} />;
+}
+
+function ManualSessionConfiguration({ threadRef }: { threadRef: ScopedThreadRef }) {
   const readConfiguration = useAtomCommand(neopiSessionConfiguration, { reportFailure: false });
   const [state, setState] = useState<SnapshotState>({ status: "loading" });
   const requestVersion = useRef(0);
@@ -122,6 +171,25 @@ function SessionConfigurationSnapshot({ threadRef }: { threadRef: ScopedThreadRe
   }, [refresh]);
 
   return (
+    <SessionConfigurationView
+      state={state}
+      refresh={() => {
+        // A requested refresh replaces the old snapshot even if the read fails.
+        setState({ status: "loading" });
+        void refresh();
+      }}
+    />
+  );
+}
+
+function SessionConfigurationView({
+  state,
+  refresh,
+}: {
+  state: SnapshotState;
+  refresh: () => void;
+}) {
+  return (
     <>
       <DialogPanel>
         <div aria-busy={state.status === "loading"} className="space-y-4 text-sm">
@@ -142,15 +210,7 @@ function SessionConfigurationSnapshot({ threadRef }: { threadRef: ScopedThreadRe
       </DialogPanel>
       <DialogFooter>
         <DialogClose render={<Button variant="ghost" />}>Close</DialogClose>
-        <Button
-          variant="secondary"
-          disabled={state.status === "loading"}
-          onClick={() => {
-            // A requested refresh replaces the old snapshot even if the read fails.
-            setState({ status: "loading" });
-            void refresh();
-          }}
-        >
+        <Button variant="secondary" disabled={state.status === "loading"} onClick={refresh}>
           Refresh
         </Button>
       </DialogFooter>
