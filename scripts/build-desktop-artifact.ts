@@ -20,6 +20,7 @@ import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import rootPackageJson from "../package.json" with { type: "json" };
 import desktopPackageJson from "../apps/desktop/package.json" with { type: "json" };
 import { APP_BASE_NAME } from "../apps/desktop/src/app/DesktopEnvironment.ts";
+import { resolveDefaultDesktopUpdateChannel } from "../apps/desktop/src/updates/updateChannels.ts";
 import gnomeCaptureBundle from "../apps/desktop/gnome-extension/bundle.json" with { type: "json" };
 import serverPackageJson from "../apps/server/package.json" with { type: "json" };
 
@@ -2589,18 +2590,18 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
 });
 
 export function resolveDesktopUpdateChannel(version: string): "latest" | "nightly" {
-  return /-nightly\.\d{8}\.\d+$/.test(version) ? "nightly" : "latest";
+  return resolveDefaultDesktopUpdateChannel(version);
 }
 
 // Pull request builds (`-pr.<n>.`) and the maintainers' preview train
-// (`-preview.<date>.<run>`) are downloaded by hand and never through an
+// (`-preview.<date>.<run>[.<attempt>]`) are downloaded by hand and never through an
 // updater. Building them without a publish config means electron-builder
 // emits no `latest*.yml`/`nightly*.yml` manifests or blockmaps for them and
 // the app ships without `app-update.yml`, so neither a stable nor a nightly
 // install can be pointed at one of these releases, and the build itself
 // reports that no update feed is configured instead of polling.
 export function isDesktopPreviewVersion(version: string): boolean {
-  return /-pr\./.test(version) || /-preview\.\d{8}\.\d+$/.test(version);
+  return /-pr\./.test(version) || /-preview\.\d{8}\.\d+(?:\.\d+)?$/.test(version);
 }
 
 export function resolveDesktopWebAssetBrand(version: string): WebAssetBrand {
