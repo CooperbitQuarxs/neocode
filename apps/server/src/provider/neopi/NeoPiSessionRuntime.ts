@@ -17,6 +17,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Exit from "effect/Exit";
 import * as Queue from "effect/Queue";
+import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
 import { ChildProcess } from "effect/unstable/process";
@@ -133,6 +134,10 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     input.cursor ?? { v: 1, sessionFile: "", sessionId: "", sessionDir: "", turnBoundaries: [] },
   );
   const frames = yield* Queue.unbounded<NeoPiRuntimeFrame, Cause.Done<void>>();
+  const configurationChanges = yield* PubSub.sliding<void>(1);
+  const invalidateConfiguration = PubSub.publish(configurationChanges, undefined).pipe(
+    Effect.asVoid,
+  );
   const capabilities = new Set<string>();
   const uiPending = new Set<string>();
   const hostPending = new Map<string, Scope.Closeable>();
@@ -169,7 +174,8 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
 
   const emit = (frame: NeoPiRuntimeFrame) =>
     Queue.offer(frames, frame).pipe(Effect.orDie, Effect.asVoid);
-  const setState = (value: NeoPiRuntimeState) => SubscriptionRef.set(state, value);
+  const setState = (value: NeoPiRuntimeState) =>
+    SubscriptionRef.set(state, value).pipe(Effect.andThen(invalidateConfiguration));
   const current = () =>
     client
       ? Effect.succeed(client)
@@ -408,6 +414,8 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     });
   const handleEvent = (frame: NeoPiRuntimeFrame) =>
     Effect.gen(function* () {
+      if (frame.type === "model_changed" || frame.type === "thinking_level_changed")
+        yield* invalidateConfiguration;
       // Control subscriptions include terminal-originated turns. They are not
       // imported live: without a NeoCode-started turn there is no thread turn
       // to correlate them with, so never let them create or settle turn state.
@@ -582,6 +590,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     );
   const closePeer = Effect.gen(function* () {
     generation++;
+    yield* invalidateConfiguration;
     if (pendingProposal) {
       const proposal = pendingProposal;
       pendingProposal = undefined;
@@ -1188,6 +1197,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       sessionId: fresh.sessionId,
       sessionFile: NodePath.resolve(fresh.sessionFile),
     });
+    yield* invalidateConfiguration;
     yield* emit({ type: "t3.state", state: fresh });
   });
   const setRuntimeMode = (next: RuntimeMode) =>
@@ -1212,6 +1222,8 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     get processGeneration() {
       return generation;
     },
+    subscribeConfigurationChanges: PubSub.subscribe(configurationChanges),
+    invalidateConfiguration,
     prepareForTurn,
     capabilities,
     start,
