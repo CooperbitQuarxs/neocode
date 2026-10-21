@@ -288,7 +288,6 @@ it.live("refreshes attached configuration using reads while preserving the termi
       const commandCount = pipe.commands.length;
       const first = yield* readNeoPiSessionConfiguration(runtime, attachedCursor);
       NodeAssert.equal(first.status, "available");
-      if (first.status !== "available") throw new Error(first.reason);
       NodeAssert.equal(first.attachment, "terminal");
       NodeAssert.equal(first.activeRole, "fast");
       NodeAssert.deepEqual(first.model, { provider: "provider", id: "fast", name: "fast" });
@@ -309,7 +308,6 @@ it.live("refreshes attached configuration using reads while preserving the termi
       activeRole = "careful";
       const refreshed = yield* readNeoPiSessionConfiguration(runtime, attachedCursor);
       NodeAssert.equal(refreshed.status, "available");
-      if (refreshed.status !== "available") throw new Error(refreshed.reason);
       NodeAssert.equal(refreshed.activeRole, "careful");
       NodeAssert.equal(refreshed.thinkingLevel, "high");
       NodeAssert.equal(refreshed.model?.id, "careful");
@@ -336,7 +334,6 @@ it.live("reports unsupported roles and a disconnected attached runtime without s
       const commandCount = pipe.commands.length;
       const result = yield* readNeoPiSessionConfiguration(runtime, attachedCursor);
       NodeAssert.equal(result.status, "available");
-      if (result.status !== "available") throw new Error(result.reason);
       NodeAssert.equal(result.roles.status, "unsupported");
       NodeAssert.deepEqual(
         pipe.commands.slice(commandCount).map((cmd) => cmd.type),
@@ -394,7 +391,6 @@ it.live("reads owned configuration and rejects malformed advertised roles", () =
       const commandCount = peer.commands.length;
       const result = yield* readNeoPiSessionConfiguration(runtime, expected);
       NodeAssert.equal(result.status, "available");
-      if (result.status !== "available") throw new Error(result.reason);
       NodeAssert.equal(result.attachment, "owned");
       NodeAssert.equal(result.roles.status, "available");
       NodeAssert.equal(launches, 1);

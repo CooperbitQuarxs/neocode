@@ -93,8 +93,6 @@ function SessionConfigurationSnapshot({ threadRef }: { threadRef: ScopedThreadRe
 
   const refresh = useCallback(async () => {
     const version = ++requestVersion.current;
-    // A refresh replaces the old snapshot, including when the connection has gone away.
-    setState({ status: "loading" });
     try {
       const response = await readConfiguration({ environmentId, input: { threadId } });
       if (requestVersion.current !== version) return;
@@ -148,6 +146,8 @@ function SessionConfigurationSnapshot({ threadRef }: { threadRef: ScopedThreadRe
           variant="secondary"
           disabled={state.status === "loading"}
           onClick={() => {
+            // A requested refresh replaces the old snapshot even if the read fails.
+            setState({ status: "loading" });
             void refresh();
           }}
         >
@@ -224,6 +224,7 @@ function ConfigurationDetails({
                     ) : (
                       <ol className="list-inside list-decimal space-y-1">
                         {role.patterns.map((pattern, index) => (
+                          // oxlint-disable-next-line react/no-array-index-key -- Native fallback patterns can repeat; their ordered positions distinguish them.
                           <li key={`${index}:${pattern}`} className="break-words font-mono">
                             {pattern}
                           </li>
