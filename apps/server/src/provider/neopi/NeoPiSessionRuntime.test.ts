@@ -18,6 +18,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as PlatformError from "effect/PlatformError";
+import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
@@ -2591,6 +2592,120 @@ it.live("reports disconnection during configuration reads instead of stale succe
         peer.commands.slice(commandCount).map((cmd) => cmd.type),
         ["get_state", "get_roles"],
       );
+      yield* runtime.stop;
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("follows idle terminal model and effort changes without importing its turns", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      let model = "first";
+      let thinkingLevel = "low";
+      const fixture = yield* attachFixture(true, attachCapabilities, {
+        state: () => ({ model: { provider: "test", id: model }, thinkingLevel }),
+        roles: () => ({ roles: [configurationRole] }),
+      });
+      const { runtime, pipe, launches } = fixture;
+      const instanceId = ProviderInstanceId.make("observed-neopi");
+      const adapter = yield* makeNeoPiAdapter({
+        settings: {
+          enabled: true,
+          binaryPath: "npi",
+          profile: "",
+          launchArgs: "",
+          customModels: [],
+        },
+        instanceId,
+        binary: "npi",
+        cwd: "/tmp",
+        t3Home: root,
+        attachmentsDir: root,
+        environment: {},
+        spawn: fixture.spawn,
+        discovery: yield* makeNeoPiDiscoveryHub(),
+        makeRuntime: () => Effect.succeed(runtime),
+      });
+      yield* adapter.startSession({
+        threadId: runtime.threadId,
+        provider: ProviderDriverKind.make("neopi"),
+        providerInstanceId: instanceId,
+        cwd: "/tmp",
+        runtimeMode: "approval-required",
+        resumeCursor: attachedCursor,
+      });
+      const cursorBefore = yield* SubscriptionRef.get(runtime.cursor);
+      const frames = yield* capture(runtime);
+      const commandCount = pipe.commands.length;
+      const launchCount = launches.length;
+      const observation = yield* adapter.observeConfiguration(runtime.threadId, attachedCursor);
+      const output = yield* Queue.unbounded<Effect.Success<typeof observation.read>>();
+      const watching = yield* Stream.concat(
+        Stream.fromEffect(observation.read),
+        observation.changes.pipe(Stream.mapEffect(() => observation.read)),
+      ).pipe(
+        Stream.takeUntil((result) => result.status === "unavailable"),
+        Stream.runForEach((result) => Queue.offer(output, result)),
+        Effect.forkScoped,
+      );
+      const initial = yield* Queue.take(output);
+      NodeAssert.equal(initial.status, "available");
+      NodeAssert.equal(initial.model?.id, "first");
+      yield* pipe.emit({ type: "agent_start" });
+      yield* pipe.emit({ type: "message_end", message: { role: "assistant", content: [] } });
+      yield* pipe.emit({ type: "agent_end", isTerminal: true });
+      model = "second";
+      yield* pipe.emit({ type: "model_changed", model: { provider: "test", id: model } });
+      const changed = yield* Queue.take(output);
+      NodeAssert.equal(changed.status, "available");
+      NodeAssert.equal(changed.model?.id, "second");
+      thinkingLevel = "high";
+      yield* pipe.emit({ type: "thinking_level_changed", level: thinkingLevel });
+      const effort = yield* Queue.take(output);
+      NodeAssert.equal(effort.status, "available");
+      NodeAssert.equal(effort.thinkingLevel, "high");
+      NodeAssert.equal(yield* SubscriptionRef.get(runtime.state), "ready");
+      NodeAssert.deepEqual(yield* SubscriptionRef.get(runtime.cursor), cursorBefore);
+      NodeAssert.equal(launches.length, launchCount);
+      NodeAssert.equal(
+        frames.some((frame) =>
+          [
+            "agent_start",
+            "message_end",
+            "agent_end",
+            "model_changed",
+            "thinking_level_changed",
+          ].includes(String(frame.type)),
+        ),
+        false,
+      );
+      NodeAssert.deepEqual(
+        pipe.commands.slice(commandCount).map((cmd) => cmd.type),
+        Array.from({ length: 3 }, () => ["get_state", "get_roles", "get_state"]).flat(),
+      );
+      yield* pipe.finish(null);
+      NodeAssert.equal((yield* Queue.take(output)).status, "unavailable");
+      yield* Fiber.join(watching);
+      NodeAssert.equal(launches.length, launchCount);
+      NodeAssert.deepEqual(pipe.signals, []);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("does not read configuration for unobserved idle terminal notifications", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { runtime, pipe } = yield* attachFixture();
+      yield* runtime.start;
+      const commandCount = pipe.commands.length;
+      // A bare invalidation subscriber gives the test an event receipt without
+      // creating a configuration consumer or relying on a timer.
+      const receipt = yield* runtime.subscribeConfigurationChanges;
+      yield* pipe.emit({ type: "model_changed", model: { provider: "test", id: "second" } });
+      yield* PubSub.take(receipt);
+      yield* pipe.emit({ type: "thinking_level_changed", level: "high" });
+      yield* PubSub.take(receipt);
+      NodeAssert.equal(pipe.commands.length, commandCount);
       yield* runtime.stop;
     }),
   ).pipe(Effect.provide(NodeServices.layer)),

@@ -3203,6 +3203,12 @@ const makeWsRpcLayer = (
             neopiSessionCatalog.configuration(input),
             { "rpc.aggregate": "workspace" },
           ),
+        [WS_METHODS.neopiSessionsWatchConfiguration]: (input) =>
+          observeRpcStream(
+            WS_METHODS.neopiSessionsWatchConfiguration,
+            neopiSessionCatalog.watchConfiguration(input),
+            { "rpc.aggregate": "workspace" },
+          ),
         [WS_METHODS.assetsCreateUrl]: (input) =>
           observeRpcEffect(
             WS_METHODS.assetsCreateUrl,

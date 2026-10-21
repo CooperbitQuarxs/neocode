@@ -29,6 +29,8 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
+import * as PubSub from "effect/PubSub";
+import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
@@ -39,7 +41,12 @@ import { ProjectionSnapshotQuery } from "../../orchestration/Services/Projection
 import { collectUint8StreamText } from "../../stream/collectUint8StreamText.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
-import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
+import {
+  ProviderSessionDirectory,
+  type ProviderRuntimeBinding,
+} from "../Services/ProviderSessionDirectory.ts";
+import type { ProviderInstance } from "../ProviderDriver.ts";
+import type { NeoPiConfigurationIdentity } from "./NeoPiSessionConfiguration.ts";
 import { NEOPI_CAPABILITIES } from "./NeoPiCompatibility.ts";
 import { resolveNeoPiSessionRoots } from "./NeoPiPaths.ts";
 import {
@@ -842,6 +849,30 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
     Effect.mapError(operationError("handoff")),
   );
 
+  const configurationBindingChange = Effect.fnUntraced(function* (
+    binding: ProviderRuntimeBinding,
+    expected: NeoPiConfigurationIdentity,
+    instance: ProviderInstance,
+  ) {
+    const current = yield* directory.getBinding(binding.threadId);
+    if (
+      Option.isNone(current) ||
+      current.value.provider !== "neopi" ||
+      current.value.status !== "running" ||
+      current.value.providerInstanceId !== instance.instanceId ||
+      current.value.adapterKey !== binding.adapterKey ||
+      (yield* instances.getInstance(instance.instanceId)) !== instance
+    )
+      return "The bound NeoPi connection changed during the snapshot.";
+    const cursor = decodeCursor(current.value.resumeCursor);
+    if (
+      Option.isNone(cursor) ||
+      cursor.value.sessionId !== expected.sessionId ||
+      NodePath.resolve(cursor.value.sessionFile) !== NodePath.resolve(expected.sessionFile)
+    )
+      return "The bound native NeoPi session changed during the snapshot.";
+  });
+
   const configuration = Effect.fn("NeoPiSessionCatalog.configuration")(
     function* (
       input: NeoPiSessionConfigurationInput,
@@ -870,28 +901,97 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
           result.sessionId !== cursor.value.sessionId)
       )
         return unavailable("The NeoPi reader returned a different bound session.");
-      const current = yield* directory.getBinding(input.threadId);
-      if (
-        Option.isNone(current) ||
-        current.value.provider !== "neopi" ||
-        current.value.status !== "running" ||
-        current.value.providerInstanceId !== instance.instanceId ||
-        current.value.adapterKey !== binding.value.adapterKey ||
-        (yield* instances.getInstance(instance.instanceId)) !== instance
-      )
-        return unavailable("The bound NeoPi connection changed during the snapshot.");
-      const currentCursor = decodeCursor(current.value.resumeCursor);
-      if (
-        Option.isNone(currentCursor) ||
-        currentCursor.value.sessionId !== cursor.value.sessionId ||
-        NodePath.resolve(currentCursor.value.sessionFile) !==
-          NodePath.resolve(cursor.value.sessionFile)
-      )
-        return unavailable("The bound native NeoPi session changed during the snapshot.");
+      const changed = yield* configurationBindingChange(binding.value, cursor.value, instance);
+      if (changed) return unavailable(changed);
       return result;
     },
     Effect.mapError(operationError("configuration")),
   );
 
-  return { list, resume, handoff, configuration };
+  const watchConfiguration = (input: NeoPiSessionConfigurationInput) =>
+    Stream.unwrap(
+      Effect.gen(function* () {
+        const unavailable = (reason: string) => ({ status: "unavailable" as const, reason });
+        // Acquire every notification source before reading the binding or native
+        // snapshot. A notification during a read leaves one pending refresh.
+        const registryChanges = yield* instances.subscribeChanges;
+        const domainEvents = yield* engine.subscribeDomainEvents;
+        const pending = yield* Queue.sliding<void>(1);
+        let refresh = true;
+        const invalidate = (read: boolean) =>
+          Effect.suspend(() => {
+            refresh ||= read;
+            return Queue.offer(pending, undefined);
+          });
+        yield* Effect.forever(
+          PubSub.take(registryChanges).pipe(Effect.andThen(invalidate(false))),
+        ).pipe(Effect.forkScoped);
+        yield* domainEvents.pipe(
+          Stream.filter(
+            (event) =>
+              event.aggregateId === input.threadId &&
+              (event.type === "thread.session-set" || event.type === "thread.reverted"),
+          ),
+          Stream.runForEach(() => invalidate(false)),
+          Effect.forkScoped,
+        );
+        const binding = yield* directory.getBinding(input.threadId);
+        if (Option.isNone(binding) || binding.value.provider !== "neopi")
+          return Stream.succeed(unavailable("This thread has no bound NeoPi session."));
+        if (binding.value.status !== "running")
+          return Stream.succeed(unavailable("This thread's NeoPi session is not connected."));
+        const cursor = decodeCursor(binding.value.resumeCursor);
+        if (Option.isNone(cursor) || !cursor.value.sessionId || !cursor.value.sessionFile)
+          return Stream.succeed(
+            unavailable("This thread has no saved native NeoPi session identity."),
+          );
+        const instance = binding.value.providerInstanceId
+          ? yield* instances.getInstance(binding.value.providerInstanceId)
+          : undefined;
+        const source = instance && neoPiSessionCatalogSource(instance);
+        if (!instance || instance.driverKind !== "neopi" || !source?.observeConfiguration)
+          return Stream.succeed(
+            unavailable("The bound NeoPi configuration observer is unavailable."),
+          );
+        const observation = yield* source.observeConfiguration(input.threadId, cursor.value);
+        const changed = configurationBindingChange(binding.value, cursor.value, instance);
+        yield* observation.changes.pipe(
+          Stream.runForEach(() => invalidate(true)),
+          Effect.forkScoped,
+        );
+        yield* Queue.offer(pending, undefined);
+        return Stream.fromQueue(pending).pipe(
+          Stream.mapEffect(() =>
+            Effect.gen(function* () {
+              const read = refresh;
+              refresh = false;
+              if (yield* changed)
+                return Option.some(
+                  unavailable("The observed NeoPi binding changed. Start following again."),
+                );
+              if (!read) return Option.none();
+              const result = yield* observation.read;
+              if (yield* changed)
+                return Option.some(
+                  unavailable("The observed NeoPi binding changed during the snapshot."),
+                );
+              if (
+                result.status === "available" &&
+                (result.providerInstanceId !== instance.instanceId ||
+                  result.sessionId !== cursor.value.sessionId)
+              )
+                return Option.some(
+                  unavailable("The NeoPi reader returned a different bound session."),
+                );
+              return Option.some(result);
+            }),
+          ),
+          Stream.filter(Option.isSome),
+          Stream.map((result) => result.value),
+          Stream.takeUntil((result) => result.status === "unavailable"),
+        );
+      }),
+    ).pipe(Stream.mapError(operationError("configuration")));
+
+  return { list, resume, handoff, configuration, watchConfiguration };
 });

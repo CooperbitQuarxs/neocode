@@ -9,6 +9,8 @@ import type {
 import type * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
 import type * as SubscriptionRef from "effect/SubscriptionRef";
+import type * as PubSub from "effect/PubSub";
+import type * as Scope from "effect/Scope";
 import type { NeoPiRuntimeError } from "./NeoPiRuntimeError.ts";
 
 export interface NeoPiLaunchPlan {
@@ -65,6 +67,12 @@ export interface NeoPiSessionRuntimeShape {
   readonly state: SubscriptionRef.SubscriptionRef<NeoPiRuntimeState>;
   readonly cursor: SubscriptionRef.SubscriptionRef<NeoPiResumeCursor>;
   readonly processGeneration?: number;
+  readonly subscribeConfigurationChanges?: Effect.Effect<
+    PubSub.Subscription<void>,
+    never,
+    Scope.Scope
+  >;
+  readonly invalidateConfiguration?: Effect.Effect<void>;
   readonly prepareForTurn?: Effect.Effect<void, NeoPiRuntimeError>;
   readonly capabilities: ReadonlySet<string>;
   readonly start: Effect.Effect<void, NeoPiRuntimeError>;

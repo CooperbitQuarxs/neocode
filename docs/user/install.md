@@ -194,9 +194,11 @@ change those owner-controlled settings.
 To inspect the connected session's model and role configuration, open **NeoPi
 session configuration** in the thread header. It shows the native session
 identity, ownership, current model and effort, and NeoPi's configured role
-fallbacks and resolutions. This is a read-only snapshot. Use **Refresh** after a
-terminal-side change; opening it does not start a stopped session or change the
-terminal's settings.
+fallbacks and resolutions. This view is read-only. Use **Refresh** for a new
+snapshot, or enable **Follow model changes** to refresh when NeoPi reports model
+or effort changes. Following stops when you close the inspector or turn it off.
+Role-definition changes may still need Refresh. Opening the inspector does not
+start a stopped session or change the terminal's settings.
 
 To go the other way, use **Continue in terminal** in a NeoPi thread's header:
 NeoCode stops its NeoPi process and copies the command that reopens the same

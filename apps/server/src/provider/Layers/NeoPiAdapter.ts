@@ -819,6 +819,43 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
         );
       }),
     readThread,
+    observeConfiguration: (threadId, expected) =>
+      Effect.gen(function* () {
+        const session = sessions.get(threadId);
+        const unavailable = (reason: string) => ({
+          read: Effect.succeed({ status: "unavailable" as const, reason }),
+          changes: Stream.empty,
+        });
+        if (!session?.runtime.subscribeConfigurationChanges)
+          return unavailable("This thread has no connected NeoPi configuration observer.");
+        const generation = session.runtime.processGeneration;
+        const changes = yield* session.runtime.subscribeConfigurationChanges;
+        const read = Effect.gen(function* () {
+          if (
+            sessions.get(threadId) !== session ||
+            session.runtime.processGeneration !== generation
+          )
+            return {
+              status: "unavailable" as const,
+              reason: "The observed NeoPi runtime was replaced. Start following again.",
+            };
+          const result = yield* readNeoPiSessionConfiguration(session.runtime, expected).pipe(
+            Effect.mapError((cause) => rpcError(threadId, "configuration", cause)),
+          );
+          if (
+            sessions.get(threadId) !== session ||
+            session.runtime.processGeneration !== generation
+          )
+            return {
+              status: "unavailable" as const,
+              reason: "The observed NeoPi runtime changed during the snapshot.",
+            };
+          return result.status === "available"
+            ? { ...result, providerInstanceId: options.instanceId }
+            : result;
+        });
+        return { read, changes: Stream.fromEffectRepeat(PubSub.take(changes)) };
+      }),
     getConfiguration: (threadId, expected) =>
       Effect.gen(function* () {
         const session = sessions.get(threadId);
@@ -913,6 +950,7 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
                 onBranched: async (branched) => {
                   await runPromise(SubscriptionRef.set(session.runtime.cursor, branched));
                   session.session = { ...session.session, resumeCursor: branched };
+                  await runPromise(session.runtime.invalidateConfiguration ?? Effect.void);
                 },
               });
             } catch (cause) {
@@ -939,6 +977,7 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
         });
         yield* SubscriptionRef.set(session.runtime.cursor, next);
         session.session = { ...session.session, resumeCursor: next };
+        yield* session.runtime.invalidateConfiguration ?? Effect.void;
         if (next.sessionId !== cursor.sessionId) {
           session.interactionMode = "default";
           delete session.hostPlanHandlerGeneration;

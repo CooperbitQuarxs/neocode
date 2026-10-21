@@ -14,6 +14,7 @@ import { NeoPiRpcError } from "effect-neopi-rpc/errors";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import * as Layer from "effect/Layer";
@@ -67,11 +68,16 @@ it.live("streams a turn, steers the same turn, routes UI responses, and stops it
       let stopCount = 0;
       let startCount = 0;
       const configurationReads: string[] = [];
+      let generation = 1;
+      const configurationChanges = yield* PubSub.sliding<void>(1);
       const runtime: NeoPiSessionRuntimeShape = {
         threadId,
         state,
         cursor,
-        processGeneration: 1,
+        get processGeneration() {
+          return generation;
+        },
+        subscribeConfigurationChanges: PubSub.subscribe(configurationChanges),
         capabilities: new Set(["v2"]),
         start: Effect.sync(() => {
           startCount++;
@@ -175,6 +181,12 @@ it.live("streams a turn, steers the same turn, routes UI responses, and stops it
       });
       assert.equal(mismatched.status, "unavailable");
       assert.equal(startCount, 1);
+      const observation = yield* adapter.observeConfiguration(threadId, boundCursor);
+      assert.equal((yield* observation.read).status, "available");
+      const readsBeforeReplacement = configurationReads.length;
+      generation++;
+      assert.equal((yield* observation.read).status, "unavailable");
+      assert.equal(configurationReads.length, readsBeforeReplacement);
       const first = yield* adapter.sendTurn({ threadId, input: "say hi" });
       const second = yield* adapter.sendTurn({ threadId, input: "one more thing" });
       assert.equal(second.turnId, first.turnId);
@@ -1011,9 +1023,15 @@ it.live(
     ).pipe(Effect.provide(NodeServices.layer)),
 );
 
-for (const failure of ["none", "transcript", "state"] as const)
+for (const failure of ["none", "transcript", "state", "projection"] as const)
   it.live(
-    `rollback ${failure === "none" ? "persists the branched cursor" : `restores the original cursor after ${failure} failure`}`,
+    `rollback ${
+      failure === "none"
+        ? "persists the branched cursor"
+        : failure === "projection"
+          ? "invalidates its configuration observer after a failed branched-history read"
+          : `restores the original cursor after ${failure} failure`
+    }`,
     () =>
       Effect.scoped(
         Effect.gen(function* () {
@@ -1023,6 +1041,7 @@ for (const failure of ["none", "transcript", "state"] as const)
           const hub = yield* makeNeoPiDiscoveryHub();
           const state = yield* SubscriptionRef.make<NeoPiRuntimeState>("stopped");
           const frames = yield* Queue.unbounded<NeoPiRuntimeFrame>();
+          const configurationChanges = yield* PubSub.sliding<void>(1);
           const cursor = yield* SubscriptionRef.make<NeoPiResumeCursor>({
             v: 1,
             sessionId: "old",
@@ -1055,6 +1074,7 @@ for (const failure of ["none", "transcript", "state"] as const)
           let branched = false;
           let preserveLiveMessages = failure === "transcript";
           let failState = failure === "state";
+          let failProjection = failure === "projection";
           const resumedSessions: string[] = [];
           const requests: string[] = [];
           let runningTurnId: TurnId | undefined;
@@ -1062,6 +1082,11 @@ for (const failure of ["none", "transcript", "state"] as const)
             threadId,
             state,
             cursor,
+            processGeneration: 1,
+            subscribeConfigurationChanges: PubSub.subscribe(configurationChanges),
+            invalidateConfiguration: PubSub.publish(configurationChanges, undefined).pipe(
+              Effect.asVoid,
+            ),
             capabilities: new Set(["v2"]),
             start: SubscriptionRef.set(state, "ready"),
             startTurn: (input) =>
@@ -1084,35 +1109,54 @@ for (const failure of ["none", "transcript", "state"] as const)
             respondUi: () => Effect.void,
             writeFrame: () => Effect.void,
             request: (cmd) =>
-              Effect.sync(() => {
-                requests.push(`${cmd.type}:${"entryId" in cmd ? String(cmd.entryId) : ""}`);
-                if (cmd.type === "get_entries")
-                  return { entries: branched ? [] : entries, leafId: branched ? null : "compact" };
-                if (cmd.type === "branch") {
-                  branched = true;
-                  return { cancelled: false };
-                }
-                if (cmd.type === "get_state") {
-                  if (branched && failState) {
-                    failState = false;
-                    throw new Error("state unavailable after branch");
-                  }
-                  return { sessionFile: `${home}/new.jsonl`, sessionId: "new" };
-                }
-                return {
-                  messages:
-                    branched && !preserveLiveMessages
-                      ? []
-                      : [
-                          ...entries
-                            .slice(0, 2)
-                            .flatMap((entry) => ("message" in entry ? [entry.message] : [])),
-                          { role: "custom", content: "notice" },
-                          { role: "branchSummary", summary: "earlier branch" },
-                          { role: "compactionSummary", summary: "compressed" },
-                        ],
-                };
-              }),
+              branched && failProjection && cmd.type === "get_entries"
+                ? Effect.sync(() => {
+                    failProjection = false;
+                  }).pipe(
+                    Effect.andThen(
+                      Effect.fail(
+                        new NeoPiRpcError({
+                          code: "closed",
+                          message: "history projection failed after branch",
+                        }),
+                      ),
+                    ),
+                  )
+                : Effect.sync(() => {
+                    requests.push(`${cmd.type}:${"entryId" in cmd ? String(cmd.entryId) : ""}`);
+                    if (cmd.type === "get_entries")
+                      return {
+                        entries: branched ? [] : entries,
+                        leafId: branched ? null : "compact",
+                      };
+                    if (cmd.type === "branch") {
+                      branched = true;
+                      return { cancelled: false };
+                    }
+                    if (cmd.type === "get_state") {
+                      if (branched && failState) {
+                        failState = false;
+                        throw new Error("state unavailable after branch");
+                      }
+                      return {
+                        sessionFile: `${home}/${branched ? "new" : "old"}.jsonl`,
+                        sessionId: branched ? "new" : "old",
+                      };
+                    }
+                    return {
+                      messages:
+                        branched && !preserveLiveMessages
+                          ? []
+                          : [
+                              ...entries
+                                .slice(0, 2)
+                                .flatMap((entry) => ("message" in entry ? [entry.message] : [])),
+                              { role: "custom", content: "notice" },
+                              { role: "branchSummary", summary: "earlier branch" },
+                              { role: "compactionSummary", summary: "compressed" },
+                            ],
+                    };
+                  }),
             frames: Stream.fromQueue(frames),
             restart: () =>
               Effect.gen(function* () {
@@ -1149,11 +1193,33 @@ for (const failure of ["none", "transcript", "state"] as const)
             (yield* adapter.readThread(threadId)).turns.map((turn) => turn.items.length),
             [5],
           );
+          const observation =
+            failure === "projection"
+              ? yield* adapter.observeConfiguration(threadId, yield* SubscriptionRef.get(cursor))
+              : undefined;
+          if (observation) assert.equal((yield* observation.read).status, "available");
           yield* adapter.sendTurn({ threadId, input: "first" });
           const rewind = yield* Effect.exit(adapter.rollbackThread(threadId, 1));
           assert.ok(requests.indexOf("abort") >= 0);
           assert.ok(requests.indexOf("abort") < requests.indexOf("branch:u1"));
-          if (failure !== "none") {
+          if (failure === "projection") {
+            assert.equal(rewind._tag, "Failure");
+            if (rewind._tag === "Failure")
+              assert.match(Cause.pretty(rewind.cause), /history projection failed after branch/);
+            assert.deepEqual(resumedSessions, []);
+            const requestsBeforeNotification = requests.length;
+            assert.ok(observation);
+            const updates = yield* observation.changes.pipe(
+              Stream.take(1),
+              Stream.mapEffect(() => observation.read),
+              Stream.runCollect,
+            );
+            assert.deepEqual(
+              updates.map((result) => result.status),
+              ["unavailable"],
+            );
+            assert.equal(requests.length, requestsBeforeNotification);
+          } else if (failure !== "none") {
             assert.equal(rewind._tag, "Failure");
             if (rewind._tag === "Failure")
               assert.match(Cause.pretty(rewind.cause), /rollback integrity error/);
