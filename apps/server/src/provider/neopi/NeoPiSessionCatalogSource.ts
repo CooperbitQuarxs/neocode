@@ -1,4 +1,5 @@
 import type { ProviderInstance } from "../ProviderDriver.ts";
+import type { NeoPiAdapterShape } from "../Services/NeoPiAdapter.ts";
 
 /** Last completed handshake, retained while refresh is in flight or fails. */
 export interface NeoPiCapabilityProbe {
@@ -14,6 +15,7 @@ export interface NeoPiSessionCatalogSource {
   /** The same mutable capability set refreshed by the driver's RPC probe. */
   readonly capabilities: ReadonlySet<string>;
   readonly probe: NeoPiCapabilityProbe;
+  readonly configuration?: NeoPiAdapterShape["getConfiguration"];
 }
 
 const sources = new WeakMap<ProviderInstance, NeoPiSessionCatalogSource>();

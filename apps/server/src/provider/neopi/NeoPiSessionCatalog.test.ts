@@ -18,6 +18,7 @@ import {
   type OrchestrationEvent,
   type OrchestrationProjectShell,
   type OrchestrationThread,
+  type NeoPiSessionConfigurationResult,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
@@ -128,6 +129,7 @@ const projectedThread = (
 const harness = (options?: {
   instance?: ProviderInstance;
   nativeCommands?: boolean;
+  configuration?: NeoPiSessionCatalogSource["configuration"];
   workspaceRoot?: string;
   capabilities?: string[];
   rows?: object[];
@@ -142,6 +144,7 @@ const harness = (options?: {
     rows: object[];
     listOutput?: string | NeoPiSessionError;
     enabled?: boolean;
+    configuration?: NeoPiSessionCatalogSource["configuration"];
   }[];
 }) =>
   Effect.gen(function* () {
@@ -179,6 +182,7 @@ const harness = (options?: {
       profile: "personal",
       capabilities,
       probe: { status: "compatible" as const, version: "1.2.3" },
+      ...(options?.configuration ? { configuration: options.configuration } : {}),
     };
     const instance = registerNeoPiSessionCatalogSource(
       {
@@ -216,6 +220,7 @@ const harness = (options?: {
           profile: entry.instanceId,
           capabilities: new Set(entry.capabilities),
           probe: { status: "compatible", version: "1.2.3" },
+          ...(entry.configuration ? { configuration: entry.configuration } : {}),
         },
       ),
     );
@@ -1643,5 +1648,159 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
         expect(fresh.commands).toEqual([]);
         expect([...calls, ...fresh.calls].every((call) => call.args[1] !== "read")).toBe(true);
       }),
+  );
+});
+
+const configurationSnapshot = (
+  providerInstanceId: ProviderInstanceId,
+  sessionId: string,
+): NeoPiSessionConfigurationResult => ({
+  status: "available",
+  providerInstanceId,
+  sessionId,
+  attachment: "owned",
+  model: { provider: "test", id: sessionId, name: null },
+  thinkingLevel: null,
+  activeRole: null,
+  observedAt: now,
+  roles: { status: "unsupported", reason: "Not advertised" },
+});
+
+describe("bound NeoPi configuration", () => {
+  it.live("routes two threads to their recorded instances rather than the enabled default", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const otherId = ProviderInstanceId.make("neopi-work");
+        const personal = bound("personal", "running");
+        const work = { ...bound("work", "running"), providerInstanceId: otherId };
+        const inspected: string[] = [];
+        const h = yield* harness({
+          bindings: [personal, work],
+          defaultInstanceId: instanceId,
+          configuration: (threadId, expected) =>
+            Effect.sync(() => {
+              inspected.push(`personal:${threadId}`);
+              return configurationSnapshot(instanceId, expected.sessionId);
+            }),
+          extraInstances: [
+            {
+              instanceId: otherId,
+              capabilities: [],
+              rows: [],
+              configuration: (threadId, expected) =>
+                Effect.sync(() => {
+                  inspected.push(`work:${threadId}`);
+                  return configurationSnapshot(otherId, expected.sessionId);
+                }),
+            },
+          ],
+        });
+        const second = yield* h.catalog.configuration({ threadId: work.threadId });
+        const first = yield* h.catalog.configuration({ threadId: personal.threadId });
+        expect(second).toEqual(configurationSnapshot(otherId, "work"));
+        expect(first).toEqual(configurationSnapshot(instanceId, "personal"));
+        expect(inspected).toEqual([`work:${work.threadId}`, `personal:${personal.threadId}`]);
+        expect(h.calls).toEqual([]);
+        expect(h.commands).toEqual([]);
+        expect(h.bindings).toEqual([personal, work]);
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.live(
+    "does not read stopped, other-provider, unknown-instance or missing-runtime sessions",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          let reads = 0;
+          const stopped = bound("stopped");
+          const foreign = {
+            ...bound("foreign", "running"),
+            provider: ProviderDriverKind.make("codex"),
+          };
+          const absent = {
+            ...bound("absent", "running"),
+            providerInstanceId: ProviderInstanceId.make("missing-instance"),
+          };
+          const h = yield* harness({
+            bindings: [stopped, foreign, absent],
+            configuration: () =>
+              Effect.sync(() => {
+                reads++;
+                return configurationSnapshot(instanceId, "wrong");
+              }),
+          });
+          for (const threadId of [
+            stopped.threadId,
+            foreign.threadId,
+            absent.threadId,
+            ThreadId.make("missing"),
+          ])
+            expect((yield* h.catalog.configuration({ threadId })).status).toBe("unavailable");
+          expect(reads).toBe(0);
+          const missingRuntime = bound("no-runtime", "running");
+          const disconnected = yield* harness({ bindings: [missingRuntime] });
+          expect(
+            (yield* disconnected.catalog.configuration({ threadId: missingRuntime.threadId }))
+              .status,
+          ).toBe("unavailable");
+          expect(h.calls).toEqual([]);
+          expect(h.commands).toEqual([]);
+          expect(disconnected.calls).toEqual([]);
+        }),
+      ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.live("discards a snapshot if the bound native identity changes during the read", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const binding = bound("original", "running");
+        const entered = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const h = yield* harness({
+          bindings: [binding],
+          configuration: () =>
+            Effect.gen(function* () {
+              yield* Deferred.succeed(entered, undefined);
+              yield* Deferred.await(release);
+              return configurationSnapshot(instanceId, "original");
+            }),
+        });
+        const read = yield* h.catalog
+          .configuration({ threadId: binding.threadId })
+          .pipe(Effect.forkScoped);
+        yield* Deferred.await(entered);
+        h.bindings[0] = {
+          ...binding,
+          resumeCursor: { sessionFile: session("replacement").path, sessionId: "replacement" },
+        };
+        yield* Deferred.succeed(release, undefined);
+        expect((yield* Fiber.join(read)).status).toBe("unavailable");
+        expect(h.calls).toEqual([]);
+        expect(h.commands).toEqual([]);
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.live("refuses a reader result from another native session or provider instance", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const binding = bound("original", "running");
+        for (const result of [
+          configurationSnapshot(instanceId, "replacement"),
+          configurationSnapshot(ProviderInstanceId.make("other"), "original"),
+        ]) {
+          const h = yield* harness({
+            bindings: [binding],
+            configuration: () => Effect.succeed(result),
+          });
+          expect((yield* h.catalog.configuration({ threadId: binding.threadId })).status).toBe(
+            "unavailable",
+          );
+          expect(h.calls).toEqual([]);
+          expect(h.commands).toEqual([]);
+        }
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
   );
 });

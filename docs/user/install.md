@@ -191,6 +191,13 @@ terminal session and reopen its bound row to restore them. While attached, use
 the terminal to change modes, model settings, or compact history; NeoCode cannot
 change those owner-controlled settings.
 
+To inspect the connected session's model and role configuration, open **NeoPi
+session configuration** in the thread header. It shows the native session
+identity, ownership, current model and effort, and NeoPi's configured role
+fallbacks and resolutions. This is a read-only snapshot. Use **Refresh** after a
+terminal-side change; opening it does not start a stopped session or change the
+terminal's settings.
+
 To go the other way, use **Continue in terminal** in a NeoPi thread's header:
 NeoCode stops its NeoPi process and copies the command that reopens the same
 native session in `npi`. If the terminal still owns the session, NeoCode only

@@ -72,10 +72,55 @@ export const NeoPiSessionHandoffResult = Schema.Struct({
   command: Schema.String,
 });
 export type NeoPiSessionHandoffResult = typeof NeoPiSessionHandoffResult.Type;
+export const NeoPiSessionConfigurationInput = Schema.Struct({ threadId: ThreadId });
+export type NeoPiSessionConfigurationInput = typeof NeoPiSessionConfigurationInput.Type;
+export const NeoPiSessionConfigurationResult = Schema.Union([
+  Schema.Struct({ status: Schema.Literal("unavailable"), reason: Schema.String }),
+  Schema.Struct({
+    status: Schema.Literal("available"),
+    providerInstanceId: ProviderInstanceId,
+    sessionId: Schema.String,
+    attachment: Schema.Literals(["terminal", "owned"]),
+    model: Schema.NullOr(
+      Schema.Struct({
+        provider: Schema.String,
+        id: Schema.String,
+        name: Schema.NullOr(Schema.String),
+      }),
+    ),
+    thinkingLevel: Schema.NullOr(Schema.String),
+    activeRole: Schema.NullOr(Schema.String),
+    observedAt: IsoDateTime,
+    roles: Schema.Union([
+      Schema.Struct({ status: Schema.Literal("unsupported"), reason: Schema.String }),
+      Schema.Struct({
+        status: Schema.Literal("available"),
+        items: Schema.Array(
+          Schema.Struct({
+            id: Schema.String,
+            alias: Schema.String,
+            name: Schema.String,
+            configured: Schema.NullOr(Schema.String),
+            patterns: Schema.Array(Schema.String),
+            resolved: Schema.NullOr(
+              Schema.Struct({
+                provider: Schema.String,
+                modelId: Schema.String,
+                thinkingLevel: Schema.NullOr(Schema.String),
+              }),
+            ),
+            hidden: Schema.Boolean,
+          }),
+        ),
+      }),
+    ]),
+  }),
+]);
+export type NeoPiSessionConfigurationResult = typeof NeoPiSessionConfigurationResult.Type;
 export class NeoPiSessionError extends Schema.TaggedError<NeoPiSessionError>()(
   "NeoPiSessionError",
   {
-    operation: Schema.Literals(["list", "resume", "handoff"]),
+    operation: Schema.Literals(["list", "resume", "handoff", "configuration"]),
     message: Schema.String,
   },
 ) {}

@@ -26,6 +26,7 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { makeNeoPiSessionRuntime, type NeoPiRuntimeInput } from "./NeoPiSessionRuntime.ts";
 import type { NeoPiResumeCursor } from "./NeoPiRuntimeTypes.ts";
+import { readNeoPiSessionConfiguration } from "./NeoPiSessionConfiguration.ts";
 import { makeNeoPiAdapter } from "../Layers/NeoPiAdapter.ts";
 import { makeNeoPiDiscoveryHub } from "./NeoPiDiscovery.ts";
 import { makeOrchestrationIntegrationHarness } from "../../../integration/OrchestrationEngineHarness.integration.ts";
@@ -185,6 +186,10 @@ const attachCapabilities = new Set(["session_lease", "session_catalog", "control
 const attachFixture = Effect.fn("attachFixture")(function* (
   endpoint: boolean = true,
   advertised: ReadonlySet<string> = attachCapabilities,
+  configuration?: {
+    state: () => Record<string, unknown>;
+    roles: () => unknown;
+  },
 ) {
   const busy = yield* testPeer(basicHandler, defaultReady, {
     stderr: {
@@ -215,11 +220,21 @@ const attachFixture = Effect.fn("attachFixture")(function* (
               sessionId: "s1",
               sessionFile: attachedCursor.sessionFile,
               messageCount: 3,
+              ...configuration?.state(),
             })
-          : basicHandler(cmd, emit),
+          : cmd.type === "get_roles" && configuration
+            ? answer(cmd, emit, configuration.roles())
+            : basicHandler(cmd, emit),
     {
       ...defaultReady,
-      capabilities: ["rpc-ui", "control_v1", "tool_approval_request", "set_mode", "set_chat_mode"],
+      capabilities: [
+        "rpc-ui",
+        "control_v1",
+        "tool_approval_request",
+        "set_mode",
+        "set_chat_mode",
+        ...(configuration ? ["get_roles"] : []),
+      ],
     },
     undefined,
     true,
@@ -242,6 +257,158 @@ const attachFixture = Effect.fn("attachFixture")(function* (
   );
   return { runtime, launches, pipe, spawn };
 });
+
+const configurationRole = {
+  id: "fast",
+  alias: "fast",
+  name: "Fast",
+  source: "configured",
+  configured: "provider/model:low",
+  patterns: ["provider/model:low", "fallback/*"],
+  resolved: { provider: "provider", modelId: "model", thinkingLevel: "low" },
+  hidden: false,
+};
+
+it.live("refreshes attached configuration using reads while preserving the terminal owner", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      let activeRole = "fast";
+      const { runtime, pipe, launches } = yield* attachFixture(true, attachCapabilities, {
+        state: () => ({
+          activeRole,
+          model: { provider: "provider", id: activeRole, name: activeRole, apiKey: "never expose" },
+          thinkingLevel: activeRole === "fast" ? "low" : "high",
+          systemPrompt: "never expose",
+        }),
+        roles: () => ({ roles: [configurationRole], activeRole }),
+      });
+      yield* runtime.start;
+      const originalCursor = yield* SubscriptionRef.get(runtime.cursor);
+      const launchCount = launches.length;
+      const commandCount = pipe.commands.length;
+      const first = yield* readNeoPiSessionConfiguration(runtime, attachedCursor);
+      NodeAssert.equal(first.status, "available");
+      if (first.status !== "available") throw new Error(first.reason);
+      NodeAssert.equal(first.attachment, "terminal");
+      NodeAssert.equal(first.activeRole, "fast");
+      NodeAssert.deepEqual(first.model, { provider: "provider", id: "fast", name: "fast" });
+      NodeAssert.deepEqual(first.roles, {
+        status: "available",
+        items: [
+          {
+            id: "fast",
+            alias: "fast",
+            name: "Fast",
+            configured: "provider/model:low",
+            patterns: ["provider/model:low", "fallback/*"],
+            resolved: { provider: "provider", modelId: "model", thinkingLevel: "low" },
+            hidden: false,
+          },
+        ],
+      });
+      activeRole = "careful";
+      const refreshed = yield* readNeoPiSessionConfiguration(runtime, attachedCursor);
+      NodeAssert.equal(refreshed.status, "available");
+      if (refreshed.status !== "available") throw new Error(refreshed.reason);
+      NodeAssert.equal(refreshed.activeRole, "careful");
+      NodeAssert.equal(refreshed.thinkingLevel, "high");
+      NodeAssert.equal(refreshed.model?.id, "careful");
+      NodeAssert.deepEqual(
+        pipe.commands.slice(commandCount).map((cmd) => cmd.type),
+        ["get_state", "get_roles", "get_state", "get_state", "get_roles", "get_state"],
+      );
+      NodeAssert.equal(launches.length, launchCount);
+      NodeAssert.deepEqual(pipe.signals, []);
+      NodeAssert.deepEqual(yield* SubscriptionRef.get(runtime.cursor), originalCursor);
+      yield* runtime.stop;
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("reports unsupported roles and a disconnected attached runtime without starting it", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { runtime, pipe, launches } = yield* attachFixture();
+      const disconnected = yield* readNeoPiSessionConfiguration(runtime, attachedCursor);
+      NodeAssert.equal(disconnected.status, "unavailable");
+      NodeAssert.equal(launches.length, 0);
+      yield* runtime.start;
+      const commandCount = pipe.commands.length;
+      const result = yield* readNeoPiSessionConfiguration(runtime, attachedCursor);
+      NodeAssert.equal(result.status, "available");
+      if (result.status !== "available") throw new Error(result.reason);
+      NodeAssert.equal(result.roles.status, "unsupported");
+      NodeAssert.deepEqual(
+        pipe.commands.slice(commandCount).map((cmd) => cmd.type),
+        ["get_state", "get_state"],
+      );
+      yield* runtime.stop;
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("rejects a native identity replacement while reading attached roles", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      let sessionId = "s1";
+      const { runtime, pipe } = yield* attachFixture(true, attachCapabilities, {
+        state: () => ({ sessionId }),
+        roles: () => {
+          sessionId = "replacement";
+          return { roles: [configurationRole] };
+        },
+      });
+      yield* runtime.start;
+      const result = yield* readNeoPiSessionConfiguration(runtime, attachedCursor);
+      NodeAssert.equal(result.status, "unavailable");
+      NodeAssert.equal((yield* SubscriptionRef.get(runtime.cursor)).sessionId, "s1");
+      NodeAssert.equal(
+        pipe.commands.some((cmd) => cmd.type.startsWith("set_")),
+        false,
+      );
+      yield* runtime.stop;
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("reads owned configuration and rejects malformed advertised roles", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      let malformed = false;
+      const peer = yield* testPeer(
+        (cmd, emit) =>
+          cmd.type === "negotiate_protocol"
+            ? answer(cmd, emit, { protocolVersion: 2 })
+            : cmd.type === "get_roles"
+              ? answer(cmd, emit, malformed ? { roles: [{}] } : { roles: [configurationRole] })
+              : basicHandler(cmd, emit),
+        { ...defaultReady, capabilities: ["get_roles"] },
+      );
+      let launches = 0;
+      const runtime = yield* make(() => {
+        launches++;
+        return Effect.succeed(peer.handle);
+      });
+      yield* runtime.start;
+      const expected = yield* SubscriptionRef.get(runtime.cursor);
+      const commandCount = peer.commands.length;
+      const result = yield* readNeoPiSessionConfiguration(runtime, expected);
+      NodeAssert.equal(result.status, "available");
+      if (result.status !== "available") throw new Error(result.reason);
+      NodeAssert.equal(result.attachment, "owned");
+      NodeAssert.equal(result.roles.status, "available");
+      NodeAssert.equal(launches, 1);
+      NodeAssert.deepEqual(
+        peer.commands.slice(commandCount).map((cmd) => cmd.type),
+        ["get_state", "get_roles", "get_state"],
+      );
+      malformed = true;
+      const error = yield* Effect.flip(readNeoPiSessionConfiguration(runtime, expected));
+      NodeAssert.match(error.message, /malformed role configuration/);
+      yield* runtime.stop;
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
 
 it.live(
   "attaches a leased shared session through its advertised control endpoint without owner mutations",
@@ -2397,4 +2564,38 @@ it.live(
         yield* adapter.stopAll();
       }),
     ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("reports disconnection during configuration reads instead of stale success", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      let disconnect = Effect.void;
+      const peer = yield* testPeer(
+        (cmd, emit) =>
+          cmd.type === "negotiate_protocol"
+            ? answer(cmd, emit, { protocolVersion: 2 })
+            : cmd.type === "get_roles"
+              ? disconnect
+              : basicHandler(cmd, emit),
+        { ...defaultReady, capabilities: ["get_roles"] },
+      );
+      disconnect = peer.finish(null);
+      let launches = 0;
+      const runtime = yield* make(() => {
+        launches++;
+        return Effect.succeed(peer.handle);
+      });
+      yield* runtime.start;
+      const expected = yield* SubscriptionRef.get(runtime.cursor);
+      const commandCount = peer.commands.length;
+      const result = yield* readNeoPiSessionConfiguration(runtime, expected);
+      NodeAssert.equal(result.status, "unavailable");
+      NodeAssert.equal(launches, 1);
+      NodeAssert.deepEqual(
+        peer.commands.slice(commandCount).map((cmd) => cmd.type),
+        ["get_state", "get_roles"],
+      );
+      yield* runtime.stop;
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
 );
