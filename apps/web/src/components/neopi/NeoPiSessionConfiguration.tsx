@@ -125,9 +125,10 @@ function FollowingSessionConfiguration({ threadRef }: { threadRef: ScopedThreadR
   });
   const result = useAtomValue(atom);
   const refresh = useAtomRefresh(atom);
+  // A live stream stays waiting between events; its successful snapshot is usable.
   const state: SnapshotState = AsyncResult.isFailure(result)
     ? { status: "error", message: formatEnvironmentQueryError(result.cause) }
-    : result.waiting || !AsyncResult.isSuccess(result) || result.value === null
+    : !AsyncResult.isSuccess(result) || result.value === null
       ? { status: "loading" }
       : { status: "loaded", result: result.value };
 
