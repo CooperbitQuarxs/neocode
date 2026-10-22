@@ -31,6 +31,8 @@ import {
   NeoPiSessionConfigurationInput,
   NeoPiSessionConfigurationResult,
 } from "./neopiSessions.ts";
+import { NeoPiSessionJournalInput, NeoPiSessionJournalResult } from "./neopiJournal.ts";
+import { NeoPiWatchJournalInput, NeoPiJournalStreamEvent, NeoPiNavigateTreeInput, NeoPiResumeTreeInput, NeoPiTreeOperationResult, NeoPiTreeResumeResult, NeoPiTreeCancelResult } from "./neopiNativeConversation.ts";
 import {
   AssetAccessError,
   AssetCreateUrlInput,
@@ -280,6 +282,11 @@ export const WS_METHODS = {
   neopiSessionsHandoff: "neopiSessions.handoff",
   neopiSessionsConfiguration: "neopiSessions.configuration",
   neopiSessionsWatchConfiguration: "neopiSessions.watchConfiguration",
+  neopiSessionsJournal: "neopiSessions.journal",
+  neopiSessionsWatchJournal: "neopiSessions.watchJournal",
+  neopiSessionsNavigateTree: "neopiSessions.navigateTree",
+  neopiSessionsResumeTree: "neopiSessions.resumeTree",
+  neopiSessionsCancelNavigation: "neopiSessions.cancelNavigation",
   assetsCreateUrl: "assets.createUrl",
   attachmentsCreateUploadUrl: "attachments.createUploadUrl",
   attachmentsDelete: "attachments.delete",
@@ -874,6 +881,19 @@ const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
 });
 
 
+const WsNeoPiWatchJournalRpc = Rpc.make(WS_METHODS.neopiSessionsWatchJournal, {
+  payload: NeoPiWatchJournalInput, success: NeoPiJournalStreamEvent, error: EnvironmentAuthorizationError, stream: true,
+});
+const WsNeoPiNavigateTreeRpc = Rpc.make(WS_METHODS.neopiSessionsNavigateTree, {
+  payload: NeoPiNavigateTreeInput, success: NeoPiTreeOperationResult, error: EnvironmentAuthorizationError,
+});
+const WsNeoPiResumeTreeRpc = Rpc.make(WS_METHODS.neopiSessionsResumeTree, {
+  payload: NeoPiResumeTreeInput, success: NeoPiTreeResumeResult, error: EnvironmentAuthorizationError,
+});
+const WsNeoPiCancelNavigationRpc = Rpc.make(WS_METHODS.neopiSessionsCancelNavigation, {
+  payload: NeoPiWatchJournalInput, success: NeoPiTreeCancelResult, error: EnvironmentAuthorizationError,
+});
+
 const WsNeoPiSessionsListRpc = Rpc.make(WS_METHODS.neopiSessionsList, {
   payload: NeoPiSessionListInput,
   success: NeoPiSessionListResult,
@@ -900,6 +920,12 @@ const WsNeoPiSessionsWatchConfigurationRpc = Rpc.make(WS_METHODS.neopiSessionsWa
   success: NeoPiSessionConfigurationResult,
   error: Schema.Union([NeoPiSessionError, EnvironmentAuthorizationError]),
   stream: true,
+});
+
+const WsNeoPiSessionsJournalRpc = Rpc.make(WS_METHODS.neopiSessionsJournal, {
+  payload: NeoPiSessionJournalInput,
+  success: NeoPiSessionJournalResult,
+  error: EnvironmentAuthorizationError,
 });
 
 const WsAssetsCreateUrlRpc = Rpc.make(WS_METHODS.assetsCreateUrl, {
@@ -1379,6 +1405,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsNeoPiSessionsHandoffRpc,
   WsNeoPiSessionsConfigurationRpc,
   WsNeoPiSessionsWatchConfigurationRpc,
+  WsNeoPiSessionsJournalRpc,
+  WsNeoPiWatchJournalRpc,
+  WsNeoPiNavigateTreeRpc,
+  WsNeoPiResumeTreeRpc,
+  WsNeoPiCancelNavigationRpc,
   WsAssetsCreateUrlRpc,
   WsAttachmentsCreateUploadUrlRpc,
   WsAttachmentsDeleteRpc,
