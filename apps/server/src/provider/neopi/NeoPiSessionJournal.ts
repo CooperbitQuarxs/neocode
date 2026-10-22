@@ -75,7 +75,7 @@ export const makeNeoPiSessionJournal = Effect.fn("NeoPiSessionJournal.make")(fun
         return unavailable(`NeoPi '${source.binary}' has not advertised session_journal in a compatible handshake. Update or refresh this provider before opening native history.`);
       if (!source.capabilities.has(NEOPI_CAPABILITIES.sessionCatalog))
         return unavailable("This NeoPi binary cannot identify the native journal's current owner.");
-      const thread = yield* snapshots.getThreadDetailById(input.threadId);
+      const thread = yield* snapshots.getThreadShellById(input.threadId);
       if (Option.isNone(thread)) return unavailable("This thread no longer exists.");
       const project = yield* snapshots.getProjectShellById(thread.value.projectId);
       if (Option.isNone(project)) return unavailable("This thread's project no longer exists.");
