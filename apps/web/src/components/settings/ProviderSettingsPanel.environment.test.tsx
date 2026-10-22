@@ -16,12 +16,10 @@ const atoms = vi.hoisted(() => ({
   providers: null as ReadonlyArray<ServerProvider> | null,
   providersAtom: Symbol("providers"),
   refreshProviders: Symbol("refreshProviders"),
-  updateProvider: Symbol("updateProvider"),
 }));
 
 const commands = vi.hoisted(() => ({
   refresh: vi.fn(),
-  updateProvider: vi.fn(),
 }));
 
 const settingsState = vi.hoisted(() => ({
@@ -58,13 +56,11 @@ vi.mock("../../state/server", () => ({
   serverEnvironment: {
     providersValueAtom: () => atoms.providersAtom,
     refreshProviders: atoms.refreshProviders,
-    updateProvider: atoms.updateProvider,
   },
 }));
 
 vi.mock("../../state/use-atom-command", () => ({
-  useAtomCommand: (atom: symbol) =>
-    atom === atoms.refreshProviders ? commands.refresh : commands.updateProvider,
+  useAtomCommand: () => commands.refresh,
 }));
 
 vi.mock("../../hooks/useSettings", () => ({
@@ -100,15 +96,6 @@ function provider(): ServerProvider {
     models: [],
     slashCommands: [],
     skills: [],
-    versionAdvisory: {
-      status: "behind_latest",
-      currentVersion: "1.0.0",
-      latestVersion: "1.1.0",
-      updateCommand: "fixture-update",
-      canUpdate: true,
-      checkedAt: "2026-07-24T12:00:00.000Z",
-      message: "Update available.",
-    },
   };
 }
 
@@ -154,38 +141,8 @@ describe("EnvironmentProviderSettings routing", () => {
     settingsState.updateSettings.mockReset();
     settingsState.updateClientSettings.mockReset();
     commands.refresh.mockReset().mockResolvedValue({ _tag: "Success" });
-    commands.updateProvider.mockReset().mockResolvedValue({ _tag: "Success" });
   });
 
-  it("allows another update after a pending update settles without dispatching duplicates", async () => {
-    settingsState.value = {
-      ...DEFAULT_UNIFIED_SETTINGS,
-      providerInstances: {
-        [customId]: { driver: ProviderDriverKind.make("neopi"), enabled: true },
-      },
-    };
-    atoms.providers = [{ ...provider(), instanceId: customId }];
-    let resolveUpdate!: (value: { _tag: "Success" }) => void;
-    const pending = new Promise<{ _tag: "Success" }>((resolve) => {
-      resolveUpdate = resolve;
-    });
-    commands.updateProvider.mockReturnValueOnce(pending);
-    const panel = renderPanel({ targetInstanceId: customId });
-    const editor = visitElements(panel, (element) => element.props.mode === "editor");
-    const update = editor?.props.onRunUpdate as () => void;
-
-    update();
-    update();
-    expect(commands.updateProvider).toHaveBeenCalledExactlyOnceWith({
-      environmentId,
-      input: { provider: ProviderDriverKind.make("neopi"), instanceId: customId },
-    });
-
-    resolveUpdate({ _tag: "Success" });
-    await pending;
-    update();
-    expect(commands.updateProvider).toHaveBeenCalledTimes(2);
-  });
 
   it("opens the requested provider instance instead of the first provider", () => {
     settingsState.value = {
