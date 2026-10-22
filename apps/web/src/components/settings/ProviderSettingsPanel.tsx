@@ -1,6 +1,7 @@
 import { SettingsGroup } from "./SettingsGroup";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useAtomValue } from "@effect/atom-react";
+import { Link } from "@tanstack/react-router";
 import { connectionStatusTitle } from "@t3tools/client-runtime/connection";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
 import {
@@ -262,7 +263,11 @@ function EnvironmentUnavailablePlaceholder({
   );
 }
 
-interface ProviderSettingsTarget {
+interface ProviderSettingsView {
+  readonly neoCore?: boolean | undefined;
+}
+
+interface ProviderSettingsTarget extends ProviderSettingsView {
   readonly environmentId?: EnvironmentId;
   readonly instanceId?: ProviderInstanceId;
   readonly scoped?: boolean;
@@ -430,6 +435,7 @@ function ProviderSettingsPanelContent(target: ProviderSettingsTarget) {
           key={selectedEnvironment.environmentId}
           environment={selectedEnvironment}
           deviceTabs={deviceTabs}
+          neoCore={target.neoCore}
           targetInstanceId={
             target.environmentId === undefined ||
             selectedEnvironment.environmentId === target.environmentId
@@ -446,11 +452,12 @@ function SelectedEnvironmentProviderSettings({
   environment,
   deviceTabs,
   targetInstanceId,
+  neoCore,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-}) {
+} & ProviderSettingsView) {
   const isPrimary = environment.entry.target._tag === "PrimaryConnectionTarget";
   if (isPrimary) {
     // The desktop app owns its primary server outright; a browser session
@@ -462,6 +469,7 @@ function SelectedEnvironmentProviderSettings({
           operateAccess="granted"
           deviceTabs={deviceTabs}
           targetInstanceId={targetInstanceId}
+          neoCore={neoCore}
         />
       );
     }
@@ -470,6 +478,7 @@ function SelectedEnvironmentProviderSettings({
         environment={environment}
         deviceTabs={deviceTabs}
         targetInstanceId={targetInstanceId}
+        neoCore={neoCore}
       />
     );
   }
@@ -478,6 +487,7 @@ function SelectedEnvironmentProviderSettings({
       environment={environment}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
+      neoCore={neoCore}
     />
   );
 }
@@ -486,11 +496,12 @@ function PrimarySessionGatedProviderSettings({
   environment,
   deviceTabs,
   targetInstanceId,
+  neoCore,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-}) {
+} & ProviderSettingsView) {
   const primarySessionState = usePrimarySessionState();
   const operateAccess = resolvePrimaryOperateAccess({
     isPrimary: true,
@@ -505,6 +516,7 @@ function PrimarySessionGatedProviderSettings({
       operateAccess={operateAccess}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
+      neoCore={neoCore}
     />
   );
 }
@@ -513,11 +525,12 @@ function RemoteSessionGatedProviderSettings({
   environment,
   deviceTabs,
   targetInstanceId,
+  neoCore,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-}) {
+} & ProviderSettingsView) {
   const sessionState = useEnvironmentSessionState(environment.environmentId);
   const operateAccess = resolveRemoteOperateAccess({
     session: sessionState.data,
@@ -530,6 +543,7 @@ function RemoteSessionGatedProviderSettings({
       operateAccess={operateAccess}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
+      neoCore={neoCore}
     />
   );
 }
@@ -539,12 +553,13 @@ function AccessGatedProviderSettings({
   operateAccess,
   deviceTabs,
   targetInstanceId,
+  neoCore,
 }: {
   readonly environment: EnvironmentPresentation;
   readonly operateAccess: ProviderOperateAccess;
   readonly deviceTabs?: ReactNode;
   readonly targetInstanceId?: ProviderInstanceId | undefined;
-}) {
+} & ProviderSettingsView) {
   const access = classifyProviderEnvironmentAccess({
     connectionPhase: environment.connection.phase,
     hasServerConfig: environment.serverConfig !== null,
@@ -566,6 +581,7 @@ function AccessGatedProviderSettings({
       readOnly={access.kind === "read-only"}
       deviceTabs={deviceTabs}
       targetInstanceId={targetInstanceId}
+      neoCore={neoCore}
     />
   );
 }
@@ -576,6 +592,7 @@ export function EnvironmentProviderSettings({
   readOnly = false,
   deviceTabs,
   targetInstanceId,
+  neoCore = false,
 }: {
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
@@ -588,7 +605,7 @@ export function EnvironmentProviderSettings({
    * and the health interval are inert so no write is offered and then rejected.
    */
   readonly readOnly?: boolean;
-}) {
+} & ProviderSettingsView) {
   const settings = useEnvironmentSettings(environmentId);
   // Provider instances hold per-machine credentials and binaries, so this
   // page always edits exactly the environment it displays.
@@ -624,11 +641,13 @@ export function EnvironmentProviderSettings({
   );
   const visibleProviderSettings = PROVIDER_SETTINGS.filter(
     (providerSettings) =>
-      providerSettings.provider !== "cursor" ||
-      serverProviders.some(
-        (provider) =>
-          provider.instanceId === defaultInstanceIdForDriver(ProviderDriverKind.make("cursor")),
-      ),
+      (neoCore
+        ? providerSettings.provider === "neopi"
+        : providerSettings.provider !== "cursor" ||
+          serverProviders.some(
+            (provider) =>
+              provider.instanceId === defaultInstanceIdForDriver(ProviderDriverKind.make("cursor")),
+          )),
   );
   const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
   const textGenInstanceId = textGenerationModelSelection.instanceId;
@@ -797,6 +816,7 @@ export function EnvironmentProviderSettings({
     }
   }
   for (const [driver, list] of instancesByDriver) {
+    if (neoCore && driver !== "neopi") continue;
     if (visibleDriverKinds.has(driver)) continue;
     for (const [id, instance] of list) {
       rows.push({
@@ -933,6 +953,7 @@ export function EnvironmentProviderSettings({
         driverOption={driverOption}
         liveProvider={liveProvider}
         mode={mode}
+        section={row.driver === "neopi" ? (neoCore ? "runtime" : "models") : undefined}
         selected={mode === "list" && selectedRow?.instanceId === row.instanceId}
         onSelect={mode === "list" ? () => setSelectedInstanceId(row.instanceId) : undefined}
         readOnly={readOnly}
@@ -950,7 +971,16 @@ export function EnvironmentProviderSettings({
               onEnable={() => updateProviderInstance(row, { ...row.instance, enabled: true })}
             />
           ) : mode === "editor" && row.driver === "neopi" ? (
-            <NeoPiBinarySelectionNote config={row.instance.config} />
+            neoCore ? (
+              <NeoPiBinarySelectionNote config={row.instance.config} />
+            ) : (
+              <Link
+                to="/settings/neocore"
+                search={{ machine: environmentId, instanceId: row.instanceId }}
+              >
+                Configure this runtime profile in NeoCore
+              </Link>
+            )
           ) : null
         }
         onUpdate={(next) => {
@@ -1024,7 +1054,7 @@ export function EnvironmentProviderSettings({
 
   return (
     <>
-      <SettingsSection {...searchableSetting("providers")} variant="plain">
+      <SettingsSection {...searchableSetting(neoCore ? "neocore" : "providers")} variant="plain">
         <div className="flex min-h-11 min-w-0 items-center gap-2 px-3 sm:px-4">
           {deviceTabs}
           <div className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
@@ -1058,7 +1088,7 @@ export function EnvironmentProviderSettings({
                   />
                   <TooltipPopup side="top">Refresh provider status</TooltipPopup>
                 </Tooltip>
-                <Tooltip>
+                {!neoCore ? <Tooltip>
                   <TooltipTrigger
                     render={
                       <Button
@@ -1072,7 +1102,7 @@ export function EnvironmentProviderSettings({
                     }
                   />
                   <TooltipPopup side="top">Add provider</TooltipPopup>
-                </Tooltip>
+                </Tooltip> : null}
               </>
             )}
           </div>
@@ -1120,16 +1150,16 @@ export function EnvironmentProviderSettings({
         </SettingsGroup>
       </SettingsSection>
 
-      <UsageProviderSettings
+      {!neoCore ? <UsageProviderSettings
         key={environmentId}
         environmentId={environmentId}
         environmentLabel={environmentLabel}
         sources={settings.usageLimitSources}
         cursorKeychainUsageEnabled={settings.cursorKeychainUsageEnabled}
         readOnly={readOnly}
-      />
+      /> : null}
 
-      <SettingsSection title="Advanced">
+      {!neoCore ? <SettingsSection title="Advanced">
         <SettingsRow
           id={searchableSetting("provider-health-check-interval").id}
           title={
@@ -1200,7 +1230,7 @@ export function EnvironmentProviderSettings({
             </div>
           }
         />
-      </SettingsSection>
+      </SettingsSection> : null}
 
       {isAddInstanceDialogOpen ? (
         <AddProviderInstanceDialog
