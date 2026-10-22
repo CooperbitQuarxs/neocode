@@ -68,6 +68,8 @@ import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as DeviceService from "./device/DeviceService.ts";
 import { deviceHubProxyRouteLayer } from "./device/DeviceHubProxy.ts";
+import { neoPiStatsHttpRouteLayer } from "./provider/neopi/NeoPiStatsHttp.ts";
+import { NeoPiStatsService } from "./provider/neopi/NeoPiStatsService.ts";
 import * as PreviewManager from "./preview/Manager.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
 import * as ProcessRunner from "./processRunner.ts";
@@ -469,6 +471,7 @@ const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(
 
 
 const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
+  Layer.provideMerge(NeoPiStatsService.layer),
   Layer.provideMerge(ReplayMarkers.layer),
   // Core Services
   Layer.provideMerge(ServerSettingsLayerLive),
@@ -549,6 +552,7 @@ export const makeRoutesLayer = Layer.mergeAll(
     assetRouteLayer,
     attachmentUploadRouteLayer,
     deviceHubProxyRouteLayer,
+    neoPiStatsHttpRouteLayer,
     staticAndDevRouteLayer,
     websocketRpcRouteLayer,
   ),

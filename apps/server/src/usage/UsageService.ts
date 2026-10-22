@@ -51,7 +51,7 @@ import { resolveLegacyCodexHome, legacyAntigravityDirectories } from "../provide
 import { mergeProviderInstanceEnvironment } from "../provider/ProviderInstanceEnvironment.ts";
 import { readOpenCodeUsage } from "./opencodeUsageReader.ts";
 import { readAntigravityUsage } from "./antigravityUsageReader.ts";
-import { discoverNeoPiSessionRoots, readNeoPiUsage } from "./neopiUsage.ts";
+
 import { UsageAggregator } from "./usageAggregation.ts";
 import { createOverrideRateTable, parseRateTable, type RateTable } from "./usagePricing.ts";
 import {
@@ -578,27 +578,7 @@ export const make = Effect.gen(function* () {
         ...(failed ? { message: "Some Antigravity history could not be read." } : {}),
       });
     }
-    const neoPiHome =
-      (platform === "win32" ? hostEnvironment["USERPROFILE"] : hostEnvironment["HOME"]) || home;
-    const neoPiRoots = yield* Effect.promise(() =>
-      discoverNeoPiSessionRoots({
-        home: neoPiHome,
-        baseDir: config.baseDir,
-        stateDir: config.stateDir,
-        env: hostEnvironment,
-      }),
-    );
-    const neoPi = yield* Effect.promise(() => readNeoPiUsage(neoPiRoots, windowStartMs));
-    for (const root of neoPi.roots) {
-      scanned.push({
-        provider: "neopi",
-        dir: root.dir,
-        volumeId: yield* Effect.promise(() => readDirectoryVolumeId(root.dir)),
-        files: root.missing && !root.error ? null : root.files,
-        status: root.error ? "partial" : "ok",
-        ...(root.error ? { message: "Some NeoPi/OMP history could not be read." } : {}),
-      });
-    }
+
     return scanned;
   });
 
