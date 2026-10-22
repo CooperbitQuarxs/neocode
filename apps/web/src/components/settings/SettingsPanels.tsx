@@ -3169,18 +3169,11 @@ export function GeneralSettingsPanel() {
                   <TraitsPicker
                     provider={textGenProvider}
                     models={
-                      // Use the exact instance's models (rather than the
-                      // first-kind-match) so a custom text-gen instance like
-                      // `codex_personal` gets its own model list, not the
-                      // default Codex one.
+                      // A native profile can expose a different catalog from the default instance.
                       textGenInstanceEntry?.models ?? []
                     }
                     model={textGenModel}
-                    prompt=""
-                    onPromptChange={() => {}}
                     modelOptions={textGenModelOptions}
-                    allowPromptInjectedEffort={false}
-                    planModeEnabled={settings.planModeEnabled}
                     triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
                     onModelOptionsChange={(nextOptions) => {
                       updateSettings({

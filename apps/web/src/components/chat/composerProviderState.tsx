@@ -1,5 +1,4 @@
 import {
-  type ModelCapabilities,
   type ProviderDriverKind,
   type ProviderInstanceId,
   type ProviderOptionSelection,
@@ -10,7 +9,6 @@ import {
   buildExplicitProviderOptionSelectionsFromDescriptors,
   getProviderOptionCurrentValue,
   getProviderOptionDescriptors,
-  isClaudeUltrathinkPrompt,
 } from "@t3tools/shared/model";
 import type { ReactNode } from "react";
 
@@ -23,19 +21,13 @@ export type ComposerProviderStateInput = {
   provider: ProviderDriverKind;
   model: string;
   models: ReadonlyArray<ServerProviderModel>;
-  promptInjectionState?: ComposerPromptInjectionState;
   modelOptions: ReadonlyArray<ProviderOptionSelection> | null | undefined;
 };
-
-export type ComposerPromptInjectionState = "none" | "ultrathink";
 
 export type ComposerProviderState = {
   provider: ProviderDriverKind;
   promptEffort: string | null;
   modelOptionsForDispatch: ReadonlyArray<ProviderOptionSelection> | undefined;
-  composerFrameClassName?: string;
-  composerSurfaceClassName?: string;
-  modelPickerIconClassName?: string;
 };
 
 type TraitsRenderInput = {
@@ -46,72 +38,28 @@ type TraitsRenderInput = {
   model: string;
   models: ReadonlyArray<ServerProviderModel>;
   modelOptions: ReadonlyArray<ProviderOptionSelection> | undefined;
-  prompt: string;
-  onPromptChange: (prompt: string) => void;
-  planModeEnabled: boolean;
   size?: ComposerControlSize;
   hidden?: boolean;
   triggerClassName?: string;
   isComposerOwned?: boolean;
 };
 
-export function getComposerPromptInjectionState(prompt: string): ComposerPromptInjectionState {
-  return isClaudeUltrathinkPrompt(prompt) ? "ultrathink" : "none";
-}
-
-
-function resolveComposerOptionSelections(
-  models: ReadonlyArray<ServerProviderModel>,
-  model: string,
-  provider: ProviderDriverKind,
-  modelOptions: ReadonlyArray<ProviderOptionSelection> | null | undefined,
-): {
-  caps: ModelCapabilities;
-  selections: ReadonlyArray<ProviderOptionSelection> | undefined;
-} {
-  const caps = getProviderModelCapabilities(models, model, provider);
-  return { caps, selections: modelOptions ?? undefined };
-}
-
 export function getComposerProviderState(input: ComposerProviderStateInput): ComposerProviderState {
-  const {
-    provider,
-    model,
-    models,
-    modelOptions,
-    promptInjectionState = "none",
-  } = input;
-  const { caps, selections } = resolveComposerOptionSelections(
-    models,
-    model,
-    provider,
-    modelOptions,
-  );
-  const descriptors = getProviderOptionDescriptors({ caps, selections });
+  const { provider, model, models, modelOptions } = input;
+  const caps = getProviderModelCapabilities(models, model, provider);
+  const descriptors = getProviderOptionDescriptors({ caps, selections: modelOptions });
   const primarySelectDescriptor = descriptors.find(
     (descriptor): descriptor is Extract<(typeof descriptors)[number], { type: "select" }> =>
       descriptor.type === "select",
   );
   const primaryValue = getProviderOptionCurrentValue(primarySelectDescriptor ?? null);
-  const promptEffort = typeof primaryValue === "string" ? primaryValue : null;
-  const ultrathinkActive =
-    (primarySelectDescriptor?.promptInjectedValues?.length ?? 0) > 0 &&
-    promptInjectionState === "ultrathink";
-
   return {
     provider,
-    promptEffort,
+    promptEffort: typeof primaryValue === "string" ? primaryValue : null,
     modelOptionsForDispatch: buildExplicitProviderOptionSelectionsFromDescriptors(
       descriptors,
-      selections,
+      modelOptions,
     ),
-    ...(ultrathinkActive
-      ? {
-          composerFrameClassName: "ultrathink-frame",
-          composerSurfaceClassName: "shadow-[0_0_0_1px_rgba(255,255,255,0.07)_inset]",
-          modelPickerIconClassName: "ultrathink-chroma",
-        }
-      : {}),
   };
 }
 
@@ -120,38 +68,12 @@ function renderTraitsControl(
   input: TraitsRenderInput,
 ): ReactNode {
   const {
-    provider,
-    instanceId,
-    threadRef,
-    draftId,
-    model,
-    models,
-    modelOptions,
-    prompt,
-    onPromptChange,
-    planModeEnabled,
-    size,
-    hidden,
-    triggerClassName,
-    isComposerOwned,
+    provider, instanceId, threadRef, draftId, model, models, modelOptions,
+    size, hidden, triggerClassName, isComposerOwned,
   } = input;
-  const hasTarget = threadRef !== undefined || draftId !== undefined;
-  const { selections: resolvedModelOptions } = resolveComposerOptionSelections(
-    models,
-    model,
-    provider,
-    modelOptions,
-  );
   if (
-    !hasTarget ||
-    !shouldRenderTraitsControls({
-      provider,
-      models,
-      model,
-      modelOptions: resolvedModelOptions,
-      prompt,
-      planModeEnabled,
-    })
+    (threadRef === undefined && draftId === undefined) ||
+    !shouldRenderTraitsControls({ provider, models, model, modelOptions })
   ) {
     return null;
   }
@@ -163,10 +85,7 @@ function renderTraitsControl(
       {...(threadRef ? { threadRef } : {})}
       {...(draftId ? { draftId } : {})}
       model={model}
-      modelOptions={resolvedModelOptions}
-      prompt={prompt}
-      onPromptChange={onPromptChange}
-      planModeEnabled={planModeEnabled}
+      modelOptions={modelOptions}
       {...(size !== undefined ? { size } : {})}
       {...(hidden !== undefined ? { hidden } : {})}
       {...(triggerClassName !== undefined ? { triggerClassName } : {})}

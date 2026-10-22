@@ -6,7 +6,7 @@ const provider = ProviderDriverKind.make("neopi");
 const models: ReadonlyArray<ServerProviderModel> = [{
   slug: "openai-codex/current", name: "Current", isCustom: false,
   capabilities: { optionDescriptors: [
-    { id: "thinking", label: "Thinking", type: "select", options: [
+    { id: "reasoningEffort", label: "Thinking", type: "select", options: [
       { id: "low", label: "Low" }, { id: "high", label: "High" },
     ], currentValue: "high" },
     { id: "fastMode", label: "Fast", type: "boolean", currentValue: true },
@@ -26,9 +26,9 @@ describe("NeoPi composer option projection", () => {
   });
 
   it("keeps explicit native thinking choices independent of inference-provider labels", () => {
-    const state = getComposerProviderState({ provider, models, model: models[0]!.slug, modelOptions: [{ id: "thinking", value: "low" }] });
+    const state = getComposerProviderState({ provider, models, model: models[0]!.slug, modelOptions: [{ id: "reasoningEffort", value: "low" }] });
     expect(state.promptEffort).toBe("low");
-    expect(state.modelOptionsForDispatch).toContainEqual({ id: "thinking", value: "low" });
+    expect(state.modelOptionsForDispatch).toContainEqual({ id: "reasoningEffort", value: "low" });
   });
 
   it("does not create controls or defaults a native model did not advertise", () => {

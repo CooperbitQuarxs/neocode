@@ -33,11 +33,11 @@ describe("mobile NeoPi model options", () => {
 
   it("keeps saved option choices without materializing catalog defaults", () => {
     const native = provider("neopi", { models: [model("openai-codex/current", { capabilities: { optionDescriptors: [
-      { id: "thinking", label: "Thinking", type: "select", options: [{ id: "low", label: "Low", isDefault: true }, { id: "high", label: "High" }], currentValue: "low" },
+      { id: "reasoningEffort", label: "Thinking", type: "select", options: [{ id: "low", label: "Low", isDefault: true }, { id: "high", label: "High" }], currentValue: "low" },
     ] } })] });
     const environment = config(native);
     expect(buildModelOptions(environment, select())[0]?.selection.options).toBeUndefined();
-    const selection = { ...select(), options: [{ id: "thinking", value: "high" }] };
+    const selection = { ...select(), options: [{ id: "reasoningEffort", value: "high" }] };
     expect(buildModelOptions(environment, selection)[0]?.selection.options).toEqual(selection.options);
   });
 
@@ -81,7 +81,7 @@ describe("mobile NeoPi model options", () => {
   });
 
   it("retains an explicit native model when its catalog temporarily disappears", () => {
-    const saved = { ...select("neopi", "anthropic/saved"), options: [{ id: "thinking", value: "high" }] };
+    const saved = { ...select("neopi", "anthropic/saved"), options: [{ id: "reasoningEffort", value: "high" }] };
     const environment = config(provider("neopi", { models: [], status: "error" }));
     const options = buildModelOptions(environment, saved);
     expect(options).toHaveLength(1);

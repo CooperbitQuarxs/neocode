@@ -13,7 +13,6 @@ import * as Stream from "effect/Stream";
 import * as ProviderAdapterRegistry from "../Services/ProviderAdapterRegistry.ts";
 import * as ProviderInstanceRegistry from "../Services/ProviderInstanceRegistry.ts";
 import type { ProviderInstance } from "../ProviderDriver.ts";
-import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
 import type * as TextGeneration from "../../textGeneration/TextGeneration.ts";
 import * as ProviderAdapterRegistryLayer from "./ProviderAdapterRegistry.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -107,13 +106,6 @@ const makeFakeInstance = (
     displayName: undefined,
     enabled: true,
     snapshot: {
-      resolveMaintenance: () =>
-        Effect.succeed(
-          makeManualOnlyProviderMaintenanceCapabilities({
-            provider: driverKind,
-            packageName: null,
-          }),
-        ),
       getSnapshot: Effect.succeed({} as unknown as ServerProvider),
       refresh: Effect.succeed({} as unknown as ServerProvider),
       streamChanges: Stream.empty,

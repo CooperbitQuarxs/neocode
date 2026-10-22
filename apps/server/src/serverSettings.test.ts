@@ -502,9 +502,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           [personal]: { driver: ProviderDriverKind.make("neopi"), enabled: true, config: { profile: "personal" } },
           [work]: { driver: ProviderDriverKind.make("neopi"), enabled: true, config: { profile: "work" } },
         },
-        textGenerationModelSelection: { instanceId: personal, model: "anthropic/current", options: [{ id: "thinking", value: "high" }, { id: "fastMode", value: true }] },
+        textGenerationModelSelection: { instanceId: personal, model: "anthropic/current", options: [{ id: "reasoningEffort", value: "high" }, { id: "fastMode", value: true }] },
       });
-      const selection = { instanceId: work, model: "openai-codex/current", options: [{ id: "thinking", value: "low" }] };
+      const selection = { instanceId: work, model: "openai-codex/current", options: [{ id: "reasoningEffort", value: "low" }] };
       const next = yield* serverSettings.updateSettings({ textGenerationModelSelection: selection });
       assert.deepEqual(next.textGenerationModelSelection, selection);
       assert.deepEqual(next.providerInstances[personal]?.config, { profile: "personal" });
@@ -1394,7 +1394,6 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
       const serverConfig = yield* ServerConfig.ServerConfig;
       const fileSystem = yield* FileSystem.FileSystem;
-      const path = yield* Path.Path;
       const instanceId = ProviderInstanceId.make("neopi_terminal");
 
       yield* serverSettings.updateSettings({
@@ -1410,12 +1409,8 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         },
       });
 
-      const environment = yield* resolveProviderInstanceTerminalEnvironment({
-        serverSettings,
-        path,
-        rawProviderInstanceId: instanceId,
-        env: undefined,
-      });
+      const environment = yield* resolveProviderInstanceTerminalEnvironment({ serverSettings, rawProviderInstanceId: instanceId,
+      env: undefined, });
       const persisted = yield* fileSystem.readFileString(serverConfig.settingsPath);
 
       assert.equal(environment.OPENROUTER_API_KEY, "sk-terminal-secret");

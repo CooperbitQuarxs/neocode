@@ -8,7 +8,6 @@ import * as Stream from "effect/Stream";
 import { ServerConfig } from "../../config.ts";
 import type { ProviderInstance } from "../ProviderDriver.ts";
 import { buildServerProvider } from "../providerSnapshot.ts";
-import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMaintenance.ts";
 import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
 import { ProviderRegistry } from "../Services/ProviderRegistry.ts";
 import { mergeProviderSnapshot, ProviderRegistryLive, upsertProviderWorkspaceSnapshot } from "./ProviderRegistry.ts";
@@ -56,7 +55,6 @@ it.effect("refreshes the same NeoPi instance without probing on registry constru
       getSnapshot: Effect.succeed(initial),
       refresh: Effect.sync(() => { probes += 1; return refreshed; }),
       streamChanges: Stream.empty,
-      resolveMaintenance: () => Effect.succeed(makeManualOnlyProviderMaintenanceCapabilities({ provider: driver, packageName: null })),
       applyUsageLimits: () => Effect.void,
     },
   };

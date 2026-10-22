@@ -136,10 +136,6 @@ import { ProviderInstanceRegistry } from "./provider/Services/ProviderInstanceRe
 import type { ProviderInstance } from "./provider/ProviderDriver.ts";
 import * as ProviderSessionDirectory from "./provider/Services/ProviderSessionDirectory.ts";
 import { ProviderAdapterRequestError } from "./provider/Errors.ts";
-import {
-  makeManualOnlyProviderMaintenanceCapabilities,
-  ProviderVersionCache,
-} from "./provider/providerMaintenance.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
@@ -755,11 +751,6 @@ const buildAppUnderTest = (options?: {
             getProviders: Effect.succeed([]),
             refresh: () => Effect.succeed([]),
             refreshInstance: () => Effect.succeed([]),
-            getProviderMaintenanceCapabilitiesForInstance: (_instanceId, provider) =>
-              Effect.succeed(
-                makeManualOnlyProviderMaintenanceCapabilities({ provider, packageName: null }),
-              ),
-            setProviderMaintenanceActionState: () => Effect.succeed([]),
             streamChanges: Stream.empty,
             ...options?.layers?.providerRegistry,
           }),
@@ -6351,87 +6342,32 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   );
 
   for (const mode of ["all", "targeted", "background"] as const) {
-    it.effect(`provider refresh invalidates T3 caches before probing (${mode})`, () => {
-      const driver = ProviderDriverKind.make("codex");
-      const instanceIds = [ProviderInstanceId.make("codex"), ProviderInstanceId.make("codex_work")];
-      const packageNames = ["@example/personal", "@example/work"];
-      const versionCache = new Map(
-        packageNames.map((name) => [
-          name,
-          {
-            expiresAt: Number.MAX_SAFE_INTEGER,
-            version: "1.0.0",
-          },
-        ]),
-      );
+    it.effect(`explicit NeoPi refresh invalidates owned discovery caches before probing (${mode})`, () => {
+      const driver = ProviderDriverKind.make("neopi");
+      const ids = [ProviderInstanceId.make("neopi"), ProviderInstanceId.make("native-work")];
       const invalidated: string[] = [];
-      const freshMaintenance: string[] = [];
       let probed = false;
-      const instances = instanceIds.map(
-        (instanceId, index) =>
-          ({
-            instanceId,
-            driverKind: driver,
-            continuationIdentity: { driverKind: driver, continuationKey: instanceId },
-            displayName: undefined,
-            enabled: true,
-            invalidateCaches: Effect.sync(() => {
-              invalidated.push(instanceId);
-            }),
-            snapshot: {
-              resolveMaintenance: (options) =>
-                Effect.sync(() => {
-                  assert.isTrue(options?.fresh);
-                  freshMaintenance.push(instanceId);
-                  return makeManualOnlyProviderMaintenanceCapabilities({
-                    provider: driver,
-                    packageName: packageNames[index]!,
-                  });
-                }),
-              getSnapshot: Effect.never,
-              refresh: Effect.never,
-              streamChanges: Stream.empty,
-              applyUsageLimits: () => Effect.void,
-            },
-            adapter: {} as ProviderInstance["adapter"],
-            textGeneration: {} as ProviderInstance["textGeneration"],
-          }) satisfies ProviderInstance,
-      );
-      const expected =
-        mode === "background" ? [] : mode === "targeted" ? [instanceIds[1]!] : instanceIds;
-      const probe = Effect.sync(() => {
-        probed = true;
-        assert.deepEqual(invalidated.toSorted(), expected.toSorted());
-        assert.deepEqual(freshMaintenance.toSorted(), expected.toSorted());
-        for (let index = 0; index < instanceIds.length; index++) {
-          assert.equal(
-            versionCache.has(packageNames[index]!),
-            !expected.includes(instanceIds[index]!),
-          );
-        }
-        return [];
-      });
+      const instances = ids.map((instanceId) => ({
+        instanceId, driverKind: driver, enabled: true, displayName: undefined,
+        continuationIdentity: { driverKind: driver, continuationKey: instanceId },
+        invalidateCaches: Effect.sync(() => { invalidated.push(instanceId); }),
+        snapshot: { getSnapshot: Effect.never, refresh: Effect.never, streamChanges: Stream.empty, applyUsageLimits: () => Effect.void },
+        adapter: {} as ProviderInstance["adapter"], textGeneration: {} as ProviderInstance["textGeneration"],
+      }) satisfies ProviderInstance);
+      const expected = mode === "background" ? [] : mode === "targeted" ? [ids[1]!] : ids;
+      const probe = Effect.sync(() => { probed = true; assert.deepEqual(invalidated.toSorted(), expected.toSorted()); return []; });
       return Effect.gen(function* () {
-        yield* buildAppUnderTest({
-          layers: {
-            providerInstanceRegistry: { listInstances: Effect.succeed(instances) },
-            providerRegistry: { refresh: () => probe, refreshInstance: () => probe },
-          },
-        });
+        yield* buildAppUnderTest({ layers: {
+          providerInstanceRegistry: { listInstances: Effect.succeed(instances) },
+          providerRegistry: { refresh: () => probe, refreshInstance: () => probe },
+        } });
         const wsUrl = yield* getWsServerUrl("/ws");
-        yield* Effect.scoped(
-          withWsRpcClient(wsUrl, (client) =>
-            client[WS_METHODS.serverRefreshProviders]({
-              ...(mode === "targeted" ? { instanceId: instanceIds[1]! } : {}),
-              ...(mode !== "background" ? { refreshModels: true } : {}),
-            }),
-          ),
-        );
+        yield* Effect.scoped(withWsRpcClient(wsUrl, (client) => client[WS_METHODS.serverRefreshProviders]({
+          ...(mode === "targeted" ? { instanceId: ids[1]! } : {}),
+          ...(mode === "background" ? {} : { refreshModels: true }),
+        })));
         assert.isTrue(probed);
-      }).pipe(
-        Effect.provideService(ProviderVersionCache, versionCache),
-        Effect.provide(NodeHttpServer.layerTest),
-      );
+      }).pipe(Effect.provide(NodeHttpServer.layerTest));
     });
   }
 
