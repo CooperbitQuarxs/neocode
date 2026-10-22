@@ -2,7 +2,6 @@ import { getThreadRuntimeReadOnlyReason } from "@t3tools/shared/serverSettings";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { usePrimaryEnvironmentId } from "../../state/environments";
-import { runtimeModeConfig, runtimeModeOptions } from "./runtimeModeConfig";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { AttachmentFilePreview } from "../files/AttachmentFilePreview";
 import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
@@ -29,7 +28,6 @@ import type {
   ProviderApprovalDecision,
   ProviderInteractionMode,
   ResolvedKeybindingsConfig,
-  RuntimeMode,
   ScopedThreadRef,
   ServerProvider,
   ThreadId,
@@ -120,7 +118,6 @@ import {
 } from "../../promptStashStore";
 import { ComposerStashBadge } from "./ComposerStashBadge";
 import { ComposerStashMenu } from "./ComposerStashMenu";
-import { useComposerMenuState } from "./useComposerMenuState";
 import { useComposerTriggerState } from "./useComposerTriggerState";
 import {
   ComposerTasksBadge,
@@ -236,7 +233,9 @@ import {
 } from "~/state/pullRequests";
 import { useEnvironmentQuery } from "~/state/query";
 import { useDebouncedValue } from "~/state/queries";
-import { ProviderModelPicker } from "./ProviderModelPicker";
+import { NeoPiSessionModelPicker } from "../neopi/NeoPiSessionModelPicker";
+import { NeoPiSessionStatus } from "../neopi/NeoPiSessionStatus";
+import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
@@ -249,7 +248,6 @@ import {
   ComposerControl,
   ComposerControlIcon,
   ComposerControlSeparator,
-  ComposerSelectControl,
 } from "./ComposerControl";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
@@ -465,7 +463,6 @@ function ComposerCommandMenuLayer(props: { anchor: HTMLElement | null; children:
   );
 }
 import { Button } from "../ui/button";
-import { Select, SelectItem, SelectPopup, SelectValue } from "../ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import {
@@ -600,17 +597,11 @@ function useComposerControlsLayout() {
 const ComposerFooterModeControls = memo(function ComposerFooterModeControls(props: {
   showInteractionModeToggle: boolean;
   interactionMode: ProviderInteractionMode;
-  runtimeMode: RuntimeMode;
   size?: "sm" | "xs";
   hidden?: boolean;
   onToggleInteractionMode: () => void;
-  onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
   const size = props.size ?? "sm";
-  const composerFloatingLayerProps = useComposerMenuProps();
-  const [open, setOpen] = useComposerMenuState(props.hidden);
-  const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
-  const RuntimeModeIcon = runtimeModeOption.icon;
   const interactionModeTooltip =
     props.interactionMode === "plan"
       ? "Plan mode — click to return to normal build mode"
@@ -654,57 +645,7 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
     </>
   ) : null;
 
-  return (
-    <>
-      <ComposerControlSeparator size={size} />
-
-      <Tooltip>
-        <Select
-          open={open}
-          onOpenChange={setOpen}
-          value={props.runtimeMode}
-          onValueChange={(value) => props.onRuntimeModeChange(value!)}
-        >
-          <TooltipTrigger
-            render={
-              <ComposerSelectControl
-                data-composer-shortcut="composer.mode"
-                size={size}
-                aria-label="Runtime mode"
-              />
-            }
-          >
-            <ComposerControlIcon icon={RuntimeModeIcon} size={size} />
-            <SelectValue data-composer-control-label>{runtimeModeOption.label}</SelectValue>
-          </TooltipTrigger>
-          <SelectPopup alignItemWithTrigger={false} {...composerFloatingLayerProps}>
-            {runtimeModeOptions.map((mode) => {
-              const option = runtimeModeConfig[mode];
-              const OptionIcon = option.icon;
-              return (
-                <SelectItem key={mode} value={mode} hideIndicator className="min-w-64">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="grid min-w-0 flex-1 gap-0.5">
-                      <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
-                        <OptionIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                        {option.label}
-                      </span>
-                      <span className="text-muted-foreground text-xs leading-4">
-                        {option.description}
-                      </span>
-                    </div>
-                  </div>
-                </SelectItem>
-              );
-            })}
-          </SelectPopup>
-        </Select>
-        <TooltipPopup side="top">{runtimeModeOption.description}</TooltipPopup>
-      </Tooltip>
-
-      {interactionModeToggle}
-    </>
-  );
+  return interactionModeToggle;
 });
 
 const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
@@ -909,7 +850,6 @@ export interface ChatComposerProps {
   threadSyncPhase: ThreadSyncPhase | null;
 
   // Mode
-  runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
 
   // Provider / model
@@ -974,7 +914,6 @@ export interface ChatComposerProps {
   onOpenProviderSetup: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason: (instanceId: ProviderInstanceId, model: string) => string | null;
   toggleInteractionMode: () => void;
-  handleRuntimeModeChange: (mode: RuntimeMode) => void;
   handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
 
   focusComposer: () => void;
@@ -1027,7 +966,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     respondingRequestIds,
     showPlanFollowUpPrompt,
     activeProposedPlan,
-    runtimeMode,
     interactionMode: requestedInteractionMode,
     lockedProvider,
     providerStatuses,
@@ -1067,7 +1005,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onOpenProviderSetup,
     getModelDisabledReason,
     toggleInteractionMode,
-    handleRuntimeModeChange,
     handleInteractionModeChange,
     focusComposer,
     scheduleComposerFocus,
@@ -1606,7 +1543,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [activeThreadModelSelection, modelOptionsByInstance],
   );
   const reserveContextWindowMeter = shouldReserveContextWindowMeter({
-    meterEnabled: settings.contextWindowMeterEnabled,
+    meterEnabled: selectedProvider !== "neopi" && settings.contextWindowMeterEnabled,
     detailLoading: props.threadSyncPhase === "loading",
     threadStarted: threadShellHasStarted(props.activeThreadShell),
     providerReportsContextWindow: selectedProviderStatus
@@ -4142,11 +4079,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         <ComposerFooterModeControls
           showInteractionModeToggle={planModeUiEnabled}
           interactionMode={interactionMode}
-          runtimeMode={runtimeMode}
           size="sm"
           hidden={restingHiddenBlockCount > 0}
           onToggleInteractionMode={toggleInteractionMode}
-          onRuntimeModeChange={handleRuntimeModeChange}
         />
       ),
     },
@@ -4173,7 +4108,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       </ComposerControl>
     ) : (
       <>
-        <ProviderModelPicker
+        <NeoPiSessionModelPicker
+          threadRef={isServerThread ? routeThreadRef : null}
           isComposerOwned
           disabled={providerCatalogPending || isSendBusy}
           {...(routeKind === "draft" && supportsMultipleModels
@@ -4218,25 +4154,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           instanceEntries={providerInstanceEntries}
           keybindings={keybindings}
           modelOptionsByInstance={modelOptionsByInstance}
-          size={composerControlsInStrip ? "xs" : "sm"}
-          triggerClassName={
-            composerControlsInStrip
-              ? "min-w-13 shrink text-xs! @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none"
-              : "-ms-2.5 min-w-13"
-          }
+          size="sm"
+          triggerClassName="-ms-2.5 min-w-13"
           terminalOpen={terminalOpen}
           open={isComposerModelPickerOpen}
-          instanceIndicatorBackground={
-            composerControlsInStrip
-              ? "color-mix(in srgb, var(--chat-composer-glass-surface) var(--glass-opacity), transparent)"
-              : "var(--contrast-input)"
-          }
-          {...(composerControlsInStrip
-            ? {
-                activeProviderIconClassName:
-                  "fill-muted-foreground/70! text-muted-foreground/70! [&_path]:fill-muted-foreground/70! [&_rect]:fill-muted-foreground/70! [&_[data-opencode-hole]]:fill-transparent!",
-              }
-            : {})}
+          instanceIndicatorBackground="var(--contrast-input)"
           onOpenChange={setIsComposerModelPickerOpen}
           getModelDisabledReason={getModelDisabledReason}
           onInstanceModelChange={(instanceId, model) => {
@@ -4245,6 +4167,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           }}
           onOpenProviderSetup={onOpenProviderSetup}
         />
+        <NeoPiSessionStatus threadRef={isServerThread ? routeThreadRef : null} />
 
         <>
           {restingBlockDefs.map((def, index) => {
@@ -4280,9 +4203,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           >
             <CompactComposerControlsMenu
               interactionMode={interactionMode}
-              runtimeMode={runtimeMode}
-              size={composerControlsInStrip ? "xs" : "sm"}
-              hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
+              size="sm"
+              hidden={hiddenRestingBlockIds.length === 0}
               showInteractionModeToggle={
                 planModeUiEnabled && hiddenRestingBlockIds.includes("mode")
               }
@@ -4290,7 +4212,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
               }
               onToggleInteractionMode={toggleInteractionMode}
-              onRuntimeModeChange={handleRuntimeModeChange}
             />
           </div>
         </>
@@ -5002,6 +4923,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }
       },
       openControl: (command) => {
+        if (command === "composer.mode") {
+          const permissions = document.querySelector<HTMLButtonElement>("button[data-session-permissions]");
+          permissions?.click();
+          return;
+        }
         const shell = composerFormRef.current?.closest('[data-slot="composer-shell"]');
         const trigger = Array.from(
           shell?.querySelectorAll<HTMLButtonElement>(
@@ -5830,7 +5756,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   <ComposerFooterPrimaryActions
                     compact={isComposerPrimaryActionsCompact}
                     activeContextWindow={
-                      settings.contextWindowMeterEnabled ? activeContextWindow : null
+                      selectedProvider !== "neopi" && settings.contextWindowMeterEnabled ? activeContextWindow : null
                     }
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
