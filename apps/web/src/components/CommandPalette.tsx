@@ -172,6 +172,7 @@ import { deriveProviderInstanceEntries, type ProviderInstanceEntry } from "../pr
 import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindings";
 import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/command";
 import { NeoPiSessionPickerHost, useNeoPiSessionPickerAction } from "./neopi/NeoPiSessionEntry";
+import { useOpenModels } from "./neopi/modelsPageState";
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -462,6 +463,7 @@ function overlayModeForCommand(command: string | null): SearchOverlayMode | null
 
 export function CommandPalette({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
+  const openModels = useOpenModels();
   const [state, dispatch] = useReducer(reduceCommandPaletteUiState, {
     open: false,
     mode: "command",
@@ -566,6 +568,13 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         void navigate({ to: "/usage" });
         return;
       }
+      if (command === "models.open") {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+        openModels();
+        return;
+      }
       const mode = overlayModeForCommand(command);
       if (mode === null) {
         return;
@@ -580,6 +589,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     appearanceMode,
     keybindings,
     navigate,
+    openModels,
     previewOpen,
     resolvedTheme,
     setAppearanceMode,
@@ -693,6 +703,7 @@ function OpenCommandPaletteDialog(props: {
   readonly clearOpenIntent: () => void;
 }) {
   const navigate = useNavigate();
+  const openModels = useOpenModels();
   const pathname = useLocation({ select: (location) => location.pathname });
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
   const [query, setQuery] = useState(openIntent?.kind === "search" ? openIntent.query : "");
@@ -1970,6 +1981,16 @@ function OpenCommandPaletteDialog(props: {
     run: async () => {
       await navigate({ to: "/usage" });
     },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:models",
+    searchTerms: ["models", "providers", "roles", "effort", "native", "login"],
+    title: "Open Models",
+    icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
+    shortcutCommand: "models.open",
+    run: async () => { openModels(); },
   });
 
   actionItems.push({

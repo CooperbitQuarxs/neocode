@@ -116,6 +116,7 @@ import { makeNeoPiSessionCatalog } from "./provider/neopi/NeoPiSessionCatalog.ts
 import { makeNeoPiSessionJournal } from "./provider/neopi/NeoPiSessionJournal.ts";
 import { makeNeoPiNativeConversation } from "./provider/neopi/NeoPiNativeConversation.ts";
 import { makeNeoPiThemes } from "./provider/neopi/NeoPiThemes.ts";
+import { makeNeoPiModels } from "./provider/neopi/NeoPiModels.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -620,6 +621,7 @@ const makeWsRpcLayer = (
         | WorkspacePaths.WorkspacePaths
       >();
       const neopiSessionCatalog = yield* makeNeoPiSessionCatalog();
+      const neopiModels = yield* makeNeoPiModels();
       const neopiSessionJournal = yield* makeNeoPiSessionJournal();
       const neopiNativeConversation = yield* makeNeoPiNativeConversation();
       const neopiThemes = makeNeoPiThemes(neopiModels.connection);
@@ -3140,6 +3142,14 @@ const makeWsRpcLayer = (
         [WS_METHODS.neopiThemesRead]: (input) => neopiThemes.read(input),
         [WS_METHODS.neopiThemesWatch]: (input) => neopiThemes.watch(input),
         [WS_METHODS.neopiThemesUpdate]: (input) => neopiThemes.update(input),
+        [WS_METHODS.neopiModelsRead]: (input) => neopiModels.read(input),
+        [WS_METHODS.neopiModelsWatch]: (input) => neopiModels.watch(input),
+        [WS_METHODS.neopiModelsUpdate]: (input) => neopiModels.update(input),
+        [WS_METHODS.neopiModelsAccounts]: (input) => neopiModels.accounts(input),
+        [WS_METHODS.neopiModelsAuthStart]: (input) => neopiModels.startAuth(input),
+        [WS_METHODS.neopiModelsAuthWatch]: (input) => neopiModels.watchAuth(input),
+        [WS_METHODS.neopiModelsAuthRespond]: (input) => neopiModels.respondAuth(input),
+        [WS_METHODS.neopiModelsAuthCancel]: (input) => neopiModels.cancelAuth(input),
         [WS_METHODS.assetsCreateUrl]: (input) =>
           observeRpcEffect(
             WS_METHODS.assetsCreateUrl,

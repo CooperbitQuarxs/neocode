@@ -19,6 +19,10 @@
       "types": "./src/state/neopiThemes.ts",
       "default": "./src/state/neopiThemes.ts"
     },
+    "./neopi-models": {
+      "types": "./src/neopiModels.ts",
+      "default": "./src/neopiModels.ts"
+    },
     "./device/stream": {
       "types": "./src/device/stream.ts",
       "default": "./src/device/stream.ts"

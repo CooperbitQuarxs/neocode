@@ -37,6 +37,7 @@ export * from "./neopiSessions.ts";
 export * from "./neopiJournal.ts";
 export * from "./neopiNativeConversation.ts";
 export * from "./neopiThemes.ts";
+export * from "./neopiModels.ts";
 export * from "./assets.ts";
 export * from "./review.ts";
 export * from "./browserImport.ts";

@@ -19,6 +19,7 @@ export interface NeoPiSessionCatalogSource {
   readonly observeConfiguration?: NeoPiAdapterShape["observeConfiguration"];
   readonly journal?: NeoPiAdapterShape["readJournal"];
   readonly observeNative?: NeoPiAdapterShape["observeNative"];
+  readonly modelsConnection?: NeoPiAdapterShape["getModelsConnection"];
 }
 
 const sources = new WeakMap<ProviderInstance, NeoPiSessionCatalogSource>();

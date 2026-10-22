@@ -345,7 +345,8 @@ export const make = Effect.fn("effect-neopi-rpc/NeoPiRpcClient.make")(function* 
               if (result.kind === "reply") return result.value;
             }
           })
-        : cmd.type === "navigate_tree"
+        // Native navigation and login own their interactive lifetime and cancellation.
+        : cmd.type === "navigate_tree" || cmd.type === "login"
           ? awaitReply
           : awaitReply.pipe(Effect.timeout(Duration.millis(requestTimeoutMs)));
       return yield* wait.pipe(
