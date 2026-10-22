@@ -820,6 +820,26 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
         );
       }),
     readThread,
+    observeNative: (threadId) =>
+      Effect.gen(function* () {
+        const session = sessions.get(threadId);
+        if (!session?.runtime.observeNative || !session.runtime.nativeRequest) return undefined;
+        const runtime = session.runtime;
+        const status = yield* SubscriptionRef.get(runtime.state);
+        if (status === "stopped" || status === "failed") return undefined;
+        const generation = runtime.processGeneration;
+        const events = yield* session.runtime.observeNative;
+        return {
+          ownership: runtime.capabilities.has(NEOPI_CAPABILITIES.controlAttached) ? "terminal" as const : "gui" as const,
+          capabilities: runtime.capabilities,
+          events,
+          request: (command: { readonly type: string; readonly [key: string]: unknown }) => Effect.gen(function* () {
+            if (sessions.get(threadId) !== session || runtime.processGeneration !== generation)
+              return yield* Effect.fail(new Error("The native runtime was replaced. Reconnect before issuing commands."));
+            return yield* session.runtime.nativeRequest!(command);
+          }),
+        };
+      }),
     readJournal: (threadId, expected, paging) =>
       Effect.gen(function* () {
         const session = sessions.get(threadId);

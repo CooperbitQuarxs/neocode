@@ -51,6 +51,7 @@ import {
   NeoPiSessionConfigurationResult,
 } from "./neopiSessions.ts";
 import { NeoPiSessionJournalInput, NeoPiSessionJournalResult } from "./neopiJournal.ts";
+import { NeoPiWatchJournalInput, NeoPiJournalStreamEvent, NeoPiNavigateTreeInput, NeoPiResumeTreeInput, NeoPiTreeOperationResult, NeoPiTreeResumeResult, NeoPiTreeCancelResult } from "./neopiNativeConversation.ts";
 import {
   AssetAccessError,
   AssetCreateUrlInput,
@@ -310,6 +311,10 @@ export const WS_METHODS = {
   neopiSessionsConfiguration: "neopiSessions.configuration",
   neopiSessionsWatchConfiguration: "neopiSessions.watchConfiguration",
   neopiSessionsJournal: "neopiSessions.journal",
+  neopiSessionsWatchJournal: "neopiSessions.watchJournal",
+  neopiSessionsNavigateTree: "neopiSessions.navigateTree",
+  neopiSessionsResumeTree: "neopiSessions.resumeTree",
+  neopiSessionsCancelNavigation: "neopiSessions.cancelNavigation",
   assetsCreateUrl: "assets.createUrl",
   attachmentsCreateUploadUrl: "attachments.createUploadUrl",
   attachmentsDelete: "attachments.delete",
@@ -1001,6 +1006,19 @@ const WsAgentSessionsImportRpc = Rpc.make(WS_METHODS.agentSessionsImport, {
   ]),
 });
 
+const WsNeoPiWatchJournalRpc = Rpc.make(WS_METHODS.neopiSessionsWatchJournal, {
+  payload: NeoPiWatchJournalInput, success: NeoPiJournalStreamEvent, error: EnvironmentAuthorizationError, stream: true,
+});
+const WsNeoPiNavigateTreeRpc = Rpc.make(WS_METHODS.neopiSessionsNavigateTree, {
+  payload: NeoPiNavigateTreeInput, success: NeoPiTreeOperationResult, error: EnvironmentAuthorizationError,
+});
+const WsNeoPiResumeTreeRpc = Rpc.make(WS_METHODS.neopiSessionsResumeTree, {
+  payload: NeoPiResumeTreeInput, success: NeoPiTreeResumeResult, error: EnvironmentAuthorizationError,
+});
+const WsNeoPiCancelNavigationRpc = Rpc.make(WS_METHODS.neopiSessionsCancelNavigation, {
+  payload: NeoPiWatchJournalInput, success: NeoPiTreeCancelResult, error: EnvironmentAuthorizationError,
+});
+
 const WsNeoPiSessionsListRpc = Rpc.make(WS_METHODS.neopiSessionsList, {
   payload: NeoPiSessionListInput,
   success: NeoPiSessionListResult,
@@ -1531,6 +1549,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsNeoPiSessionsConfigurationRpc,
   WsNeoPiSessionsWatchConfigurationRpc,
   WsNeoPiSessionsJournalRpc,
+  WsNeoPiWatchJournalRpc,
+  WsNeoPiNavigateTreeRpc,
+  WsNeoPiResumeTreeRpc,
+  WsNeoPiCancelNavigationRpc,
   WsAssetsCreateUrlRpc,
   WsAttachmentsCreateUploadUrlRpc,
   WsAttachmentsDeleteRpc,

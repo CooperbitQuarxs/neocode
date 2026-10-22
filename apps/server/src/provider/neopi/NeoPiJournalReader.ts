@@ -5,7 +5,6 @@ import {
   type NeoPiJournalOptions,
   type NeoPiSessionJournalResult,
 } from "@t3tools/contracts";
-import type { NeoPiRpcClient } from "effect-neopi-rpc/client";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { NEOPI_CAPABILITIES } from "./NeoPiCompatibility.ts";
@@ -69,7 +68,10 @@ export const decodeNeoPiJournalCli = Effect.fn("NeoPiJournal.decodeCli")(functio
 /** This sends read commands only. It never starts a runtime or changes native state. */
 export const readNeoPiJournalPeer = Effect.fn("NeoPiJournal.readPeer")(
   function* (
-    peer: Pick<NeoPiRpcClient, "capabilities" | "request">,
+    peer: {
+      readonly capabilities: ReadonlySet<string>;
+      readonly request: (command: { readonly type: string; readonly [key: string]: unknown }) => Effect.Effect<unknown, unknown>;
+    },
     expected: NeoPiConfigurationIdentity,
     options: NeoPiJournalOptions,
     resolveFile: (file: string) => Effect.Effect<string, unknown>,

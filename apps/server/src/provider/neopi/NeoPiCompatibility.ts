@@ -18,6 +18,8 @@ export const NEOPI_CAPABILITIES = {
   sessionHistoryIdentity: "session_history_identity",
   /** Canonical journal pages through RPC/control and the stopped-session CLI. */
   sessionJournal: "session_journal",
+  sessionJournalEvents: "session_journal_events",
+  sessionTreeNavigation: "session_tree_navigation",
   /** `npi ctl pipe <selector>` relays a live owner's control socket over stdio (NeoPi #355). */
   controlPipe: "control_pipe",
   /** Present in `ready` only when the peer is a control connection: this runtime is attached, not the owner. */
