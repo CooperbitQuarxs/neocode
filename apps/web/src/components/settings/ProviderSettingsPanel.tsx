@@ -669,7 +669,9 @@ export function EnvironmentProviderSettings({
       } satisfies ProviderInstanceConfig;
     };
     const effectiveInstance: ProviderInstanceConfig | undefined =
-      explicitInstance ?? synthesizedInstance();
+      explicitInstance === undefined
+        ? synthesizedInstance()
+        : explicitInstance.driver === driver ? explicitInstance : undefined;
     // Only the default slot depends on the legacy blob; custom instances for
     // the driver must still render even when the slot has nothing to show.
     if (effectiveInstance !== undefined) {
