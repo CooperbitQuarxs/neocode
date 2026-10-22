@@ -5126,7 +5126,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           setMultipleModelSelections(null);
           onProviderModelSelect(instanceId, model);
         }}
-        onOpenProviderSetup={onOpenProviderSetup}
       />
 
       <>

@@ -134,6 +134,29 @@ function modelCapabilities(
   });
 }
 
+/** Only catalog facts cross this boundary; measured performance needs a native RPC source. */
+function nativeModelFacts(model: RpcModel | null): ServerProviderModel["nativeFacts"] {
+  if (!model) return undefined;
+  const finite = (value: unknown, positive = false): number | undefined =>
+    typeof value === "number" && Number.isFinite(value) && (positive ? value > 0 : value >= 0)
+      ? value
+      : undefined;
+  const cost = asRecord(model.cost);
+  const intelligence = finite(model.int);
+  const tokensPerSecond = finite(model.tps, true);
+  const contextWindow = finite(model.contextWindow, true);
+  const inputCostPerMillion = finite(cost?.input);
+  const outputCostPerMillion = finite(cost?.output);
+  const facts = {
+    ...(intelligence !== undefined ? { intelligence } : {}),
+    ...(tokensPerSecond !== undefined ? { tokensPerSecond } : {}),
+    ...(contextWindow !== undefined ? { contextWindow } : {}),
+    ...(inputCostPerMillion !== undefined ? { inputCostPerMillion } : {}),
+    ...(outputCostPerMillion !== undefined ? { outputCostPerMillion } : {}),
+  };
+  return Object.keys(facts).length ? facts : undefined;
+}
+
 function toServerProviderRoleModels(
   result: GetRolesResult,
   catalog: ReadonlyMap<string, RpcModel>,
@@ -152,6 +175,11 @@ function toServerProviderRoleModels(
         aliases: slug === role.alias ? [role.id] : [role.id, role.alias],
         isCustom: false,
         ...(result.activeRole === role.id ? { isDefault: true } : {}),
+        nativeFacts: nativeModelFacts(
+          role.resolved
+            ? (catalog.get(`${role.resolved.provider}/${role.resolved.modelId}`) ?? null)
+            : null,
+        ),
         capabilities: modelCapabilities(
           role.resolved
             ? (catalog.get(`${role.resolved.provider}/${role.resolved.modelId}`) ?? null)
@@ -186,6 +214,7 @@ export function toServerProviderModels(
         quotaProvider: model.provider as string,
         isCustom: false,
         ...(currentSlug === slug && !roleResult?.activeRole ? { isDefault: true } : {}),
+        nativeFacts: nativeModelFacts(model),
         capabilities: modelCapabilities(model, currentSlug === slug ? fastModeEnabled : undefined),
       },
     ];
