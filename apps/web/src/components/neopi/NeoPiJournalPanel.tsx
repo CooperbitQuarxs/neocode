@@ -10,6 +10,7 @@ import { neopiSessionJournal } from "../../state/neopiSessions";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { cn } from "../../lib/utils";
 import { NeoPiJournalContent } from "./NeoPiJournalContent";
+import { NeoPiTreeNavigation } from "./NeoPiTreeNavigation";
 import {
   extendNeoPiJournalSnapshot,
   journalEntryCategory,
@@ -23,13 +24,14 @@ export function NeoPiJournalPanel({ threadRef, cwd }: {
   cwd?: string | undefined;
 }) {
   const read = useAtomCommand(neopiSessionJournal, { reportFailure: false });
-  const [scope, setScope] = useState<"branch" | "journal">("branch");
+  const [scope, setScope] = useState<"branch" | "journal">("journal");
   const [snapshot, setSnapshot] = useState<NeoPiJournalSnapshot | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showTools, setShowTools] = useState(true);
   const [showSystem, setShowSystem] = useState(true);
+  const [filter, setFilter] = useState("");
   const request = useRef(0);
   const snapshotRef = useRef<NeoPiJournalSnapshot | null>(null);
 
@@ -40,7 +42,6 @@ export function NeoPiJournalPanel({ threadRef, cwd }: {
     if (restart) {
       snapshotRef.current = null;
       setSnapshot(null);
-      setSelectedId(null);
     }
     setError(null);
     setPending(true);
@@ -65,7 +66,6 @@ export function NeoPiJournalPanel({ threadRef, cwd }: {
         // Never leave an old branch visible or silently restart it after leaf_changed.
         snapshotRef.current = null;
         setSnapshot(null);
-        setSelectedId(null);
         setError(value.status === "error" ? `${value.code}: ${value.message}` : value.reason);
         return;
       }
@@ -80,7 +80,6 @@ export function NeoPiJournalPanel({ threadRef, cwd }: {
       if (request.current !== generation) return;
       snapshotRef.current = null;
       setSnapshot(null);
-      setSelectedId(null);
       setError(cause instanceof Error ? cause.message : "Could not read native history.");
     } finally {
       if (request.current === generation) setPending(false);
@@ -88,15 +87,20 @@ export function NeoPiJournalPanel({ threadRef, cwd }: {
   }, [read, threadRef.environmentId, threadRef.threadId]);
 
   useEffect(() => {
-    void load("branch", true);
+    void load("journal", true);
     return () => { request.current++; };
   }, [load]);
 
   const entries = snapshot?.entries;
-  const rows = useMemo(() => journalTreeRows(entries ?? []).filter(({ entry }) => {
+  const searchable = useMemo(() => journalTreeRows(entries ?? []).map((row) => ({
+    row,
+    text: `${journalEntryLabel(row.entry)} ${row.entry.id} ${row.entry.parentId ?? ""} ${typeof row.entry.summary === "string" ? row.entry.summary : ""}`.toLocaleLowerCase(),
+  })), [entries]);
+  const rows = useMemo(() => searchable.filter(({ row: { entry }, text }) => {
     const category = journalEntryCategory(entry);
-    return (showTools || category !== "tool") && (showSystem || category !== "system");
-  }), [entries, showTools, showSystem]);
+    return (showTools || category !== "tool") && (showSystem || category !== "system") &&
+      text.includes(filter.toLocaleLowerCase());
+  }).map(({ row }) => row), [searchable, showTools, showSystem, filter]);
   const selected = entries?.find((entry) => entry.id === selectedId);
   const byId = useMemo(() => new Map(entries?.map((entry) => [entry.id, entry])), [entries]);
   const renderRow = useCallback(({ item }: { item: ReturnType<typeof journalTreeRows>[number] }) => (
@@ -125,7 +129,7 @@ export function NeoPiJournalPanel({ threadRef, cwd }: {
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Read-only native journal. Selecting a node does not change context. This snapshot does not follow live changes.
+          Inspect every branch, then use Navigate here to select a native context. Alternate branches stay in the same file.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant={scope === "branch" ? "secondary" : "ghost"} disabled={pending}
@@ -142,6 +146,11 @@ export function NeoPiJournalPanel({ threadRef, cwd }: {
           <label className="flex items-center gap-1 text-xs">
             <input type="checkbox" checked={showSystem} onChange={(event) => setShowSystem(event.currentTarget.checked)} />System events
           </label>
+        <label className="block text-xs">
+          Filter loaded tree entries
+          <input type="search" value={filter} onChange={(event) => setFilter(event.currentTarget.value)}
+            className="mt-1 block w-full rounded border bg-background px-2 py-1" placeholder="Entry kind, ID or summary" />
+        </label>
         </div>
         {snapshot ? (
           <div className="space-y-1 text-xs text-muted-foreground">
@@ -163,6 +172,13 @@ export function NeoPiJournalPanel({ threadRef, cwd }: {
           <LegendList data={rows} keyExtractor={(row) => row.entry.id} renderItem={renderRow}
             estimatedItemSize={52} recycleItems extraData={selectedId} maintainVisibleContentPosition
             className="h-full overflow-auto" aria-label="Native journal tree nodes" />
+        </div>
+      ) : null}
+      {selectedId ? (
+        <div className="max-h-[50%] shrink-0 overflow-auto px-4">
+          <p className="mt-2 break-all font-mono text-xs text-muted-foreground">Target · {selectedId}</p>
+          <NeoPiTreeNavigation key={selectedId} threadRef={threadRef} targetId={selectedId}
+            onNavigated={() => void load(scope, true)} />
         </div>
       ) : null}
       {selected ? (
