@@ -355,8 +355,11 @@ function fallbackTextGenerationProvider(settings: ServerSettings): ServerSetting
   const explicit = Object.entries(settings.providerInstances).find(
     ([, instance]) => instance.driver === "neopi" && resolveProviderInstanceEnabled(instance),
   );
-  const instanceId = explicit?.[0] ??
-    (settings.providers.neopi.enabled ? "neopi" : undefined);
+  const defaultInstance = settings.providerInstances[ProviderInstanceId.make("neopi")];
+  const defaultEnabled = defaultInstance === undefined
+    ? settings.providers.neopi.enabled
+    : defaultInstance.driver === "neopi" && resolveProviderInstanceEnabled(defaultInstance);
+  const instanceId = explicit?.[0] ?? (defaultEnabled ? "neopi" : undefined);
   if (instanceId === undefined) return settings;
 
   return {

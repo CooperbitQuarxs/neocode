@@ -42,8 +42,8 @@ const PROVIDER_ACCENT_SWATCHES = [
 
 /**
  * Normalize a user-provided label into a slug suffix for the instance id.
- * The full id is formed by prefixing the driver slug — e.g. label "Work" on
- * driver "codex" becomes `codex_work`. Output is trimmed to 48 chars so the
+ * The full id is formed by prefixing the NeoPi driver slug, so label "Work"
+ * becomes `neopi_work`. Output is trimmed to 48 chars so the
  * final composed id stays under the 64-char slug cap enforced by
  * `ProviderInstanceId` in `@t3tools/contracts`.
  */
@@ -229,8 +229,8 @@ export function AddProviderInstanceDialog({
           title="Add provider instance"
           description={
             <>
-              Configure an additional provider instance on {environmentLabel} — for example, a
-              second Codex install pointed at a different workspace.
+              Configure an additional NeoPi instance on {environmentLabel}, such as a separate
+              profile or executable.
             </>
           }
         >

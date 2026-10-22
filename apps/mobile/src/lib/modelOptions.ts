@@ -115,9 +115,8 @@ export function resolveSelectableModelSelection(
 }
 
 /**
- * Reject legacy models for implicit defaults, except Antigravity selections,
- * which must not silently change after a catalog update. Explicit picks in
- * the settings sheet are unaffected.
+ * Reject retired native models for implicit defaults. Explicit saved choices
+ * remain visible until the user selects another model.
  */
 export function resolveDefaultableModelSelection(
   config: T3ServerConfig | null | undefined,
@@ -138,21 +137,23 @@ export function resolveNewTaskModelSelection(input: {
   readonly stickySelection: ModelSelection | null;
   readonly modelOptions: ReadonlyArray<ModelOption>;
 }): ModelSelection | null {
+  const nativeSelection = (selection: ModelSelection | null) =>
+    selection !== null && input.modelOptions.some(
+      (option) => option.providerDriver === "neopi" && option.selection.instanceId === selection.instanceId,
+    ) ? selection : null;
   const explicitSelection =
-    input.draftSelection ?? input.projectDefaultSelection ?? input.stickySelection;
+    nativeSelection(input.draftSelection) ??
+    nativeSelection(input.projectDefaultSelection) ??
+    nativeSelection(input.stickySelection);
   if (explicitSelection) return explicitSelection;
 
   const hasReadyOption = input.modelOptions.some(
-    (option) => option.isReady && !option.isUnavailable,
+    (option) => option.providerDriver === "neopi" && option.isReady && !option.isUnavailable,
   );
   const isUsable = (option: ModelOption) =>
-    !option.isUnavailable && (!hasReadyOption || option.isReady === true);
+    option.providerDriver === "neopi" && !option.isUnavailable &&
+    (!hasReadyOption || option.isReady === true);
   return (
-    input.modelOptions.find(
-      (option) => option.providerDriver === "neopi" && option.isDefault && isUsable(option),
-    )?.selection ??
-    input.modelOptions.find((option) => option.providerDriver === "neopi" && isUsable(option))
-      ?.selection ??
     input.modelOptions.find((option) => option.isDefault && isUsable(option))?.selection ??
     input.modelOptions.find(isUsable)?.selection ??
     null
@@ -220,6 +221,7 @@ export function buildModelOptions(
       );
       const providerDriver =
         provider?.driver ?? instanceConfig?.driver ?? fallbackModelSelection.instanceId;
+      if (providerDriver !== "neopi") return [...options.values()];
       const providerLabel = providerDisplayLabel({
         driver: providerDriver,
         displayName: provider?.displayName ?? instanceConfig?.displayName,
