@@ -483,9 +483,9 @@ describe("carrying rows already read into filters nothing has answered yet", () 
         },
       },
     ];
-    expect(
-      narrowPullRequestsToFilters([...rows, forkRow], { ...everything, projects }),
-    ).toEqual([forkRow]);
+    expect(narrowPullRequestsToFilters([...rows, forkRow], { ...everything, projects })).toEqual([
+      forkRow,
+    ]);
     expect(
       narrowPullRequestsToFilters([...rows, forkRow], {
         ...everything,
@@ -527,8 +527,16 @@ describe("carrying rows already read into filters nothing has answered yet", () 
       },
     ];
     const first = entry({ number: 1, repository: "one/repo" });
-    const second = entry({ number: 2, environmentId: "env-2", repository: "two/repo" });
-    const wrongEnvironment = entry({ number: 3, environmentId: "env-2", repository: "one/repo" });
+    const second = entry({
+      number: 2,
+      environmentId: "env-2" as EnvironmentId,
+      repository: "two/repo",
+    });
+    const wrongEnvironment = entry({
+      number: 3,
+      environmentId: "env-2" as EnvironmentId,
+      repository: "one/repo",
+    });
     expect(
       narrowPullRequestsToFilters([first, second, wrongEnvironment], {
         ...everything,

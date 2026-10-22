@@ -3736,13 +3736,24 @@ it.effect("reads a selected fork directly with the host viewer across filter cha
     const reads: Array<Parameters<PullRequestProviderApi["listChangeRequests"]>[0]> = [];
     const service = yield* makeService({
       projects: [
-        project({ id: "fork", title: "editor", workspaceRoot: "/fork", repository: "fork-owner/editor" }),
-        project({ id: "upstream", title: "parent", workspaceRoot: "/parent", repository: "team/editor" }),
+        project({
+          id: "fork",
+          title: "editor",
+          workspaceRoot: "/fork",
+          repository: "fork-owner/editor",
+        }),
+        project({
+          id: "upstream",
+          title: "parent",
+          workspaceRoot: "/parent",
+          repository: "team/editor",
+        }),
       ],
       providers: [
         fakeProvider("github", {
           getViewer: () => Effect.succeed("current-reader"),
-          listChangeRequestsAcross: () => Effect.die("a selected fork must not search the host first"),
+          listChangeRequestsAcross: () =>
+            Effect.die("a selected fork must not search the host first"),
           listChangeRequests: (input) =>
             Effect.sync(() => {
               reads.push(input);
