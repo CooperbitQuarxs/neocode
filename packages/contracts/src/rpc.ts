@@ -34,6 +34,9 @@ import {
 import { NeoPiSessionJournalInput, NeoPiSessionJournalResult } from "./neopiJournal.ts";
 import { NeoPiWatchJournalInput, NeoPiJournalStreamEvent, NeoPiNavigateTreeInput, NeoPiResumeTreeInput, NeoPiTreeOperationResult, NeoPiTreeResumeResult, NeoPiTreeCancelResult } from "./neopiNativeConversation.ts";
 import {
+  NeoPiThemesInput, NeoPiThemesUpdate, NeoPiThemesConfiguration, NeoPiThemesError,
+} from "./neopiThemes.ts";
+import {
   AssetAccessError,
   AssetCreateUrlInput,
   AssetCreateUrlResult,
@@ -287,6 +290,9 @@ export const WS_METHODS = {
   neopiSessionsNavigateTree: "neopiSessions.navigateTree",
   neopiSessionsResumeTree: "neopiSessions.resumeTree",
   neopiSessionsCancelNavigation: "neopiSessions.cancelNavigation",
+  neopiThemesRead: "neopiThemes.read",
+  neopiThemesWatch: "neopiThemes.watch",
+  neopiThemesUpdate: "neopiThemes.update",
   assetsCreateUrl: "assets.createUrl",
   attachmentsCreateUploadUrl: "attachments.createUploadUrl",
   attachmentsDelete: "attachments.delete",
@@ -927,6 +933,22 @@ const WsNeoPiSessionsJournalRpc = Rpc.make(WS_METHODS.neopiSessionsJournal, {
   success: NeoPiSessionJournalResult,
   error: EnvironmentAuthorizationError,
 });
+const WsNeoPiThemesReadRpc = Rpc.make(WS_METHODS.neopiThemesRead, {
+  payload: NeoPiThemesInput,
+  success: NeoPiThemesConfiguration,
+  error: Schema.Union([NeoPiThemesError, EnvironmentAuthorizationError]),
+});
+const WsNeoPiThemesWatchRpc = Rpc.make(WS_METHODS.neopiThemesWatch, {
+  payload: NeoPiThemesInput,
+  success: NeoPiThemesConfiguration,
+  error: Schema.Union([NeoPiThemesError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+const WsNeoPiThemesUpdateRpc = Rpc.make(WS_METHODS.neopiThemesUpdate, {
+  payload: NeoPiThemesUpdate,
+  success: NeoPiThemesConfiguration,
+  error: Schema.Union([NeoPiThemesError, EnvironmentAuthorizationError]),
+});
 
 const WsAssetsCreateUrlRpc = Rpc.make(WS_METHODS.assetsCreateUrl, {
   payload: AssetCreateUrlInput,
@@ -1410,6 +1432,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsNeoPiNavigateTreeRpc,
   WsNeoPiResumeTreeRpc,
   WsNeoPiCancelNavigationRpc,
+  WsNeoPiThemesReadRpc,
+  WsNeoPiThemesWatchRpc,
+  WsNeoPiThemesUpdateRpc,
   WsAssetsCreateUrlRpc,
   WsAttachmentsCreateUploadUrlRpc,
   WsAttachmentsDeleteRpc,

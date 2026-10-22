@@ -115,6 +115,7 @@ import { ProviderInstanceRegistry } from "./provider/Services/ProviderInstanceRe
 import { makeNeoPiSessionCatalog } from "./provider/neopi/NeoPiSessionCatalog.ts";
 import { makeNeoPiSessionJournal } from "./provider/neopi/NeoPiSessionJournal.ts";
 import { makeNeoPiNativeConversation } from "./provider/neopi/NeoPiNativeConversation.ts";
+import { makeNeoPiThemes } from "./provider/neopi/NeoPiThemes.ts";
 import * as ServerSelfUpdate from "./cloud/selfUpdate.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
@@ -621,6 +622,7 @@ const makeWsRpcLayer = (
       const neopiSessionCatalog = yield* makeNeoPiSessionCatalog();
       const neopiSessionJournal = yield* makeNeoPiSessionJournal();
       const neopiNativeConversation = yield* makeNeoPiNativeConversation();
+      const neopiThemes = makeNeoPiThemes(neopiModels.connection);
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
       const rpcClientIds = yield* Ref.make(new Set<RpcClientId>());
@@ -3135,6 +3137,9 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.neopiSessionsResumeTree, neopiNativeConversation.resume(input), { "rpc.aggregate": "workspace" }),
         [WS_METHODS.neopiSessionsCancelNavigation]: (input) =>
           observeRpcEffect(WS_METHODS.neopiSessionsCancelNavigation, neopiNativeConversation.cancel(input.threadId), { "rpc.aggregate": "workspace" }),
+        [WS_METHODS.neopiThemesRead]: (input) => neopiThemes.read(input),
+        [WS_METHODS.neopiThemesWatch]: (input) => neopiThemes.watch(input),
+        [WS_METHODS.neopiThemesUpdate]: (input) => neopiThemes.update(input),
         [WS_METHODS.assetsCreateUrl]: (input) =>
           observeRpcEffect(
             WS_METHODS.assetsCreateUrl,
