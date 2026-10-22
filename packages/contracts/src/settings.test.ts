@@ -21,6 +21,27 @@ const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
+describe("scoped action settings", () => {
+  it("preserves hidden action IDs through storage and patch decoding", () => {
+    const actions = { "open-neovide": null };
+    const patch = {
+      actions,
+      projectSettingsOverrides: { project: { actions } },
+    };
+    expect(decodeServerSettingsPatch(patch)).toEqual(patch);
+    const stored = decodeServerSettings(patch);
+    const reloaded = decodeServerSettings(encodeServerSettings(stored));
+    expect(reloaded.actions).toEqual(actions);
+    expect(reloaded.projectSettingsOverrides.project?.actions).toEqual(actions);
+  });
+
+  it("rejects incomplete command definitions instead of accepting a broken action", () => {
+    expect(() => decodeServerSettingsPatch({
+      actions: { broken: { id: "broken", name: "Broken" } },
+    })).toThrow();
+  });
+});
+
 describe("storage cleanup settings", () => {
   it("keeps cleanup disabled for existing installations", () => {
     expect(decodeServerSettings({}).worktreeCleanup).toBeNull();

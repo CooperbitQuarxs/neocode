@@ -11,8 +11,8 @@ import {
   type ResolvedKeybindingsConfig,
   type ServerSettings,
 } from "@t3tools/contracts";
-import { resolveProjectScripts } from "@t3tools/shared/projectScripts";
-import { clearProjectSettingsOverrides } from "@t3tools/shared/projectSettings";
+import { projectActionsPatch, resolveProjectScripts } from "@t3tools/shared/projectScripts";
+import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useRef, useState } from "react";
@@ -38,7 +38,7 @@ function reportScriptFailure(result: AtomCommandResult<unknown, unknown>) {
     const error = squashAtomCommandFailure(result);
     toastManager.add({
       type: "error",
-      title: "Failed to save project actions",
+      title: "Failed to save actions",
       description: error instanceof Error ? error.message : "An error occurred.",
     });
   }
@@ -46,8 +46,8 @@ function reportScriptFailure(result: AtomCommandResult<unknown, unknown>) {
 }
 
 /**
- * Edits the action list on every target: the environment default when there is
- * no project, else that project's override entry. Shortcuts follow on desktop.
+ * Edits changed action IDs at the selected scopes, preserving inherited IDs.
+ * Shortcuts are shared by action ID across projects on each environment.
  */
 export function useProjectScriptSettings(
   targets: readonly {
@@ -74,6 +74,7 @@ export function useProjectScriptSettings(
     transform: (current: readonly ProjectScript[]) => readonly ProjectScript[] | null,
     scriptId?: string,
     keybinding?: string | null,
+    resetId?: string,
   ): Promise<AtomCommandResult<void, unknown>> {
     if (savingRef.current || targets.length === 0) {
       const message = "No available machine, or another action change is saving.";
@@ -84,33 +85,17 @@ export function useProjectScriptSettings(
     setSaving(true);
     try {
       for (const { environmentId, settings, keybindings, project } of targets) {
-        const current = project
-          ? resolveProjectScripts(settings, project)
-          : settings.defaultProjectScripts;
+        const current = resolveProjectScripts(settings, project ?? null);
         const nextScripts = transform(current);
-        const effectiveScripts = nextScripts ?? settings.defaultProjectScripts;
+        const patch = projectActionsPatch(settings, project ?? null, nextScripts, resetId);
+        const nextSettings = applyServerSettingsPatch(settings, patch);
+        const effectiveScripts = resolveProjectScripts(nextSettings, project ?? null);
         const result = await updateSettings({
           environmentId,
-          input: {
-            patch: project
-              ? {
-                  projectSettingsOverrides: {
-                    [project.id]:
-                      nextScripts === null
-                        ? clearProjectSettingsOverrides(settings, project.id, [
-                            "defaultProjectScripts",
-                          ])
-                        : {
-                            ...settings.projectSettingsOverrides[project.id],
-                            defaultProjectScripts: nextScripts,
-                          },
-                  },
-                }
-              : { defaultProjectScripts: nextScripts ?? [] },
-          },
+          input: { patch },
         });
         if (result._tag === "Failure") return reportScriptFailure(result);
-        if (!isElectron) continue;
+        if (!isElectron || resetId !== undefined) continue;
         const changedIds = scriptId
           ? [scriptId]
           : current
@@ -124,20 +109,13 @@ export function useProjectScriptSettings(
             : null;
           const next = decodeProjectScriptKeybindingRule({ keybinding, command });
           const retainedElsewhere =
-            !nextScripts?.some((script) => script.id === id) &&
-            ((project && settings.defaultProjectScripts.some((script) => script.id === id)) ||
-              Object.entries(settings.projectSettingsOverrides).some(
-                ([projectId, entry]) =>
-                  projectId !== project?.id &&
-                  entry.defaultProjectScripts?.some((script) => script.id === id),
-              ) ||
+            !effectiveScripts.some((script) => script.id === id) &&
+            (resolveProjectScripts(nextSettings, null).some((script) => script.id === id) ||
               projects.some(
                 (other) =>
                   other.environmentId === environmentId &&
                   other.id !== project?.id &&
-                  (project ? resolveProjectScripts(settings, other) : other.scripts).some(
-                    (script) => script.id === id,
-                  ),
+                  resolveProjectScripts(nextSettings, other).some((script) => script.id === id),
               ));
           const bindingResult = next
             ? await upsertKeybinding({
@@ -164,8 +142,12 @@ export function useProjectScriptSettings(
       ...targets.flatMap(({ settings, project }) =>
         [
           ...settings.defaultProjectScripts,
+          ...Object.values(settings.actions).filter((script) => script !== null),
           ...Object.values(settings.projectSettingsOverrides).flatMap(
-            (entry) => entry.defaultProjectScripts ?? [],
+            (entry) => [
+              ...(entry.defaultProjectScripts ?? []),
+              ...Object.values(entry.actions ?? {}).filter((script) => script !== null),
+            ],
           ),
           ...(project?.scripts ?? []),
         ].map((script) => script.id),
@@ -189,5 +171,10 @@ export function useProjectScriptSettings(
     );
   }
 
-  return { saving, persist, submit };
+  return {
+    saving,
+    persist,
+    submit,
+    reset: (id: string) => persist((current) => current, id, undefined, id),
+  };
 }

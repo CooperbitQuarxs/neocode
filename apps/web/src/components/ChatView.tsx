@@ -72,6 +72,7 @@ import {
   resolvePromptInjectedEffort,
 } from "@t3tools/shared/model";
 import {
+  projectActionsPatch,
   projectScriptCwd,
   projectScriptRuntimeEnv,
   resolveProjectScripts,
@@ -4198,7 +4199,13 @@ export default function ChatView(props: ChatViewProps) {
       const baseTerminalId =
         terminalUiState.activeTerminalId || activeKnownTerminalIds[0] || DEFAULT_THREAD_TERMINAL_ID;
       const isBaseTerminalBusy = runningTerminalIds.includes(baseTerminalId);
-      const wantsNewTerminal = Boolean(options?.preferNewTerminal) || isBaseTerminalBusy;
+      // Reusable actions need a fresh shell: an idle terminal may have changed
+      // directory since it opened. Keep legacy project terminal reuse unchanged.
+      const reusableAction =
+        Object.hasOwn(settings.actions, script.id) ||
+        Object.hasOwn(settings.projectSettingsOverrides[activeProject.id]?.actions ?? {}, script.id);
+      const wantsNewTerminal =
+        Boolean(options?.preferNewTerminal) || isBaseTerminalBusy || reusableAction;
       const shouldCreateNewTerminal = wantsNewTerminal;
       const targetWorktreePath = options?.worktreePath ?? activeThread.worktreePath ?? null;
 
@@ -4293,6 +4300,7 @@ export default function ChatView(props: ChatViewProps) {
       runningTerminalIds,
       terminalUiState.activeTerminalId,
       writeTerminal,
+      settings,
     ],
   );
 
@@ -4333,12 +4341,11 @@ export default function ChatView(props: ChatViewProps) {
             // per-project map is still translated on older ones.
             patch: supportsProjectSettingsOverrides
               ? {
-                  projectSettingsOverrides: {
-                    [input.projectId]: {
-                      ...settings.projectSettingsOverrides[input.projectId],
-                      defaultProjectScripts: input.nextScripts,
-                    },
-                  },
+                  ...projectActionsPatch(
+                    settings,
+                    { id: input.projectId, scripts: activeProject?.scripts ?? [] },
+                    input.nextScripts,
+                  ),
                 }
               : {
                   projectScriptOverrides: {
@@ -4371,7 +4378,8 @@ export default function ChatView(props: ChatViewProps) {
     },
     [
       environmentId,
-      settings.projectSettingsOverrides,
+      settings,
+      activeProject,
       supportsProjectSettingsOverrides,
       updateProjectScriptSettings,
       upsertKeybinding,
@@ -9661,7 +9669,6 @@ export default function ChatView(props: ChatViewProps) {
           projectName={activeProject?.title ?? ""}
           threadRef={activeThreadRef}
           composerDraftTarget={composerDraftTarget}
-          keybindings={keybindings}
           availableEditors={availableEditors}
           relativePath={
             renderedRightPanelSurface.kind === "file"
@@ -9756,13 +9763,11 @@ export default function ChatView(props: ChatViewProps) {
             activeThreadTitle={activeThread.title}
             isServerThread={isServerThread}
             activeProject={activeProject}
-            openInCwd={gitCwd}
             activeProjectScripts={activeProjectScripts}
             preferredScriptId={
               activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
             }
             keybindings={keybindings}
-            availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
             gitCwd={gitCwd}
             onNewThreadInProject={handleNewThreadInActiveProject}
