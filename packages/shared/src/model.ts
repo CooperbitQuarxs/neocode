@@ -20,7 +20,7 @@ export interface SelectableModelOption {
 }
 
 export function createModelCapabilities(input: {
-  reasoning?: boolean;
+  reasoning?: boolean | undefined;
   optionDescriptors: ReadonlyArray<ProviderOptionDescriptor>;
 }): ModelCapabilities {
   return {
