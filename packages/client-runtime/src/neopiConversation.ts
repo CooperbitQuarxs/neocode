@@ -49,16 +49,18 @@ export function reduceNativeConversation(state: NativeConversation, action: Nati
       return { ...state, pending: [], persisted: new Map(), revision: state.revision + 1, needsSnapshot: true };
     case "snapshot": {
       const page = action.page;
-      // Keep already paged ancestors only when this snapshot contains the old leaf.
+      // A leaf notification can arrive before its branch snapshot. Compare with
+      // the loaded history, not that newly announced leaf.
+      const loadedLeaf = state.entries.at(-1)?.id;
       const extendsBranch = sameNativeSession(state.identity, page) &&
-        (state.identity?.leafId === page.leafId || page.entries.some((entry) => entry.id === state.identity?.leafId));
+        loadedLeaf !== undefined && page.entries.some((entry) => entry.id === loadedLeaf);
       const entries = uniqueEntries([...(extendsBranch ? state.entries : []), ...page.entries]);
       const ids = new Set(entries.map((entry) => entry.id));
       return {
         identity: page, entries,
-        pending: sameNativeSession(state.identity, page)
+        pending: extendsBranch
           ? state.pending.filter((message) => !ids.has(state.persisted.get(message.messageId) ?? "")) : [],
-        persisted: sameNativeSession(state.identity, page) ? state.persisted : new Map(),
+        persisted: extendsBranch ? state.persisted : new Map(),
         cursor: page.nextCursor, cursorLeaf: page.leafId,
         revision: state.revision + 1, needsSnapshot: false,
       };

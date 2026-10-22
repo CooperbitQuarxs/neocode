@@ -61,11 +61,14 @@ describe("native main conversation", () => {
 
   it("rejects old paging responses across a branch switch and never splices alternate futures", () => {
     let state = initial();
+    state = reduceNativeConversation(state, { type: "message", messageId: "old-stream", message: { role: "assistant", content: "Abandoned branch" } });
     const revision = state.revision;
     state = reduceNativeConversation(state, { type: "identity", identity: { ...identity, leafId: "alternate" } });
     state = reduceNativeConversation(state, { type: "snapshot", page: page([entry("a", null), entry("alternate", "a")], { leafId: "alternate" }) });
     state = reduceNativeConversation(state, { type: "older", revision, page: page([entry("old", null)], { nextCursor: "stale" }) });
     expect(state.entries.map((value) => value.id)).toEqual(["a", "alternate"]);
+    expect(state.pending).toEqual([]);
+    expect(state.persisted.size).toBe(0);
     expect(state.cursor).toBeUndefined();
   });
 
