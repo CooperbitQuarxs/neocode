@@ -102,19 +102,22 @@ describe("searchSettings", () => {
     expect(searchSettings("administrative access")[0]?.id).toBe("connections-environment");
   });
 
-  it.each(["NeoCore", "NeoPi profile", "launch arguments", "environment variables", "NeoPi disabled"])(
-    "routes runtime configuration searches for %s to NeoCore",
-    (query) => {
-      expect(searchSettings(query)[0]).toMatchObject({
-        id: "neocore",
-        to: "/settings/neocore",
-      });
-      expect(getSettingsSearchTargetScope("neocore")).toMatchObject({
-        title: "NeoCore",
-        scope: null,
-      });
-    },
-  );
+  it.each([
+    "NeoCore",
+    "NeoPi profile",
+    "launch arguments",
+    "environment variables",
+    "NeoPi disabled",
+  ])("routes runtime configuration searches for %s to NeoCore", (query) => {
+    expect(searchSettings(query)[0]).toMatchObject({
+      id: "neocore",
+      to: "/settings/neocore",
+    });
+    expect(getSettingsSearchTargetScope("neocore")).toMatchObject({
+      title: "NeoCore",
+      scope: null,
+    });
+  });
 
   it("lists thread confirmations in panel order", () => {
     expect(searchSettings("confirmation").map((item) => item.id)).toEqual([

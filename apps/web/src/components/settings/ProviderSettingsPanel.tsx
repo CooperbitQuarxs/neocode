@@ -639,15 +639,14 @@ export function EnvironmentProviderSettings({
       ),
     [serverProviders],
   );
-  const visibleProviderSettings = PROVIDER_SETTINGS.filter(
-    (providerSettings) =>
-      (neoCore
-        ? providerSettings.provider === "neopi"
-        : providerSettings.provider !== "cursor" ||
-          serverProviders.some(
-            (provider) =>
-              provider.instanceId === defaultInstanceIdForDriver(ProviderDriverKind.make("cursor")),
-          )),
+  const visibleProviderSettings = PROVIDER_SETTINGS.filter((providerSettings) =>
+    neoCore
+      ? providerSettings.provider === "neopi"
+      : providerSettings.provider !== "cursor" ||
+        serverProviders.some(
+          (provider) =>
+            provider.instanceId === defaultInstanceIdForDriver(ProviderDriverKind.make("cursor")),
+        ),
   );
   const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
   const textGenInstanceId = textGenerationModelSelection.instanceId;
@@ -1088,21 +1087,23 @@ export function EnvironmentProviderSettings({
                   />
                   <TooltipPopup side="top">Refresh provider status</TooltipPopup>
                 </Tooltip>
-                {!neoCore ? <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        size="icon-xs"
-                        variant="ghost-muted"
-                        onClick={() => setIsAddInstanceDialogOpen(true)}
-                        aria-label="Add provider"
-                      >
-                        <PlusIcon />
-                      </Button>
-                    }
-                  />
-                  <TooltipPopup side="top">Add provider</TooltipPopup>
-                </Tooltip> : null}
+                {!neoCore ? (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          size="icon-xs"
+                          variant="ghost-muted"
+                          onClick={() => setIsAddInstanceDialogOpen(true)}
+                          aria-label="Add provider"
+                        >
+                          <PlusIcon />
+                        </Button>
+                      }
+                    />
+                    <TooltipPopup side="top">Add provider</TooltipPopup>
+                  </Tooltip>
+                ) : null}
               </>
             )}
           </div>
@@ -1150,87 +1151,92 @@ export function EnvironmentProviderSettings({
         </SettingsGroup>
       </SettingsSection>
 
-      {!neoCore ? <UsageProviderSettings
-        key={environmentId}
-        environmentId={environmentId}
-        environmentLabel={environmentLabel}
-        sources={settings.usageLimitSources}
-        cursorKeychainUsageEnabled={settings.cursorKeychainUsageEnabled}
-        readOnly={readOnly}
-      /> : null}
+      {!neoCore ? (
+        <UsageProviderSettings
+          key={environmentId}
+          environmentId={environmentId}
+          environmentLabel={environmentLabel}
+          sources={settings.usageLimitSources}
+          cursorKeychainUsageEnabled={settings.cursorKeychainUsageEnabled}
+          readOnly={readOnly}
+        />
+      ) : null}
 
-      {!neoCore ? <SettingsSection title="Advanced">
-        <SettingsRow
-          id={searchableSetting("provider-health-check-interval").id}
-          title={
-            <span className="inline-flex items-center gap-1.5">
-              {searchableSetting("provider-health-check-interval").title}
-              <PolicyTooltip>
-                This interval is configured here, then the shared Background activity policy decides
-                whether provider probes may run when the timer fires. Custom intervals appear as
-                Advanced in General settings.
-              </PolicyTooltip>
-            </span>
-          }
-          description="Refresh provider status, versions, and models in the background. Set to 0 to disable."
-          resetAction={
-            providerHealthRefreshIntervalSeconds !== defaultProviderHealthRefreshIntervalSeconds ? (
-              <span inert={readOnly} className={readOnly ? "opacity-50" : undefined}>
-                <SettingResetButton
-                  label="provider health check interval"
-                  onClick={() =>
+      {!neoCore ? (
+        <SettingsSection title="Advanced">
+          <SettingsRow
+            id={searchableSetting("provider-health-check-interval").id}
+            title={
+              <span className="inline-flex items-center gap-1.5">
+                {searchableSetting("provider-health-check-interval").title}
+                <PolicyTooltip>
+                  This interval is configured here, then the shared Background activity policy
+                  decides whether provider probes may run when the timer fires. Custom intervals
+                  appear as Advanced in General settings.
+                </PolicyTooltip>
+              </span>
+            }
+            description="Refresh provider status, versions, and models in the background. Set to 0 to disable."
+            resetAction={
+              providerHealthRefreshIntervalSeconds !==
+              defaultProviderHealthRefreshIntervalSeconds ? (
+                <span inert={readOnly} className={readOnly ? "opacity-50" : undefined}>
+                  <SettingResetButton
+                    label="provider health check interval"
+                    onClick={() =>
+                      updateSettings(
+                        backgroundActivityOverrideSettings(
+                          settings.backgroundActivity,
+                          resolvedBackgroundActivity,
+                          { providerHealthRefreshInterval: undefined },
+                        ),
+                      )
+                    }
+                  />
+                </span>
+              ) : null
+            }
+            control={
+              <div
+                inert={readOnly}
+                aria-disabled={readOnly || undefined}
+                className={cn(
+                  "flex shrink-0 items-center gap-2",
+                  readOnly && "opacity-50 select-none",
+                )}
+              >
+                <NumberField
+                  value={providerHealthRefreshIntervalSeconds}
+                  min={0}
+                  step={PROVIDER_HEALTH_INTERVAL_STEP_SECONDS}
+                  size="sm"
+                  className="w-32"
+                  onValueChange={(value) =>
                     updateSettings(
                       backgroundActivityOverrideSettings(
                         settings.backgroundActivity,
                         resolvedBackgroundActivity,
-                        { providerHealthRefreshInterval: undefined },
+                        {
+                          providerHealthRefreshInterval: Duration.seconds(
+                            normalizeIntervalSeconds(value),
+                          ),
+                        },
                       ),
                     )
                   }
-                />
-              </span>
-            ) : null
-          }
-          control={
-            <div
-              inert={readOnly}
-              aria-disabled={readOnly || undefined}
-              className={cn(
-                "flex shrink-0 items-center gap-2",
-                readOnly && "opacity-50 select-none",
-              )}
-            >
-              <NumberField
-                value={providerHealthRefreshIntervalSeconds}
-                min={0}
-                step={PROVIDER_HEALTH_INTERVAL_STEP_SECONDS}
-                size="sm"
-                className="w-32"
-                onValueChange={(value) =>
-                  updateSettings(
-                    backgroundActivityOverrideSettings(
-                      settings.backgroundActivity,
-                      resolvedBackgroundActivity,
-                      {
-                        providerHealthRefreshInterval: Duration.seconds(
-                          normalizeIntervalSeconds(value),
-                        ),
-                      },
-                    ),
-                  )
-                }
-              >
-                <NumberFieldGroup>
-                  <NumberFieldDecrement aria-label="Decrease provider health check interval" />
-                  <NumberFieldInput aria-label="Provider health check interval in seconds" />
-                  <NumberFieldIncrement aria-label="Increase provider health check interval" />
-                </NumberFieldGroup>
-              </NumberField>
-              <span className="text-xs text-muted-foreground">seconds</span>
-            </div>
-          }
-        />
-      </SettingsSection> : null}
+                >
+                  <NumberFieldGroup>
+                    <NumberFieldDecrement aria-label="Decrease provider health check interval" />
+                    <NumberFieldInput aria-label="Provider health check interval in seconds" />
+                    <NumberFieldIncrement aria-label="Increase provider health check interval" />
+                  </NumberFieldGroup>
+                </NumberField>
+                <span className="text-xs text-muted-foreground">seconds</span>
+              </div>
+            }
+          />
+        </SettingsSection>
+      ) : null}
 
       {isAddInstanceDialogOpen ? (
         <AddProviderInstanceDialog

@@ -213,17 +213,13 @@ describe("EnvironmentProviderSettings routing", () => {
           driver: ProviderDriverKind.make("neopi"),
           enabled: false,
           config: { binaryPath: "/opt/work/npi", profile: "work", launchArgs: "--no-extensions" },
-          environment: [
-            { name: "API_KEY", value: "", sensitive: true, valueRedacted: true },
-          ],
+          environment: [{ name: "API_KEY", value: "", sensitive: true, valueRedacted: true }],
         },
         [customId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
       },
     };
     let panel = renderPanel({ neoCore: true, targetInstanceId: firstId });
-    expect(
-      visitElements(panel, (element) => element.props.instanceId === customId),
-    ).toBeNull();
+    expect(visitElements(panel, (element) => element.props.instanceId === customId)).toBeNull();
     const workRow = visitElements(
       panel,
       (element) => element.props.instanceId === secondId && element.props.mode === "list",

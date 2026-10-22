@@ -739,7 +739,12 @@ export function ProviderInstanceCard({
             />
           </span>
         ) : section === "runtime" && !enabled ? (
-          <Button size="xs" variant="outline" disabled={readOnly} onClick={() => updateEnabled(true)}>
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={readOnly}
+            onClick={() => updateEnabled(true)}
+          >
             Enable NeoPi
           </Button>
         ) : null}
@@ -874,108 +879,112 @@ export function ProviderInstanceCard({
   return (
     <>
       {showRuntime ? (
-      <>
-      <SettingsSection title={displayName} icon={titleIconNode} headerAction={editorHeaderAction}>
-        <SettingsRow
-          title="Display name"
-          status={
-            <ProviderStatusDiagnostic detail={statusDiagnostic}>
-              <div
-                tabIndex={statusDiagnostic ? 0 : undefined}
-                className="flex min-w-0 flex-wrap items-baseline gap-x-1.5"
-              >
-                {editorStatusNode}
-              </div>
-            </ProviderStatusDiagnostic>
-          }
-          control={
-            <div
-              inert={readOnly}
-              aria-disabled={readOnly || undefined}
-              className={cn(
-                "flex w-full min-w-0 items-center justify-end gap-2 @min-[32rem]/settings-row:w-auto",
-                readOnly && "opacity-50 select-none",
-              )}
-            >
-              <ProviderAccentColorPicker
-                layout="inline"
-                displayName={displayName}
-                value={accentColor}
-                onCommit={updateAccentColor}
-                commitDelayMs={120}
+        <>
+          <SettingsSection
+            title={displayName}
+            icon={titleIconNode}
+            headerAction={editorHeaderAction}
+          >
+            <SettingsRow
+              title="Display name"
+              status={
+                <ProviderStatusDiagnostic detail={statusDiagnostic}>
+                  <div
+                    tabIndex={statusDiagnostic ? 0 : undefined}
+                    className="flex min-w-0 flex-wrap items-baseline gap-x-1.5"
+                  >
+                    {editorStatusNode}
+                  </div>
+                </ProviderStatusDiagnostic>
+              }
+              control={
+                <div
+                  inert={readOnly}
+                  aria-disabled={readOnly || undefined}
+                  className={cn(
+                    "flex w-full min-w-0 items-center justify-end gap-2 @min-[32rem]/settings-row:w-auto",
+                    readOnly && "opacity-50 select-none",
+                  )}
+                >
+                  <ProviderAccentColorPicker
+                    layout="inline"
+                    displayName={displayName}
+                    value={accentColor}
+                    onCommit={updateAccentColor}
+                    commitDelayMs={120}
+                  />
+                  <DraftInput
+                    id={`provider-instance-${instanceId}-display-name`}
+                    size="sm"
+                    className="min-w-0 flex-1 @min-[32rem]/settings-row:w-56"
+                    value={instance.displayName ?? ""}
+                    onCommit={updateDisplayName}
+                    placeholder={driverOption?.label ?? "Instance label"}
+                    spellCheck={false}
+                  />
+                </div>
+              }
+            />
+            {!enabled && section === "runtime" ? (
+              <SettingsRow
+                title="NeoPi is disabled"
+                description="Enable this runtime profile to use it for new sessions. Existing launch settings are preserved."
+                control={
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={readOnly}
+                    onClick={() => updateEnabled(true)}
+                  >
+                    Enable NeoPi
+                  </Button>
+                }
               />
-              <DraftInput
-                id={`provider-instance-${instanceId}-display-name`}
-                size="sm"
-                className="min-w-0 flex-1 @min-[32rem]/settings-row:w-56"
-                value={instance.displayName ?? ""}
-                onCommit={updateDisplayName}
-                placeholder={driverOption?.label ?? "Instance label"}
-                spellCheck={false}
+            ) : null}
+          </SettingsSection>
+
+          {setup ? <SettingsSection title="Setup">{setup}</SettingsSection> : null}
+
+          <SettingsSection
+            title="Runtime"
+            inert={readOnly}
+            aria-disabled={readOnly || undefined}
+            className={readOnly ? "opacity-50 select-none" : undefined}
+          >
+            {driverOption ? (
+              <ProviderSettingsForm
+                definition={driverOption}
+                value={instance.config}
+                idPrefix={`provider-instance-${instanceId}`}
+                variant="settings"
+                onChange={updateConfig}
               />
-            </div>
-          }
-        />
-        {!enabled && section === "runtime" ? (
-          <SettingsRow
-            title="NeoPi is disabled"
-            description="Enable this runtime profile to use it for new sessions. Existing launch settings are preserved."
-            control={
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={readOnly}
-                onClick={() => updateEnabled(true)}
-              >
-                Enable NeoPi
-              </Button>
-            }
-          />
-        ) : null}
-      </SettingsSection>
+            ) : (
+              <SettingsRow
+                title="Driver"
+                description={
+                  <span>
+                    This instance uses{" "}
+                    <code className="text-foreground">{String(instance.driver)}</code>, which is not
+                    available in this build. Its configuration is preserved.
+                  </span>
+                }
+              />
+            )}
+          </SettingsSection>
 
-      {setup ? <SettingsSection title="Setup">{setup}</SettingsSection> : null}
-
-      <SettingsSection
-        title="Runtime"
-        inert={readOnly}
-        aria-disabled={readOnly || undefined}
-        className={readOnly ? "opacity-50 select-none" : undefined}
-      >
-        {driverOption ? (
-          <ProviderSettingsForm
-            definition={driverOption}
-            value={instance.config}
-            idPrefix={`provider-instance-${instanceId}`}
-            variant="settings"
-            onChange={updateConfig}
-          />
-        ) : (
-          <SettingsRow
-            title="Driver"
-            description={
-              <span>
-                This instance uses{" "}
-                <code className="text-foreground">{String(instance.driver)}</code>, which is not
-                available in this build. Its configuration is preserved.
-              </span>
-            }
-          />
-        )}
-      </SettingsSection>
-
-      <SettingsSection
-        title="Environment"
-        inert={readOnly}
-        aria-disabled={readOnly || undefined}
-        className={readOnly ? "opacity-50 select-none" : undefined}
-      >
-        <ProviderEnvironmentSection
-          environment={instance.environment ?? []}
-          onChange={updateEnvironment}
-        />
-      </SettingsSection>
-      </>
+          <SettingsSection
+            title="Environment"
+            inert={readOnly}
+            aria-disabled={readOnly || undefined}
+            className={readOnly ? "opacity-50 select-none" : undefined}
+          >
+            <ProviderEnvironmentSection
+              environment={instance.environment ?? []}
+              onChange={updateEnvironment}
+            />
+          </SettingsSection>
+        </>
       ) : null}
       {section === "models" && setup ? (
         <div className="text-sm text-muted-foreground">{setup}</div>
