@@ -1,6 +1,6 @@
 import { DEFAULT_SERVER_SETTINGS, ProjectId, type ProjectScript } from "@t3tools/contracts";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vite-plus/test";
@@ -114,7 +114,7 @@ describe("scoped actions", () => {
         encoding: "utf8",
       });
       expect(result.status).toBe(0);
-      expect(result.stdout.split("\0")).toEqual([worktree, "--", ".", ""]);
+      expect(result.stdout.split("\0")).toEqual([realpathSync(worktree), "--", ".", ""]);
     } finally {
       rmSync(scratch, { recursive: true, force: true });
     }
