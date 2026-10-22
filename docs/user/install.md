@@ -26,6 +26,13 @@ NeoCode does not keep another credential vault. Models requires a native
 executable advertising the Models configuration contract; an older executable
 shows an update error rather than pretending a save worked.
 
+The composer model picker searches through NeoPi's native selector, using the
+connected thread's enabled model scope or the selected project's configuration.
+Native order and role aliases are preserved. The context column shows the
+effective context budget; missing facts show Unknown. Searching requires a
+native executable advertising `model_selector`. Query errors are shown in the
+picker instead of falling back to a different search.
+
 ## Upstream command line
 
 ```bash

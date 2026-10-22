@@ -12,7 +12,8 @@ import { primaryServerKeybindingsAtom } from "../../state/server";
 import { modelPickerJumpCommandForIndex, modelPickerJumpIndexFromCommand, resolveShortcutCommand, shortcutLabelForCommand } from "../../keybindings";
 import { TooltipProvider } from "../ui/tooltip";
 import type { ProviderInstanceEntry } from "../../providerInstances";
-import { filterNativeSwitcherModels, nativeSwitcherModels, nativeSwitcherGroup, NATIVE_FACT_COLUMNS } from "./neopiModelSwitcher";
+import { nativeSwitcherModels, nativeSwitcherGroup, NATIVE_FACT_COLUMNS, type NativeSelectorContext } from "./neopiModelSwitcher";
+import { useNeoPiModelSelector } from "./useNeoPiModelSelector";
 
 export function resolveModelPickerSelectedModel(input: {
   driverKind: ProviderDriverKind | undefined;
@@ -24,6 +25,7 @@ export function resolveModelPickerSelectedModel(input: {
 
 export const ModelPickerContent = memo(function ModelPickerContent(props: {
   activeInstanceId: ProviderInstanceId;
+  selectorContext: NativeSelectorContext;
   model: string;
   selectedModels?: ReadonlyArray<{ instanceId: ProviderInstanceId; model: string }>;
   onToggleModel?: (instanceId: ProviderInstanceId, model: string) => void;
@@ -44,34 +46,40 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const highlightedRef = useRef<string | null>(null);
   const serverKeybindings = useAtomValue(primaryServerKeybindingsAtom);
   const keybindings = props.keybindings ?? serverKeybindings;
+  const applicableEntries = useMemo(() => props.instanceEntries.filter(entry =>
+    entry.driverKind === "neopi" &&
+    (props.lockedProvider === null || entry.driverKind === props.lockedProvider) &&
+    (!props.lockedContinuationGroupKey || entry.continuationGroupKey === props.lockedContinuationGroupKey)
+  ), [props.instanceEntries, props.lockedProvider, props.lockedContinuationGroupKey]);
+  const native = useNeoPiModelSelector(props.selectorContext, applicableEntries, query);
   const models = useMemo(() => nativeSwitcherModels({
-    entries: props.instanceEntries,
-    options: props.modelOptionsByInstance,
+    entries: applicableEntries,
+    results: native.results,
     activeInstanceId: props.activeInstanceId,
     activeModel: props.model,
-  }), [props.instanceEntries, props.modelOptionsByInstance, props.activeInstanceId, props.model]);
-  const allModelsByKey = useMemo(() => new Map(models.map((model) => [modelPickerModelKey(model.instanceId, model.slug), model])), [models]);
-  const groups = useMemo(() => [...new Set(models.map((model) => model.group))].sort((a, b) => a === "Roles" ? -1 : b === "Roles" ? 1 : a.localeCompare(b)), [models]);
+    activeOption: props.modelOptionsByInstance.get(props.activeInstanceId)?.find(option => option.slug === props.model),
+    includeUnavailableSelection: !native.pending && query === "",
+  }), [applicableEntries, native.results, native.pending, props.activeInstanceId, props.model, props.modelOptionsByInstance, query]);
+  const allModelsByKey = useMemo(() => new Map(models.map(model => [modelPickerModelKey(model.instanceId, model.slug), model])), [models]);
+  const groups = useMemo(() => [...new Set(applicableEntries.flatMap(entry =>
+    (props.modelOptionsByInstance.get(entry.instanceId) ?? []).map(nativeSwitcherGroup)
+  ).concat(models.map(model => model.group)))], [applicableEntries, props.modelOptionsByInstance, models]);
   const effectiveGroup = selectedGroup !== null && groups.includes(selectedGroup) ? selectedGroup : null;
-  const visibleModels = useMemo(() => filterNativeSwitcherModels(models, query).filter((model) => {
-    const entry = props.instanceEntries.find((entry) => entry.instanceId === model.instanceId);
-    if (props.lockedProvider !== null && entry?.driverKind !== props.lockedProvider) return false;
-    if (props.lockedContinuationGroupKey && entry?.continuationGroupKey !== props.lockedContinuationGroupKey) return false;
-    return Boolean(query.trim()) || effectiveGroup === null || model.group === effectiveGroup;
-  }), [models, query, effectiveGroup, props.instanceEntries, props.lockedProvider, props.lockedContinuationGroupKey]);
+  const visibleModels = useMemo(() => query !== "" || effectiveGroup === null ? models : models.filter(model => model.group === effectiveGroup), [models, query, effectiveGroup]);
   const selectedKeys = useMemo(() => new Set((props.selectedModels ?? [{ instanceId: props.activeInstanceId, model: props.model }]).map((selection) => modelPickerModelKey(selection.instanceId, selection.model))), [props.selectedModels, props.activeInstanceId, props.model]);
   const disabledReason = useCallback((instanceId: ProviderInstanceId, slug: string) => {
     const model = allModelsByKey.get(modelPickerModelKey(instanceId, slug));
-    return props.getModelDisabledReason?.(instanceId, slug) ?? (model?.isUnavailable ? "This saved model is not available in the native catalog." : null);
+    return props.getModelDisabledReason?.(instanceId, slug) ?? (model?.isUnavailable ? "This saved model or role is not available in the native selector scope." : null);
   }, [allModelsByKey, props.getModelDisabledReason]);
   const select = useCallback((key: string, additive = false) => {
     const model = parseModelPickerModelKey(key);
-    if (!model || disabledReason(model.instanceId, model.slug)) return;
+    if (!model || !visibleModels.some(row => row.instanceId === model.instanceId && row.slug === model.slug) || disabledReason(model.instanceId, model.slug)) return;
     if (additive && props.onToggleModel) props.onToggleModel(model.instanceId, model.slug);
     else props.onInstanceModelChange(model.instanceId, model.slug);
-  }, [disabledReason, props.onToggleModel, props.onInstanceModelChange]);
+  }, [visibleModels, disabledReason, props.onToggleModel, props.onInstanceModelChange]);
   const focusSearch = useCallback(() => searchInputRef.current?.focus({ preventScroll: true }), []);
   const selectGroup = useCallback((group: string | null) => {
+    highlightedRef.current = null;
     setSelectedGroup(group);
     setQuery("");
     focusSearch();
@@ -137,7 +145,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
         >
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <ComboboxSearchInput
-              ref={searchInputRef} placeholder="Filter models by name or provider" aria-label="Filter native models"
+              ref={searchInputRef} placeholder="Query native models" aria-label="Query native models"
               value={query} onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
                 if ((event.key === "ArrowLeft" && !query && !event.shiftKey) || (event.key === "Tab" && event.shiftKey)) {
@@ -154,6 +162,8 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
               onMouseDown={(event) => event.stopPropagation()}
               onTouchStart={(event) => event.stopPropagation()}
             />
+            {native.pending ? <p role="status" className="px-3 py-2 text-sm text-muted-foreground">Querying native models...</p> : null}
+            {native.errors.map(error => <p role="alert" key={error} className="px-3 py-2 text-sm text-destructive">{error}</p>)}
             <div className="flex min-h-0 flex-1 flex-col overflow-x-auto overscroll-contain">
               <div className="flex min-h-0 min-w-[58rem] flex-1 flex-col">
                 <div className={`${NATIVE_MODEL_GRID} shrink-0 border-b border-border px-3 py-2 text-xs text-muted-foreground`} aria-hidden="true">
@@ -176,7 +186,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
                 </div>
               </div>
             </div>
-            <ComboboxEmpty className="empty:h-0">No native models match this filter.</ComboboxEmpty>
+            {!native.pending && native.errors.length === 0 ? <ComboboxEmpty className="empty:h-0">No native models match this query.</ComboboxEmpty> : null}
           </div>
         </Combobox>
       </div>

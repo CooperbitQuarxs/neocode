@@ -303,6 +303,9 @@ export function resolveAppModelSelectionForInstance(
     (candidate) => candidate.instanceId === instanceId,
   );
   if (!entry) return null;
+  // Native selector results can precede the provider catalog refresh. Keep the
+  // exact role or model ID rather than substituting a cached default.
+  if (entry.driverKind === "neopi" && selectedModel) return selectedModel;
   const options = getAppModelOptionsForInstance(
     settings,
     entry,

@@ -5047,6 +5047,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       ) : null}
       <ProviderModelPicker
         isComposerOwned
+        selectorContext={{
+          environmentId,
+          ...((activeThread?.projectId ?? pullRequestProjectId) ? { projectId: (activeThread?.projectId ?? pullRequestProjectId)! } : {}),
+          ...(routeKind === "server" && activeThread?.session?.providerInstanceId && ["ready", "running", "interrupted"].includes(activeThread.session.status)
+            ? { connectedThread: { threadId: activeThread.id, providerInstanceId: activeThread.session.providerInstanceId } }
+            : {}),
+        }}
         disabled={providerCatalogPending || isSendBusy}
         {...(routeKind === "draft" && supportsMultipleModels
           ? {

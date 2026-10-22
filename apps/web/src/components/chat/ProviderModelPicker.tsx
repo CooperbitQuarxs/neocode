@@ -23,6 +23,7 @@ import {
 } from "./ComposerControl";
 import { useComposerMenuProps } from "./composerEventScope";
 import { shortcutLabelForCommand } from "../../keybindings";
+import type { NativeSelectorContext } from "./neopiModelSwitcher";
 
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   /**
@@ -30,6 +31,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
    * icon, label and the default-highlighted combobox row.
    */
   activeInstanceId: ProviderInstanceId;
+  selectorContext: NativeSelectorContext;
   model: string;
   selectedModels?: ReadonlyArray<{ instanceId: ProviderInstanceId; model: string }>;
   onToggleModel?: (instanceId: ProviderInstanceId, model: string) => void;
@@ -305,6 +307,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       >
         <ModelPickerContent
           activeInstanceId={activeInstanceId}
+          selectorContext={props.selectorContext}
           model={props.model}
           {...(props.selectedModels !== undefined ? { selectedModels: props.selectedModels } : {})}
           {...(props.onToggleModel

@@ -41,7 +41,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
             aria-label={`${NATIVE_FACT_COLUMNS[index]}: ${value}`}
             title={`${NATIVE_FACT_COLUMNS[index]}: ${value}`}
           >
-            {value === "Unknown" ? <span aria-hidden="true">?</span> : value}
+            {value}
           </span>
         ))}
         <span className="justify-self-end">{props.jumpLabel ? <Kbd>{props.jumpLabel}</Kbd> : null}</span>
