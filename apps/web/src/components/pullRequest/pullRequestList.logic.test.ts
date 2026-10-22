@@ -463,6 +463,79 @@ describe("carrying rows already read into filters nothing has answered yet", () 
   it("holds on to everything when nothing narrows it", () => {
     expect(narrowPullRequestsToFilters(rows, everything)).toEqual(rows);
   });
+
+  it("drops saved upstream rows after the project's origin resolves to its fork", () => {
+    const fork = "fork-owner/t3code";
+    const forkRow = entry({ number: 6, repository: fork });
+    const projects = [
+      {
+        id: "project-1",
+        environmentId: "env-1",
+        repositoryIdentity: {
+          canonicalKey: `github.com/${fork}`,
+          provider: "github",
+          displayName: fork,
+          locator: {
+            source: "git-remote" as const,
+            remoteName: "origin",
+            remoteUrl: `https://github.com/${fork}.git`,
+          },
+        },
+      },
+    ];
+    expect(
+      narrowPullRequestsToFilters([...rows, forkRow], { ...everything, projects }),
+    ).toEqual([forkRow]);
+    expect(
+      narrowPullRequestsToFilters([...rows, forkRow], {
+        ...everything,
+        projectId: "project-1",
+        projects,
+      }),
+    ).toEqual([forkRow]);
+  });
+
+  it("compares a project's repository on its own environment", () => {
+    const projects = [
+      {
+        id: "project-1",
+        environmentId: "env-1",
+        repositoryIdentity: {
+          canonicalKey: "github.com/one/repo",
+          provider: "github",
+          displayName: "one/repo",
+          locator: {
+            source: "git-remote" as const,
+            remoteName: "origin",
+            remoteUrl: "https://github.com/one/repo.git",
+          },
+        },
+      },
+      {
+        id: "project-1",
+        environmentId: "env-2",
+        repositoryIdentity: {
+          canonicalKey: "github.com/two/repo",
+          provider: "github",
+          displayName: "two/repo",
+          locator: {
+            source: "git-remote" as const,
+            remoteName: "origin",
+            remoteUrl: "https://github.com/two/repo.git",
+          },
+        },
+      },
+    ];
+    const first = entry({ number: 1, repository: "one/repo" });
+    const second = entry({ number: 2, environmentId: "env-2", repository: "two/repo" });
+    const wrongEnvironment = entry({ number: 3, environmentId: "env-2", repository: "one/repo" });
+    expect(
+      narrowPullRequestsToFilters([first, second, wrongEnvironment], {
+        ...everything,
+        projects,
+      }),
+    ).toEqual([first, second]);
+  });
 });
 
 describe("narrowing rows by the filters a host may not have applied", () => {
