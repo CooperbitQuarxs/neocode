@@ -66,9 +66,7 @@ function Input({
         cn(
           !unstyled &&
             "relative inline-flex w-full rounded-lg border border-input bg-card text-base text-foreground ring-ring/24 transition-[border-color,box-shadow] has-focus-visible:has-aria-invalid:border-destructive/64 has-focus-visible:has-aria-invalid:ring-destructive/16 has-aria-invalid:border-destructive/36 has-focus-visible:border-ring has-autofill:bg-foreground/4 has-disabled:opacity-64 has-focus-visible:ring-[3px] sm:text-sm dark:has-autofill:bg-foreground/8 dark:has-aria-invalid:ring-destructive/24",
-          !unstyled &&
-            size === "compact" &&
-            "rounded-md",
+          !unstyled && size === "compact" && "rounded-md",
           font === "mono" && "font-mono tabular-nums",
           className,
         ) || undefined
