@@ -1,7 +1,8 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { CheckIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { isMonospaceFamily, queryInstalledFontFamilies } from "../../appearanceFonts";
+import { queryInstalledFontFamilies } from "../../appearanceFonts";
+import { filterInstalledMonospaceFonts } from "../../installedMonospaceFonts";
 import {
   Combobox,
   ComboboxEmpty,
@@ -14,6 +15,7 @@ import {
 import { SelectButton } from "../ui/select";
 
 const DEFAULT_FONT_VALUE = "__default__";
+const EMPTY_FONT_FAMILIES: readonly string[] = [];
 
 function supportsFontEnumeration(): boolean {
   return (
@@ -139,10 +141,35 @@ export function FontFamilyPicker({
     if (nextOpen) setQuery("");
   };
 
-  const families = useMemo(() => {
-    if (enumeration.status !== "granted") return [];
-    return requireMonospace ? enumeration.families.filter(isMonospaceFamily) : enumeration.families;
-  }, [enumeration, requireMonospace]);
+  const [monospaceResult, setMonospaceResult] = useState<{
+    source: readonly string[];
+    families: readonly string[];
+  } | null>(null);
+  useEffect(() => {
+    // A closed picker must not measure every installed face during the
+    // Appearance mount. Stop scanning when it closes or the page unmounts.
+    if (!open || !requireMonospace || enumeration.status !== "granted") return;
+    const source = enumeration.families;
+    if (monospaceResult?.source === source) return;
+    const controller = new AbortController();
+    void filterInstalledMonospaceFonts(source, controller.signal).then((families) => {
+      if (!controller.signal.aborted) setMonospaceResult({ source, families });
+    });
+    return () => controller.abort();
+  }, [open, requireMonospace, enumeration, monospaceResult]);
+
+  const loadingMonospace =
+    requireMonospace &&
+    enumeration.status === "granted" &&
+    monospaceResult?.source !== enumeration.families;
+  const families =
+    enumeration.status !== "granted"
+      ? EMPTY_FONT_FAMILIES
+      : requireMonospace
+        ? monospaceResult?.source === enumeration.families
+          ? monospaceResult.families
+          : EMPTY_FONT_FAMILIES
+        : enumeration.families;
 
   const items = useMemo(() => {
     const trimmedQuery = query.trim().toLowerCase();
@@ -212,7 +239,13 @@ export function FontFamilyPicker({
           onChange={(event) => setQuery(event.target.value)}
         />
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <ComboboxEmpty>No fonts found.</ComboboxEmpty>
+          {loadingMonospace ? (
+            <div role="status" className="px-3 py-2 text-sm text-muted-foreground">
+              Finding monospace fonts…
+            </div>
+          ) : (
+            <ComboboxEmpty>No fonts found.</ComboboxEmpty>
+          )}
           <div className="relative min-h-0 max-h-72 w-full flex-1 overflow-hidden">
             <ComboboxListVirtualized>
               <LegendList<string>
