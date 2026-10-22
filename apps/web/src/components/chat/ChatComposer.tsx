@@ -940,7 +940,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeThreadEnvironmentId: _activeThreadEnvironmentId,
     activeThread,
     promptHistoryMessages,
-    isServerThread: _isServerThread,
+    isServerThread,
     isLocalDraftThread: _isLocalDraftThread,
     projectSelectionRequired,
     phase,
@@ -4176,7 +4176,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             setMultipleModelSelections(null);
             onProviderModelSelect(instanceId, model);
           }}
-          onOpenProviderSetup={onOpenProviderSetup}
         />
         <NeoPiSessionStatus threadRef={isServerThread ? routeThreadRef : null} />
 

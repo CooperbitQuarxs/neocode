@@ -6,6 +6,7 @@ import { persist } from "zustand/middleware";
 import type { NativeAskAnswer } from "@t3tools/client-runtime/neopi-tree";
 
 export interface NativeAnswerImage {
+  readonly [key: string]: unknown;
   type: "image";
   data: string;
   mimeType: string;

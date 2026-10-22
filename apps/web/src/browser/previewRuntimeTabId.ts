@@ -1,6 +1,7 @@
 import type { ScopedThreadRef } from "@t3tools/contracts";
+import { randomUUID } from "../lib/utils";
 
-const rendererId = crypto.randomUUID();
+const rendererId = randomUUID();
 
 /**
  * The server only guarantees preview tab ids are unique within one process.
@@ -12,7 +13,13 @@ export function previewRuntimeTabId(
   serverEpoch: string | null,
   tabId: string,
 ): string {
-  return JSON.stringify([rendererId, threadRef.environmentId, threadRef.threadId, serverEpoch, tabId]);
+  return JSON.stringify([
+    rendererId,
+    threadRef.environmentId,
+    threadRef.threadId,
+    serverEpoch,
+    tabId,
+  ]);
 }
 
 export function isCurrentPreviewRuntimeTab(

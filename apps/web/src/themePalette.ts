@@ -821,7 +821,12 @@ export function neoPiThemeColors(
     let surface = source;
     for (let step = 1; step <= 20; step++) {
       const lightness = themeRelativeLuminance(surface);
-      if (darkCanvas ? lightness <= Math.max(canvasLuminance, 0.12) : lightness >= Math.min(canvasLuminance, 0.3)) break;
+      if (
+        darkCanvas
+          ? lightness <= Math.max(canvasLuminance, 0.12)
+          : lightness >= Math.min(canvasLuminance, 0.3)
+      )
+        break;
       surface = mixThemeRgbColors(source, canvasRgb, step / 20);
     }
     return themeRgbToThemeColor(surface);
@@ -840,43 +845,65 @@ export function neoPiThemeColors(
   ];
   for (const [role, value] of pairs) {
     if (value && isThemeColor(value)) {
-      const sharedSurface = role === "surface" || role === "surfaceRaised" || role === "surfaceOverlay";
-      colors = updateThemeColorFamily(appearance, colors, role, sharedSurface ? stableSurface(value) : value);
+      const sharedSurface =
+        role === "surface" || role === "surfaceRaised" || role === "surfaceOverlay";
+      colors = updateThemeColorFamily(
+        appearance,
+        colors,
+        role,
+        sharedSurface ? stableSurface(value) : value,
+      );
     }
   }
   const rgb = (value: string) => parseThemeRgbColor(value, THEME_BLACK_FOREGROUND);
   const on = (background: string, candidate: string, ratio = 4.6) => {
     const parsed = parseThemeColor(candidate)!;
-    return themeOklchToThemeColor(solveOklchLightness(
-      parsed.color, rgb(background), ratio,
-      themeRelativeLuminance(rgb(background)) < 0.179 ? "lighter" : "darker",
-    ));
+    return themeOklchToThemeColor(
+      solveOklchLightness(
+        parsed.color,
+        rgb(background),
+        ratio,
+        themeRelativeLuminance(rgb(background)) < 0.179 ? "lighter" : "darker",
+      ),
+    );
   };
-  const sharedBackground = [colors.canvas, colors.surface, colors.surfaceRaised, colors.surfaceOverlay].reduce(
-    (worst, surface) => (darkCanvas
-      ? themeRelativeLuminance(rgb(surface)) > themeRelativeLuminance(rgb(worst))
-      : themeRelativeLuminance(rgb(surface)) < themeRelativeLuminance(rgb(worst))) ? surface : worst,
+  const sharedBackground = [
+    colors.canvas,
+    colors.surface,
+    colors.surfaceRaised,
+    colors.surfaceOverlay,
+  ].reduce((worst, surface) =>
+    (
+      darkCanvas
+        ? themeRelativeLuminance(rgb(surface)) > themeRelativeLuminance(rgb(worst))
+        : themeRelativeLuminance(rgb(surface)) < themeRelativeLuminance(rgb(worst))
+    )
+      ? surface
+      : worst,
   );
   const text = valid(native.text, colors.text);
-  colors.text = on(sharedBackground, text);
-  colors.toolbarForeground = on(colors.toolbar, text);
-  colors.toolbarControlForeground = on(colors.toolbarControl, text);
-  colors.sidebarForeground = on(colors.sidebar, text);
-  colors.messageForeground = on(colors.messageSurface, valid(native.userMessageText, text));
-  colors.codeForeground = on(colors.codeBackground, text);
   const muted = valid(native.muted, colors.textMuted);
-  colors.textMuted = on(sharedBackground, muted);
-  colors.mutedForeground = on(colors.muted, muted);
-  colors.placeholder = on(colors.surfaceRaised, muted);
-  colors.secondaryLabel = colors.textMuted;
-  colors.iconMuted = colors.textMuted;
-  colors.sidebarMutedForeground = on(colors.sidebar, muted);
-  colors.focus = on(sharedBackground, valid(native.borderAccent, accent), 3);
-  // Keep the owner's purple send action independent of native terminal accents.
-  colors.messageAction = defaults.messageAction;
-  colors.messageActionForeground = defaults.messageActionForeground;
-  colors.messageActionHover = defaults.messageActionHover;
-  return colors;
+  const textMuted = on(sharedBackground, muted);
+  return {
+    ...colors,
+    text: on(sharedBackground, text),
+    toolbarForeground: on(colors.toolbar, text),
+    toolbarControlForeground: on(colors.toolbarControl, text),
+    sidebarForeground: on(colors.sidebar, text),
+    messageForeground: on(colors.messageSurface, valid(native.userMessageText, text)),
+    codeForeground: on(colors.codeBackground, text),
+    textMuted,
+    mutedForeground: on(colors.muted, muted),
+    placeholder: on(colors.surfaceRaised, muted),
+    secondaryLabel: textMuted,
+    iconMuted: textMuted,
+    sidebarMutedForeground: on(colors.sidebar, muted),
+    focus: on(sharedBackground, valid(native.borderAccent, accent), 3),
+    // Keep the owner's purple send action independent of native terminal accents.
+    messageAction: defaults.messageAction,
+    messageActionForeground: defaults.messageActionForeground,
+    messageActionHover: defaults.messageActionHover,
+  };
 }
 
 function themeContrastRatio(first: ThemeRgbColor, second: ThemeRgbColor): number {

@@ -1064,7 +1064,7 @@ function ThreadRouteContent(
       ) ? (
         <NeoPiSessionConfiguration
           key={`${environmentId}:${threadId}`}
-          threadRef={{ environmentId, threadId }}
+          threadRef={{ environmentId, threadId: selectedThread.id }}
         />
       ) : null}
 

@@ -5,7 +5,7 @@ import {
   type NeoPiSessionSummary,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import { filterNeoPiSessions, neopiSessionRowState } from "./neopiSessions";
+import { filterNeoPiSessions, neopiSessionRowState } from "./neopiSessions.ts";
 
 function session(overrides: Partial<NeoPiSessionSummary> = {}): NeoPiSessionSummary {
   return {
