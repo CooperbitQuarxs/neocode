@@ -30,7 +30,7 @@ export function useModelsPageTarget() {
   const target: NeoPiModelsTarget | null = provider ? {
     providerInstanceId: ProviderInstanceId.make(provider.instanceId), ...(projectId ? { projectId } : {}), ...(search.thread ? { threadId: ThreadId.make(search.thread) } : {}),
   } : null;
-  const changeSearch = (patch: ModelsSearch) => void navigate({ to: "/models", search: { ...search, ...patch } });
+  const changeSearch = (patch: ModelsSearch) => void navigate({ to: "/models", search: { ...search, ...patch }, replace: true });
   return { search, environmentId, environments, providers, provider, projects, projectId, target, changeSearch };
 }
 export function useOpenModels() {
@@ -38,8 +38,12 @@ export function useOpenModels() {
   const ref = useParams({ strict: false, select: params => resolveThreadRouteRef(params) });
   const thread = useThreadShell(ref);
   const activeEnvironment = useActiveEnvironmentId();
-  return useCallback(() => void navigate({ to: "/models", search: ref ? {
-    environment: ref.environmentId, thread: ref.threadId, project: thread?.projectId,
-    instance: thread?.session?.providerInstanceId ?? thread?.modelSelection.instanceId,
-  } : { ...(activeEnvironment ? { environment: activeEnvironment } : {}) } }), [navigate, ref, thread, activeEnvironment]);
+  const isOpen = useLocation({ select: location => location.pathname === "/models" });
+  return useCallback(() => {
+    if (isOpen) return;
+    void navigate({ to: "/models", search: ref ? {
+      environment: ref.environmentId, thread: ref.threadId, project: thread?.projectId,
+      instance: thread?.session?.providerInstanceId ?? thread?.modelSelection.instanceId,
+    } : { ...(activeEnvironment ? { environment: activeEnvironment } : {}) } });
+  }, [navigate, ref, thread, activeEnvironment, isOpen]);
 }

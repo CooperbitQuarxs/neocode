@@ -6,9 +6,9 @@ import { AsyncResult } from "effect/unstable/reactivity";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { formatEnvironmentQueryError } from "../../state/query";
-import { useEscapeToGoBack } from "../../hooks/useNavigateBack";
-import { useNavigateToMainApp } from "../sidebar/mainAppLocation";
-import { SidebarUtilityMenu } from "../sidebar/SidebarChrome";
+import { useEscapeToGoBack, useNavigateBack } from "../../hooks/useNavigateBack";
+import { ArrowLeftIcon } from "lucide-react";
+import { SidebarUpdatePill } from "../sidebar/SidebarUpdatePill";
 import { SidebarContent, SidebarFooter, SidebarGroup, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarInset } from "../ui/sidebar";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -34,13 +34,23 @@ function ModelsSnapshot({ environmentId, target, children }: { environmentId: En
 }
 export function NeoPiModelsSidebar() {
   const { target, environmentId, search, changeSearch } = useModelsPageTarget();
+  const back = useNavigateBack();
   const section = search.section ?? "all";
   const item = (id: string, label: ReactNode, dimmed = false) => <SidebarMenuItem key={id}><SidebarMenuButton isActive={section === id} onClick={() => changeSearch({ section: id })}><span className={dimmed ? "truncate text-muted-foreground" : "truncate"}>{label}</span></SidebarMenuButton></SidebarMenuItem>;
-  return <><SidebarContent><SidebarGroup><SidebarMenu>{item("effort", "Effort rules")}</SidebarMenu></SidebarGroup><SidebarGroup><SidebarMenu>{item("all", "All models")}{item("roles", "Roles")}</SidebarMenu></SidebarGroup>{target && environmentId ? <ModelsSnapshot environmentId={environmentId} target={target}>{configuration => <SidebarGroup><SidebarMenu>{[...configuration.providers].sort((a, b) => Number(b.available) - Number(a.available) || a.name.localeCompare(b.name)).map(provider => item(`provider:${provider.id}`, <span className="flex items-center gap-2"><span aria-hidden="true" data-native-icon={provider.mark.icon} className="w-6 shrink-0 text-center font-medium">{provider.mark.text}</span><span className="truncate">{provider.name}</span></span>, !provider.available))}</SidebarMenu></SidebarGroup>}</ModelsSnapshot> : null}</SidebarContent><SidebarFooter><SidebarUtilityMenu /></SidebarFooter></>;
+  return (
+    <>
+      <SidebarContent>
+        <SidebarGroup><SidebarMenu>{item("effort", "Effort rules")}</SidebarMenu></SidebarGroup>
+        <SidebarGroup><SidebarMenu>{item("all", "All models")}{item("roles", "Roles")}</SidebarMenu></SidebarGroup>
+        {target && environmentId ? <ModelsSnapshot environmentId={environmentId} target={target}>{configuration => <SidebarGroup><SidebarMenu>{[...configuration.providers].sort((a, b) => Number(b.available) - Number(a.available) || a.name.localeCompare(b.name)).map(provider => item(`provider:${provider.id}`, <span className="flex items-center gap-2"><span aria-hidden="true" data-native-icon={provider.mark.icon} className="w-6 shrink-0 text-center font-medium">{provider.mark.text}</span><span className="truncate">{provider.name}</span></span>, !provider.available))}</SidebarMenu></SidebarGroup>}</ModelsSnapshot> : null}
+      </SidebarContent>
+      <SidebarFooter><SidebarMenu className="flex-row items-center"><SidebarMenuItem className="min-w-0 flex-1"><SidebarMenuButton onClick={back}><ArrowLeftIcon /><span>Back</span></SidebarMenuButton></SidebarMenuItem><SidebarUpdatePill /></SidebarMenu></SidebarFooter>
+    </>
+  );
 }
 export function NeoPiModelsPage() {
   const state = useModelsPageTarget();
-  const back = useNavigateToMainApp();
+  const back = useNavigateBack();
   useEscapeToGoBack(back);
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">
