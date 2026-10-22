@@ -367,6 +367,7 @@ interface ProviderInstanceCardProps {
   readonly driverOption: DriverOption | undefined;
   readonly liveProvider: ServerProvider | undefined;
   readonly mode: "list" | "editor";
+  readonly section?: "runtime" | "models" | undefined;
   readonly selected?: boolean | undefined;
   readonly onSelect?: (() => void) | undefined;
   readonly readOnly?: boolean | undefined;
@@ -411,11 +412,10 @@ interface ProviderInstanceCardProps {
  *   - Unknown drivers (`driverOption === undefined`) get a read-only
  *     notice instead of editable fields, so fork instances round-trip
  *     without accidentally destroying their config.
- *   - The enabled Switch writes to the envelope's `instance.enabled`
- *     field, which is the single enabled flag: the server folds any legacy
- *     driver-specific `config.enabled` into the envelope on load and both
- *     sides resolve through `resolveProviderInstanceEnabled` (an explicit
- *     false wins, then envelope, then config, then the driver default).
+ *   - Enable controls write to the envelope's `instance.enabled`. The server
+ *     folds legacy driver-specific `config.enabled` into that envelope on load.
+ *     Runtime-only editors keep an explicit enable action for saved disabled
+ *     profiles instead of presenting NeoPi as an optional harness.
  */
 export function ProviderInstanceCard({
   instanceId,
@@ -423,6 +423,7 @@ export function ProviderInstanceCard({
   driverOption,
   liveProvider,
   mode,
+  section,
   selected = false,
   onSelect,
   readOnly = false,
@@ -441,6 +442,8 @@ export function ProviderInstanceCard({
   isUpdating = false,
 }: ProviderInstanceCardProps) {
   const enabled = resolveProviderInstanceEnabled(instance);
+  const showRuntime = section !== "models";
+  const showModels = section !== "runtime";
   const compatibility = enabled ? liveProvider?.compatibilityAdvisory : undefined;
   // A locally disabled provider reads "Disabled" with a muted dot even if its
   // last server status is stale. Enabled providers use the server status.
@@ -501,14 +504,16 @@ export function ProviderInstanceCard({
     ? instance.driver
     : null;
   const customModels =
-    instance.driver === "antigravity" ? [] : readConfigCustomModels(instance.config);
+    !showModels || instance.driver === "antigravity" ? [] : readConfigCustomModels(instance.config);
   // Server-returned models may lag behind settings writes. Treat probe
   // models as the source for built-ins only; custom rows come directly
   // from the current instance config so add/remove reflects immediately.
-  const modelsForDisplay = deriveProviderModelsForDisplay({
-    liveModels: liveProvider?.models,
-    customModels,
-  });
+  const modelsForDisplay = showModels
+    ? deriveProviderModelsForDisplay({
+        liveModels: liveProvider?.models,
+        customModels,
+      })
+    : [];
   const updateDisplayName = (value: string) => {
     const trimmed = value.trim();
     const { displayName: _omit, ...rest } = instance;
@@ -724,14 +729,25 @@ export function ProviderInstanceCard({
             </span>
           </span>
         </div>
-        <span className="flex h-5 shrink-0 items-center">
-          <Switch
-            checked={enabled}
+        {section === undefined ? (
+          <span className="flex h-5 shrink-0 items-center">
+            <Switch
+              checked={enabled}
+              disabled={readOnly}
+              onCheckedChange={(checked) => updateEnabled(Boolean(checked))}
+              aria-label={`Enable ${displayName}`}
+            />
+          </span>
+        ) : section === "runtime" && !enabled ? (
+          <Button
+            size="xs"
+            variant="outline"
             disabled={readOnly}
-            onCheckedChange={(checked) => updateEnabled(Boolean(checked))}
-            aria-label={`Enable ${displayName}`}
-          />
-        </span>
+            onClick={() => updateEnabled(true)}
+          >
+            Enable NeoPi
+          </Button>
+        ) : null}
       </div>
     );
   }
@@ -862,92 +878,119 @@ export function ProviderInstanceCard({
 
   return (
     <>
-      <SettingsSection title={displayName} icon={titleIconNode} headerAction={editorHeaderAction}>
-        <SettingsRow
-          title="Display name"
-          status={
-            <ProviderStatusDiagnostic detail={statusDiagnostic}>
-              <div
-                tabIndex={statusDiagnostic ? 0 : undefined}
-                className="flex min-w-0 flex-wrap items-baseline gap-x-1.5"
-              >
-                {editorStatusNode}
-              </div>
-            </ProviderStatusDiagnostic>
-          }
-          control={
-            <div
-              inert={readOnly}
-              aria-disabled={readOnly || undefined}
-              className={cn(
-                "flex w-full min-w-0 items-center justify-end gap-2 @min-[32rem]/settings-row:w-auto",
-                readOnly && "opacity-50 select-none",
-              )}
-            >
-              <ProviderAccentColorPicker
-                layout="inline"
-                displayName={displayName}
-                value={accentColor}
-                onCommit={updateAccentColor}
-                commitDelayMs={120}
+      {showRuntime ? (
+        <>
+          <SettingsSection
+            title={displayName}
+            icon={titleIconNode}
+            headerAction={editorHeaderAction}
+          >
+            <SettingsRow
+              title="Display name"
+              status={
+                <ProviderStatusDiagnostic detail={statusDiagnostic}>
+                  <div
+                    tabIndex={statusDiagnostic ? 0 : undefined}
+                    className="flex min-w-0 flex-wrap items-baseline gap-x-1.5"
+                  >
+                    {editorStatusNode}
+                  </div>
+                </ProviderStatusDiagnostic>
+              }
+              control={
+                <div
+                  inert={readOnly}
+                  aria-disabled={readOnly || undefined}
+                  className={cn(
+                    "flex w-full min-w-0 items-center justify-end gap-2 @min-[32rem]/settings-row:w-auto",
+                    readOnly && "opacity-50 select-none",
+                  )}
+                >
+                  <ProviderAccentColorPicker
+                    layout="inline"
+                    displayName={displayName}
+                    value={accentColor}
+                    onCommit={updateAccentColor}
+                    commitDelayMs={120}
+                  />
+                  <DraftInput
+                    id={`provider-instance-${instanceId}-display-name`}
+                    size="sm"
+                    className="min-w-0 flex-1 @min-[32rem]/settings-row:w-56"
+                    value={instance.displayName ?? ""}
+                    onCommit={updateDisplayName}
+                    placeholder={driverOption?.label ?? "Instance label"}
+                    spellCheck={false}
+                  />
+                </div>
+              }
+            />
+            {!enabled && section === "runtime" ? (
+              <SettingsRow
+                title="NeoPi is disabled"
+                description="Enable this runtime profile to use it for new sessions. Existing launch settings are preserved."
+                control={
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={readOnly}
+                    onClick={() => updateEnabled(true)}
+                  >
+                    Enable NeoPi
+                  </Button>
+                }
               />
-              <DraftInput
-                id={`provider-instance-${instanceId}-display-name`}
-                size="sm"
-                className="min-w-0 flex-1 @min-[32rem]/settings-row:w-56"
-                value={instance.displayName ?? ""}
-                onCommit={updateDisplayName}
-                placeholder={driverOption?.label ?? "Instance label"}
-                spellCheck={false}
+            ) : null}
+          </SettingsSection>
+
+          {setup ? <SettingsSection title="Setup">{setup}</SettingsSection> : null}
+
+          <SettingsSection
+            title="Runtime"
+            inert={readOnly}
+            aria-disabled={readOnly || undefined}
+            className={readOnly ? "opacity-50 select-none" : undefined}
+          >
+            {driverOption ? (
+              <ProviderSettingsForm
+                definition={driverOption}
+                value={instance.config}
+                idPrefix={`provider-instance-${instanceId}`}
+                variant="settings"
+                onChange={updateConfig}
               />
-            </div>
-          }
-        />
-      </SettingsSection>
+            ) : (
+              <SettingsRow
+                title="Driver"
+                description={
+                  <span>
+                    This instance uses{" "}
+                    <code className="text-foreground">{String(instance.driver)}</code>, which is not
+                    available in this build. Its configuration is preserved.
+                  </span>
+                }
+              />
+            )}
+          </SettingsSection>
 
-      {setup ? <SettingsSection title="Setup">{setup}</SettingsSection> : null}
+          <SettingsSection
+            title="Environment"
+            inert={readOnly}
+            aria-disabled={readOnly || undefined}
+            className={readOnly ? "opacity-50 select-none" : undefined}
+          >
+            <ProviderEnvironmentSection
+              environment={instance.environment ?? []}
+              onChange={updateEnvironment}
+            />
+          </SettingsSection>
+        </>
+      ) : null}
+      {section === "models" && setup ? (
+        <div className="text-sm text-muted-foreground">{setup}</div>
+      ) : null}
 
-      <SettingsSection
-        title="Runtime"
-        inert={readOnly}
-        aria-disabled={readOnly || undefined}
-        className={readOnly ? "opacity-50 select-none" : undefined}
-      >
-        {driverOption ? (
-          <ProviderSettingsForm
-            definition={driverOption}
-            value={instance.config}
-            idPrefix={`provider-instance-${instanceId}`}
-            variant="settings"
-            onChange={updateConfig}
-          />
-        ) : (
-          <SettingsRow
-            title="Driver"
-            description={
-              <span>
-                This instance uses{" "}
-                <code className="text-foreground">{String(instance.driver)}</code>, which is not
-                available in this build. Its configuration is preserved.
-              </span>
-            }
-          />
-        )}
-      </SettingsSection>
-
-      <SettingsSection
-        title="Environment"
-        inert={readOnly}
-        aria-disabled={readOnly || undefined}
-        className={readOnly ? "opacity-50 select-none" : undefined}
-      >
-        <ProviderEnvironmentSection
-          environment={instance.environment ?? []}
-          onChange={updateEnvironment}
-        />
-      </SettingsSection>
-
-      {driverOption !== undefined ? (
+      {showModels && driverOption !== undefined ? (
         <SettingsSection
           title="Models"
           inert={readOnly}
