@@ -7,6 +7,7 @@ import { NeoPiJournalContent } from "./NeoPiJournalContent";
 import { journalEntryCategory, journalEntryLabel } from "./neopiJournal.logic";
 import { useNativeDraftIdentity } from "./neopiNativeDraft";
 import { useNeoPiConversation } from "./useNeoPiConversation";
+import { nativeTreeSessionKey, useNativeTreeField } from "./neopiTreeState";
 
 export function NeoPiConversation({ threadRef, cwd, composerInset, onOpenTree, ownerStatus }: {
   threadRef: ScopedThreadRef;
@@ -22,6 +23,7 @@ export function NeoPiConversation({ threadRef, cwd, composerInset, onOpenTree, o
     if (ownerStatus && ownerStatus !== "starting" && ownerStatus !== "stopped" && !connected.current) refresh();
   }, [ownerStatus, refresh]);
   useNativeDraftIdentity(threadRef, conversation.identity);
+  const [pendingResume] = useNativeTreeField(nativeTreeSessionKey(threadRef.environmentId, conversation.identity), "resumeResult");
   const pendingEntries = useMemo(() => conversation.pending.map(({ messageId, message }) => ({
     id: `live:${messageId}`, parentId: conversation.identity?.leafId ?? null,
     type: "message", timestamp: "", message,
@@ -55,6 +57,7 @@ export function NeoPiConversation({ threadRef, cwd, composerInset, onOpenTree, o
           {connection?.reason ? <p className="text-muted-foreground">{connection.reason}</p> : null}
           {conversation.needsSnapshot ? <p className="text-muted-foreground">Rebuilding the native branch. Live drafts are not replayed.</p> : null}
           {busy ? <p className="text-muted-foreground">{conversation.pending.length ? "Native turn in progress." : "Native turn in progress. Waiting for the next complete native message update."}</p> : null}
+          {pendingResume?.resumeToken ? <p className="text-muted-foreground">A saved ask answer is waiting for review in Session tree. It has not resumed the agent.</p> : null}
         </div>
         <div className="flex gap-2">
           <Button size="sm" variant="outline" onClick={onOpenTree}>Session tree</Button>

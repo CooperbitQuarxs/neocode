@@ -1,4 +1,4 @@
-import type { NeoPiNavigateTreeInput, NeoPiNavigateTreeResult, ScopedThreadRef } from "@t3tools/contracts";
+import type { NeoPiNavigateTreeInput, ScopedThreadRef } from "@t3tools/contracts";
 import { nativeIdentityKey, nativeNavigationGuards } from "@t3tools/client-runtime/neopi-conversation";
 import { isAtomCommandInterrupted, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -6,10 +6,10 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { NativeJson } from "./NeoPiJournalContent";
 import { restoreNativeDraft } from "./neopiNativeDraft";
-import { nativeAskQuestions, nativeAskReanswer, type NativeAskAnswer } from "./neopiTree.logic";
+import { nativeAskQuestions, nativeAskReanswer } from "./neopiTree.logic";
 import { nativeConversationAtoms, useNeoPiConversation } from "./useNeoPiConversation";
+import { nativeTreeSessionKey, useNativeTreeField, type NativeAnswerImage } from "./neopiTreeState";
 
-type AnswerImage = { type: "image"; data: string; mimeType: string };
 export function NeoPiTreeNavigation({ threadRef, targetId, onNavigated }: {
   threadRef: ScopedThreadRef; targetId: string; onNavigated: () => void;
 }) {
@@ -17,27 +17,30 @@ export function NeoPiTreeNavigation({ threadRef, targetId, onNavigated }: {
   const navigate = useAtomCommand(nativeConversationAtoms.navigate, { reportFailure: false });
   const resume = useAtomCommand(nativeConversationAtoms.resume, { reportFailure: false });
   const cancel = useAtomCommand(nativeConversationAtoms.cancel, { reportFailure: false });
-  const [summarize, setSummarize] = useState(false);
-  const [instructions, setInstructions] = useState("");
-  const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [result, setResult] = useState<NeoPiNavigateTreeResult | null>(null);
-  const [answers, setAnswers] = useState<Record<string, NativeAskAnswer>>({});
-  const [images, setImages] = useState<AnswerImage[]>([]);
   const identity = conversation.identity;
+  const sessionKey = nativeTreeSessionKey(threadRef.environmentId, identity);
+  const stateKey = JSON.stringify([sessionKey, targetId]);
+  const [summarize, setSummarize] = useNativeTreeField(stateKey, "summarize");
+  const [instructions, setInstructions] = useNativeTreeField(stateKey, "instructions");
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useNativeTreeField(stateKey, "message");
+  const [result, setResult] = useNativeTreeField(stateKey, "result");
+  const [answers, setAnswers] = useNativeTreeField(stateKey, "answers");
+  const [images, setImages] = useNativeTreeField(stateKey, "images");
+  const [resumeResult, setResumeResult] = useNativeTreeField(sessionKey, "resumeResult");
   const current = useRef(identity);
   current.current = identity;
   const origin = useRef<string | null>(null);
   const request = useRef(0);
   useEffect(() => () => { request.current++; }, []);
   useEffect(() => {
-    setResult(null); setAnswers({}); setImages([]); setMessage(null);
     request.current++;
-  }, [targetId]);
+    setPending(false);
+  }, [stateKey]);
   useEffect(() => {
     if (identity && origin.current && nativeIdentityKey(identity) !== origin.current) {
       origin.current = null;
-      request.current++; setResult(null); setAnswers({}); setImages([]); setPending(false);
+      request.current++; setPending(false);
       setMessage("The native session changed. Select a node in its current tree before navigating.");
     }
   }, [identity]);
@@ -74,6 +77,7 @@ export function NeoPiTreeNavigation({ threadRef, targetId, onNavigated }: {
       if (response.value.status !== "available") throw new Error(response.value.status === "error" ? `${response.value.code}: ${response.value.message}` : response.value.reason);
       const next = response.value.result;
       setResult(next);
+      if (next.resumeToken) setResumeResult(next);
       if (startIfStopped) refresh();
       if (next.outcome === "navigated" || next.outcome === "unchanged") {
         try { restoreNativeDraft(threadRef, next); }
@@ -93,21 +97,21 @@ export function NeoPiTreeNavigation({ threadRef, targetId, onNavigated }: {
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Native navigation failed."); }
     finally { if (generation === request.current) setPending(false); }
   };
-  const rebuilt = result?.resumeToken && identity && !conversation.needsSnapshot &&
-    identity.sessionId === result.sessionId && identity.leafId === result.leafId &&
-    conversation.entries.some((entry) => entry.id === result.leafId);
+  const rebuilt = resumeResult?.resumeToken && identity && !conversation.needsSnapshot &&
+    identity.sessionId === resumeResult.sessionId && identity.leafId === resumeResult.leafId &&
+    conversation.entries.some((entry) => entry.id === resumeResult.leafId);
   const acknowledge = async () => {
-    if (!result?.resumeToken || !rebuilt || !identity || pending) return;
+    if (!resumeResult?.resumeToken || !rebuilt || !identity || pending) return;
     const generation = ++request.current;
     setPending(true);
     try {
       const response = await resume({ environmentId: threadRef.environmentId, input: {
-        threadId: threadRef.threadId, ...nativeNavigationGuards(identity), resumeToken: result.resumeToken,
+        threadId: threadRef.threadId, ...nativeNavigationGuards(identity), resumeToken: resumeResult.resumeToken,
       } });
       if (generation !== request.current) return;
       if (response._tag === "Failure") throw squashAtomCommandFailure(response);
       if (response.value.status !== "available") throw new Error(response.value.status === "error" ? response.value.message : response.value.reason);
-      setResult(null); setMessage("Native continuation acknowledged after the transcript rebuilt.");
+      setResumeResult(null); setResult(null); setMessage("Native continuation acknowledged after the transcript rebuilt.");
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Could not resume the native session."); }
     finally { if (generation === request.current) setPending(false); }
   };
@@ -115,7 +119,7 @@ export function NeoPiTreeNavigation({ threadRef, targetId, onNavigated }: {
     if (!files) return;
     const generation = request.current;
     try {
-      const next = await Promise.all(Array.from(files).map(async (file): Promise<AnswerImage> => {
+      const next = await Promise.all(Array.from(files).map(async (file): Promise<NativeAnswerImage> => {
         if (!/^image\/(png|jpeg|gif|webp|avif)$/.test(file.type)) throw new Error(`Unsupported image type: ${file.type || file.name}`);
         const data = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
@@ -173,6 +177,10 @@ export function NeoPiTreeNavigation({ threadRef, targetId, onNavigated }: {
       <Button type="submit" size="sm" disabled={pending || !canNavigate || !!ask.error}>Save new answer on this branch</Button>
       <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={() => { setResult(null); setAnswers({}); setImages([]); setMessage("Re-answer cancelled. The branch is unchanged."); }}>Cancel re-answer</Button>
     </form> : null}
-    {result?.resumeToken ? <Button size="sm" disabled={!rebuilt || pending || connection?.status !== "connected"} onClick={() => void acknowledge()}>Resume after rebuilt transcript</Button> : null}
+    {resumeResult?.resumeToken ? <div className="space-y-2">
+      {!rebuilt ? <p className="text-xs text-muted-foreground">Resume is available only after the transcript matches the saved answer's native leaf. An intervening branch change or owner restart can invalidate this continuation.</p> : null}
+      <Button size="sm" disabled={!rebuilt || pending || connection?.status !== "connected"} onClick={() => void acknowledge()}>Resume after rebuilt transcript</Button>
+      <Button size="sm" variant="ghost" disabled={pending} onClick={() => { setResumeResult(null); setMessage("The saved answer remains on its branch. No continuation was requested."); }}>Keep answer without resuming</Button>
+    </div> : null}
   </section>;
 }

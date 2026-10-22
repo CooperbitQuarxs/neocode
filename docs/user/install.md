@@ -231,9 +231,11 @@ the composer, and can carry a native summary into the chosen branch.
 
 Selecting an old native ask result can reopen its questions without moving the
 branch. Save a new answer to create a sibling answer, wait for the conversation
-to rebuild, then choose **Resume after rebuilt transcript**. Cancel leaves the
-original branch intact. Navigation and summary failures remain visible in the
-panel; they are not reported as successful leaf changes.
+to rebuild, then choose **Resume after rebuilt transcript**. Reopened answers and
+pending continuation acknowledgements survive closing the panel. You can keep
+the saved answer without resuming. Cancel before saving leaves the original
+branch intact. Navigation and summary failures remain visible in the panel;
+they are not reported as successful leaf changes.
 
 Stopped history is read through NeoPi's read-only journal command. To navigate a
 stopped session, choose **Start stopped native session and navigate**. This starts
