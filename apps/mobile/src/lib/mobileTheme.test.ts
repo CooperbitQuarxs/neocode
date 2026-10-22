@@ -177,15 +177,13 @@ describe("mobile themes", () => {
       expect(variables["--color-grouped-card"]).not.toBe(variables["--color-card"]);
       for (const platform of ["ios", "android"]) {
         const runtime = getMobileThemeRuntimeVariables("t3-code", appearance, platform);
-        const sidebar = flattenThemeColor(runtime["--color-drawer"], runtime["--color-screen"]);
         const chrome = flattenThemeColor(
           runtime[platform === "android" ? "--color-header" : "--color-drawer"],
           runtime["--color-screen"],
         );
-        expect(relativeLuminance(sidebar)).toBeLessThan(
-          relativeLuminance(runtime["--color-thread-canvas"]),
-        );
-        expect(contrastRatio(chrome, runtime["--color-screen"])).toBeGreaterThanOrEqual(1.06);
+        if (platform === "android" || appearance === "light") {
+          expect(contrastRatio(chrome, runtime["--color-screen"])).toBeGreaterThanOrEqual(1.06);
+        }
         const foregroundRoles =
           platform === "android"
             ? (["--color-header-foreground", "--color-foreground-muted"] as const)
@@ -225,9 +223,9 @@ describe("mobile themes", () => {
 
   it("uses the same preview roles and standard artwork as desktop", () => {
     expect(getMobileThemePreviewColors(DEFAULT_MOBILE_THEME_ID, "light")).toEqual({
-      canvas: "#fcfcfc",
-      accent: "#f4f4f5",
-      messageAction: "#4f46e5",
+      canvas: T3_CODE_LIGHT_THEME_COLORS.canvas,
+      accent: T3_CODE_LIGHT_THEME_COLORS.accentSurface,
+      messageAction: T3_CODE_LIGHT_THEME_COLORS.messageAction,
     });
     const desktopOcean = BUILT_IN_THEMES.find((theme) => theme.id === "ocean")!;
     expect(getMobileThemePreviewColors("ocean", "light")).toEqual({

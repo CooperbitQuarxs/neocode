@@ -90,32 +90,31 @@ describe("theme files", () => {
     }
   });
 
-  it("keeps stock dark controls in the neutral-black surface hierarchy", () => {
-    expectThemeColors(getStandardThemeColors("dark"), {
-      canvas: "#0a0a0a",
-      surface: "#111111",
-      surfaceRaised: "#111111",
-      surfaceOverlay: "#111111",
-      toolbarControl: "#111111",
-      secondary: "#111111",
-      muted: "#111111",
-      accentSurface: "#141414",
-    });
+  it("separates default page, card and raised surfaces in both appearances", () => {
+    for (const appearance of ["light", "dark"] as const) {
+      const colors = getStandardThemeColors(appearance);
+      expect(asHex(colors.surface)).not.toBe(asHex(colors.canvas));
+      expect(asHex(colors.surfaceRaised)).not.toBe(asHex(colors.surface));
+      expect(asHex(colors.sidebarRowActive)).not.toBe(asHex(colors.sidebar));
+    }
   });
 
-  it("keeps the stock sidebar and chat on distinct surfaces in both appearances", () => {
-    expectThemeColors(getStandardThemeColors("light"), {
-      canvas: "#fcfcfc",
-      sidebar: "#fafafa",
-      sidebarRowActive: "#ffffff",
-      messageSurface: "#f4f4f5",
-    });
-    expectThemeColors(getStandardThemeColors("dark"), {
-      canvas: "#0a0a0a",
-      sidebar: "#000000",
-      sidebarRowActive: "#1a1b1b",
-      messageSurface: "#141414",
-    });
+  it("keeps default text and focus readable on their shared surfaces", () => {
+    for (const appearance of ["light", "dark"] as const) {
+      const colors = getStandardThemeColors(appearance);
+      for (const surface of [colors.canvas, colors.surface, colors.surfaceRaised]) {
+        expect(contrastRatio(colors.text, surface)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(colors.textMuted, surface)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(colors.focus, surface)).toBeGreaterThanOrEqual(3);
+      }
+      expect(
+        contrastRatio(colors.messageActionForeground, colors.messageAction),
+      ).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(colors.errorForeground, colors.errorSurface)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(colors.warningForeground, colors.warningSurface)).toBeGreaterThanOrEqual(
+        4.5,
+      );
+    }
   });
 
   it("derives readable, distinctive vivid palettes from exact seeds", () => {
