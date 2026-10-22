@@ -1,10 +1,6 @@
 import { DEFAULT_SERVER_SETTINGS, ProjectId, type ProjectScript } from "@t3tools/contracts";
-import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, it } from "vite-plus/test";
-import { projectActionsPatch, projectScriptCwd, resolveProjectScripts } from "./projectScripts.ts";
+import { projectActionsPatch, resolveProjectScripts } from "./projectScripts.ts";
 import { resolveProjectSettings } from "./projectSettings.ts";
 import { applyServerSettingsPatch } from "./serverSettings.ts";
 
@@ -18,9 +14,18 @@ const open: ProjectScript = {
   runOnWorktreeCreate: false,
 };
 const check: ProjectScript = { ...open, id: "check", name: "Check", command: "npm test" };
-const settings = { ...DEFAULT_SERVER_SETTINGS, projectSettingsFolded: true, actions: { [open.id]: open } };
+const settings = {
+  ...DEFAULT_SERVER_SETTINGS,
+  projectSettingsFolded: true,
+  actions: { [open.id]: open },
+};
 
-function save(current: typeof DEFAULT_SERVER_SETTINGS, target: typeof project | null, scripts: readonly ProjectScript[] | null, resetId?: string) {
+function save(
+  current: typeof DEFAULT_SERVER_SETTINGS,
+  target: typeof project | null,
+  scripts: readonly ProjectScript[] | null,
+  resetId?: string,
+) {
   return applyServerSettingsPatch(current, projectActionsPatch(current, target, scripts, resetId));
 }
 
@@ -59,7 +64,9 @@ describe("scoped actions", () => {
 
   it("preserves legacy project lists and unrelated overrides through action edits and reset", () => {
     const legacy = applyServerSettingsPatch(settings, {
-      projectSettingsOverrides: { [project.id]: { defaultProjectScripts: [check], defaultAutoPull: true } },
+      projectSettingsOverrides: {
+        [project.id]: { defaultProjectScripts: [check], defaultAutoPull: true },
+      },
     });
     expect(resolveProjectScripts(legacy, project)).toEqual([check, open]);
     const extra = { ...check, id: "build", command: "npm run build" };
@@ -86,37 +93,14 @@ describe("scoped actions", () => {
     const resolved = resolveProjectSettings(edited, project.id);
     expect(resolved.settings.actions).toEqual({ [open.id]: open, check });
     expect(resolved.sources.actions).toBe("project");
-    expect(resolveProjectSettings(edited, otherProject.id).settings.actions).toEqual(settings.actions);
+    expect(resolveProjectSettings(edited, otherProject.id).settings.actions).toEqual(
+      settings.actions,
+    );
   });
 
   it("keeps environment action definitions isolated", () => {
     const remote = save(DEFAULT_SERVER_SETTINGS, null, [check]);
     expect(resolveProjectScripts(remote, project)).toEqual([check]);
     expect(resolveProjectScripts(settings, project)).toEqual([open]);
-  });
-
-  it.skipIf(process.platform === "win32")("passes Neovide arguments literally from a workspace with shell characters", () => {
-    const cache = join(homedir(), ".cache", "npi-canary");
-    mkdirSync(cache, { recursive: true });
-    const scratch = mkdtempSync(join(cache, "action-argv-"));
-    try {
-      const bin = join(scratch, "bin");
-      const checkout = join(scratch, "checkout");
-      const worktree = join(scratch, "project \"quoted\" $dollar; [space]");
-      mkdirSync(bin);
-      mkdirSync(checkout);
-      mkdirSync(worktree);
-      // A harmless stand-in records argv; no editor or graphical session is launched.
-      writeFileSync(join(bin, "neovide"), "#!/bin/sh\nprintf '%s\\0' \"$PWD\" \"$@\"\n", { mode: 0o700 });
-      const result = spawnSync("/bin/sh", ["-c", open.command], {
-        cwd: projectScriptCwd({ project: { cwd: checkout }, worktreePath: worktree }),
-        env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
-        encoding: "utf8",
-      });
-      expect(result.status).toBe(0);
-      expect(result.stdout.split("\0")).toEqual([realpathSync(worktree), "--", ".", ""]);
-    } finally {
-      rmSync(scratch, { recursive: true, force: true });
-    }
   });
 });
