@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./neopi-sessions": {
+      "types": "./src/neopiSessions.ts",
+      "default": "./src/neopiSessions.ts"
+    },
     "./device/stream": {
       "types": "./src/device/stream.ts",
       "default": "./src/device/stream.ts"
