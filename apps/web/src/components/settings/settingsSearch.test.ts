@@ -95,11 +95,28 @@ describe("searchSettings", () => {
     expect(searchSettings("git security keys")[0]?.id).toBe("git-fetch-interval");
     expect(searchSettings("push notifications")[0]?.id).toBe("publish-agent-activity");
     expect(searchSettings("battery saver")[0]?.id).toBe("background-activity");
-    expect(searchSettings("binary path")[0]?.id).toBe("providers");
-    expect(searchSettings("NeoPi profile")[0]?.id).toBe("providers");
-    expect(searchSettings("NeoPi launch arguments")[0]?.id).toBe("providers");
+    expect(searchSettings("binary path")[0]?.id).toBe("neocore");
+    expect(searchSettings("NeoPi profile")[0]?.id).toBe("neocore");
+    expect(searchSettings("NeoPi launch arguments")[0]?.id).toBe("neocore");
     expect(searchSettings("authorized clients")[0]?.id).toBe("connections-environment");
     expect(searchSettings("administrative access")[0]?.id).toBe("connections-environment");
+  });
+
+  it.each([
+    "NeoCore",
+    "NeoPi profile",
+    "launch arguments",
+    "environment variables",
+    "NeoPi disabled",
+  ])("routes runtime configuration searches for %s to NeoCore", (query) => {
+    expect(searchSettings(query)[0]).toMatchObject({
+      id: "neocore",
+      to: "/settings/neocore",
+    });
+    expect(getSettingsSearchTargetScope("neocore")).toMatchObject({
+      title: "NeoCore",
+      scope: null,
+    });
   });
 
   it("lists thread confirmations in panel order", () => {
@@ -176,8 +193,6 @@ describe("searchSettings", () => {
     ]);
     expect(available.map((item) => item.id).filter((id) => gatedIds.has(id))).toEqual([]);
   });
-
-  ;
 
   it("keeps the local toggle searchable without offering hidden host publishing controls", () => {
     const availability = {

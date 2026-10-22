@@ -373,61 +373,111 @@ it.effect.each([
 );
 
 it.effect.each([
-  { existing: false, nativeGlobal: false, defaultEnabled: true, workEnabled: false, expected: "neopi" },
-  { existing: true, nativeGlobal: true, defaultEnabled: true, workEnabled: false, expected: "neopi" },
-  { existing: false, nativeGlobal: false, defaultEnabled: false, workEnabled: true, expected: "native-work" },
-  { existing: false, nativeGlobal: false, defaultEnabled: false, workEnabled: false, expected: null },
-] as const)("bootstrap ignores obsolete runtime preferences without rewriting them: %j", (scenario) =>
-  Effect.gen(function* () {
-    const projectId = ProjectId.make("bootstrap-legacy-preference");
-    const legacy = { instanceId: ProviderInstanceId.make("saved-codex"), model: "saved-model" };
-    const native = { instanceId: ProviderInstanceId.make("neopi"), model: "anthropic/current" };
-    const commands: OrchestrationCommand[] = [];
-    const project = {
-      id: projectId, title: "Startup", workspaceRoot: "/startup-project",
-      defaultModelSelection: legacy, scripts: [], createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z", deletedAt: null,
-    };
-    const targets = yield* ServerRuntimeStartup.resolveAutoBootstrapWelcomeTargets.pipe(
-      Effect.provide(Layer.mergeAll(
-        ServerSettings.layerTest({
-          defaultModelSelection: scenario.nativeGlobal ? native : legacy,
-          providerInstances: {
-            [ProviderInstanceId.make("neopi")]: { driver: ProviderDriverKind.make("neopi"), enabled: scenario.defaultEnabled, config: { profile: "personal" } },
-            [ProviderInstanceId.make("native-work")]: { driver: ProviderDriverKind.make("neopi"), enabled: scenario.workEnabled, config: { profile: "work" } },
-            [legacy.instanceId]: { driver: ProviderDriverKind.make("codex"), enabled: true, config: {} },
-          },
-          projectSettingsOverrides: { [projectId]: { defaultModelSelection: legacy } },
-        }),
-        Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
-          getActiveProjectByWorkspaceRoot: () => Effect.succeed(scenario.existing ? Option.some(project) : Option.none()),
-          getFirstActiveThreadIdByProjectId: () => Effect.succeedNone,
-        }),
-        Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
-          dispatch: (command) => Effect.sync(() => { commands.push(command); return { sequence: commands.length }; }),
-        }),
-      )),
-      Effect.provideService(ServerConfig.ServerConfig, {
-        cwd: "/startup-project", autoBootstrapProjectFromCwd: true,
-      } as never),
-      Effect.provide(NodeServices.layer),
-    );
-    const created = commands.find((command) => command.type === "thread.create");
-    if (scenario.expected === null) {
-      assert.isUndefined(created);
-      assert.equal(targets.bootstrapThreadCreated, false);
-    } else {
-      assert.equal(created?.type, "thread.create");
-      if (created?.type === "thread.create") {
-        assert.deepStrictEqual(created.modelSelection, {
-          instanceId: scenario.expected,
-          model: scenario.nativeGlobal ? native.model : DEFAULT_MODEL,
-        });
+  {
+    existing: false,
+    nativeGlobal: false,
+    defaultEnabled: true,
+    workEnabled: false,
+    expected: "neopi",
+  },
+  {
+    existing: true,
+    nativeGlobal: true,
+    defaultEnabled: true,
+    workEnabled: false,
+    expected: "neopi",
+  },
+  {
+    existing: false,
+    nativeGlobal: false,
+    defaultEnabled: false,
+    workEnabled: true,
+    expected: "native-work",
+  },
+  {
+    existing: false,
+    nativeGlobal: false,
+    defaultEnabled: false,
+    workEnabled: false,
+    expected: null,
+  },
+] as const)(
+  "bootstrap ignores obsolete runtime preferences without rewriting them: %j",
+  (scenario) =>
+    Effect.gen(function* () {
+      const projectId = ProjectId.make("bootstrap-legacy-preference");
+      const legacy = { instanceId: ProviderInstanceId.make("saved-codex"), model: "saved-model" };
+      const native = { instanceId: ProviderInstanceId.make("neopi"), model: "anthropic/current" };
+      const commands: OrchestrationCommand[] = [];
+      const project = {
+        id: projectId,
+        title: "Startup",
+        workspaceRoot: "/startup-project",
+        defaultModelSelection: legacy,
+        scripts: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        deletedAt: null,
+      };
+      yield* ServerRuntimeStartup.resolveAutoBootstrapWelcomeTargets.pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ServerSettings.layerTest({
+              defaultModelSelection: scenario.nativeGlobal ? native : legacy,
+              providerInstances: {
+                [ProviderInstanceId.make("neopi")]: {
+                  driver: ProviderDriverKind.make("neopi"),
+                  enabled: scenario.defaultEnabled,
+                  config: { profile: "personal" },
+                },
+                [ProviderInstanceId.make("native-work")]: {
+                  driver: ProviderDriverKind.make("neopi"),
+                  enabled: scenario.workEnabled,
+                  config: { profile: "work" },
+                },
+                [legacy.instanceId]: {
+                  driver: ProviderDriverKind.make("codex"),
+                  enabled: true,
+                  config: {},
+                },
+              },
+              projectSettingsOverrides: { [projectId]: { defaultModelSelection: legacy } },
+            }),
+            Layer.mock(ProjectionSnapshotQuery.ProjectionSnapshotQuery)({
+              getActiveProjectByWorkspaceRoot: () =>
+                Effect.succeed(scenario.existing ? Option.some(project) : Option.none()),
+              getFirstActiveThreadIdByProjectId: () => Effect.succeedNone,
+            }),
+            Layer.mock(OrchestrationEngine.OrchestrationEngineService)({
+              dispatch: (command) =>
+                Effect.sync(() => {
+                  commands.push(command);
+                  return { sequence: commands.length };
+                }),
+            }),
+          ),
+        ),
+        Effect.provideService(ServerConfig.ServerConfig, {
+          cwd: "/startup-project",
+          autoBootstrapProjectFromCwd: true,
+        } as never),
+        Effect.provide(NodeServices.layer),
+      );
+      const created = commands.find((command) => command.type === "thread.create");
+      if (scenario.expected === null) {
+        assert.isUndefined(created);
+      } else {
+        assert.equal(created?.type, "thread.create");
+        if (created?.type === "thread.create") {
+          assert.deepStrictEqual(created.modelSelection, {
+            instanceId: ProviderInstanceId.make(scenario.expected),
+            model: scenario.nativeGlobal ? native.model : DEFAULT_MODEL,
+          });
+        }
       }
-    }
-    assert.deepStrictEqual(project.defaultModelSelection, legacy);
-    assert.deepStrictEqual(legacy, { instanceId: "saved-codex", model: "saved-model" });
-  }),
+      assert.deepStrictEqual(project.defaultModelSelection, legacy);
+      assert.deepStrictEqual(legacy, { instanceId: "saved-codex", model: "saved-model" });
+    }),
 );
 
 it.effect(

@@ -211,6 +211,34 @@ afterEach(async () => {
 });
 
 describe("NeoPi picker restoration", () => {
+  it("resumes an unregistered foreign cwd and opens the server-selected project thread", async () => {
+    const foreignProjectId = ProjectId.make("foreign-project");
+    const row = session({ projectId: null, cwd: "/workspace/foreign-worktree" });
+    await mount(row);
+    await act(async () => {
+      renderer!.root
+        .findAllByType("button")
+        .find((button) => button.children.join("") === "All projects")!
+        .props.onClick();
+    });
+    await select();
+    expect(fixture.resume).toHaveBeenCalledExactlyOnceWith({
+      environmentId,
+      input: {
+        projectId,
+        sessionFile: row.sessionFile,
+        providerInstanceId: row.providerInstanceId,
+      },
+    });
+    await finishResume();
+    expect(fixture.navigate).not.toHaveBeenCalled();
+    await act(async () => publish(restoredId, detail(restoredId, foreignProjectId)));
+    expect(fixture.navigate).toHaveBeenCalledExactlyOnceWith({
+      to: "/$environmentId/$threadId",
+      params: { environmentId, threadId: restoredId },
+    });
+    expect(fixture.onClose).toHaveBeenCalledOnce();
+  });
   it("reports the failed instance while keeping healthy sessions selectable", async () => {
     const failedId = ProviderInstanceId.make("neopi-broken");
     fixture.diagnostics = [{ providerInstanceId: failedId, message: "Command timed out." }];

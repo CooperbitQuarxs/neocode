@@ -11,6 +11,7 @@ import {
   AuthEnvironmentBootstrapTokenType,
   AuthTokenExchangeGrantType,
   CommandId,
+  DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_SERVER_SETTINGS,
   type DpopFailureReason,
   EnvironmentId,
@@ -222,7 +223,6 @@ const defaultModelSelection = {
   instanceId: ProviderInstanceId.make("neopi"),
   model: "gpt-5-codex",
 } as const;
-
 
 const makeLiveToolActivityEvent = (
   sequence: number,
@@ -5884,26 +5884,56 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       let dispatched = 0;
       const legacyId = ProviderInstanceId.make("saved-codex");
-      const thread = makeDefaultOrchestrationThreadShell({ modelSelection: { instanceId: legacyId, model: "saved-model" }, session: null });
-      yield* buildAppUnderTest({ layers: {
-        projectionSnapshotQuery: { getThreadShellById: () => Effect.succeedSome(thread) },
-        serverSettings: { getSettings: Effect.succeed({ ...DEFAULT_SERVER_SETTINGS, providerInstances: { [legacyId]: { driver: ProviderDriverKind.make("codex"), enabled: true, config: {} } } }) },
-        orchestrationEngine: { dispatch: () => Effect.sync(() => { dispatched += 1; return { sequence: 1 }; }) },
-      } });
+      const thread = makeDefaultOrchestrationThreadShell({
+        modelSelection: { instanceId: legacyId, model: "saved-model" },
+        session: null,
+      });
+      yield* buildAppUnderTest({
+        layers: {
+          projectionSnapshotQuery: { getThreadShellById: () => Effect.succeedSome(thread) },
+          serverSettings: {
+            getSettings: Effect.succeed({
+              ...DEFAULT_SERVER_SETTINGS,
+              providerInstances: {
+                [legacyId]: { driver: ProviderDriverKind.make("codex"), enabled: true, config: {} },
+              },
+            }),
+          },
+          orchestrationEngine: {
+            dispatch: () =>
+              Effect.sync(() => {
+                dispatched += 1;
+                return { sequence: 1 };
+              }),
+          },
+        },
+      });
       const wsUrl = yield* getWsServerUrl("/ws");
-      const error = yield* Effect.scoped(withWsRpcClient(wsUrl, (client) => client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
-        type: "thread.turn.start", commandId: CommandId.make("legacy-read-only"), threadId: thread.id,
-        message: { messageId: MessageId.make("legacy-user"), role: "user", text: "Continue", attachments: [] },
-        modelSelection: defaultModelSelection, runtimeMode: "approval-required", interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        createdAt: "2026-10-22T00:00:00.000Z",
-      }).pipe(Effect.flip)));
+      const error = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+            type: "thread.turn.start",
+            commandId: CommandId.make("legacy-read-only"),
+            threadId: thread.id,
+            message: {
+              messageId: MessageId.make("legacy-user"),
+              role: "user",
+              text: "Continue",
+              attachments: [],
+            },
+            modelSelection: defaultModelSelection,
+            runtimeMode: "approval-required",
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            createdAt: "2026-10-22T00:00:00.000Z",
+          }).pipe(Effect.flip),
+        ),
+      );
       assert.equal(error._tag, "OrchestrationDispatchCommandError");
       assert.include(error.message, "read-only");
       assert.equal(dispatched, 0);
       assert.equal(thread.modelSelection.instanceId, legacyId);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
-
 
   it.effect("serves absolute host media without a local thread and rejects relative media", () =>
     Effect.gen(function* () {
@@ -6123,7 +6153,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-
   it.effect("shares one preview automation broker across websocket sessions", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -6198,12 +6227,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
-
-  ;
-
-  ;
-
-  ;
 
   it.effect("routes websocket rpc subscribeServerConfig streams snapshot then update", () =>
     Effect.gen(function* () {
@@ -6281,33 +6304,60 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   );
 
   for (const mode of ["all", "targeted", "background"] as const) {
-    it.effect(`explicit NeoPi refresh invalidates owned discovery caches before probing (${mode})`, () => {
-      const driver = ProviderDriverKind.make("neopi");
-      const ids = [ProviderInstanceId.make("neopi"), ProviderInstanceId.make("native-work")];
-      const invalidated: string[] = [];
-      let probed = false;
-      const instances = ids.map((instanceId) => ({
-        instanceId, driverKind: driver, enabled: true, displayName: undefined,
-        continuationIdentity: { driverKind: driver, continuationKey: instanceId },
-        invalidateCaches: Effect.sync(() => { invalidated.push(instanceId); }),
-        snapshot: { getSnapshot: Effect.never, refresh: Effect.never, streamChanges: Stream.empty, applyUsageLimits: () => Effect.void },
-        adapter: {} as ProviderInstance["adapter"], textGeneration: {} as ProviderInstance["textGeneration"],
-      }) satisfies ProviderInstance);
-      const expected = mode === "background" ? [] : mode === "targeted" ? [ids[1]!] : ids;
-      const probe = Effect.sync(() => { probed = true; assert.deepEqual(invalidated.toSorted(), expected.toSorted()); return []; });
-      return Effect.gen(function* () {
-        yield* buildAppUnderTest({ layers: {
-          providerInstanceRegistry: { listInstances: Effect.succeed(instances) },
-          providerRegistry: { refresh: () => probe, refreshInstance: () => probe },
-        } });
-        const wsUrl = yield* getWsServerUrl("/ws");
-        yield* Effect.scoped(withWsRpcClient(wsUrl, (client) => client[WS_METHODS.serverRefreshProviders]({
-          ...(mode === "targeted" ? { instanceId: ids[1]! } : {}),
-          ...(mode === "background" ? {} : { refreshModels: true }),
-        })));
-        assert.isTrue(probed);
-      }).pipe(Effect.provide(NodeHttpServer.layerTest));
-    });
+    it.effect(
+      `explicit NeoPi refresh invalidates owned discovery caches before probing (${mode})`,
+      () => {
+        const driver = ProviderDriverKind.make("neopi");
+        const ids = [ProviderInstanceId.make("neopi"), ProviderInstanceId.make("native-work")];
+        const invalidated: string[] = [];
+        let probed = false;
+        const instances = ids.map(
+          (instanceId) =>
+            ({
+              instanceId,
+              driverKind: driver,
+              enabled: true,
+              displayName: undefined,
+              continuationIdentity: { driverKind: driver, continuationKey: instanceId },
+              invalidateCaches: Effect.sync(() => {
+                invalidated.push(instanceId);
+              }),
+              snapshot: {
+                getSnapshot: Effect.never,
+                refresh: Effect.never,
+                streamChanges: Stream.empty,
+                applyUsageLimits: () => Effect.void,
+              },
+              adapter: {} as ProviderInstance["adapter"],
+              textGeneration: {} as ProviderInstance["textGeneration"],
+            }) satisfies ProviderInstance,
+        );
+        const expected = mode === "background" ? [] : mode === "targeted" ? [ids[1]!] : ids;
+        const probe = Effect.sync(() => {
+          probed = true;
+          assert.deepEqual(invalidated.toSorted(), expected.toSorted());
+          return [];
+        });
+        return Effect.gen(function* () {
+          yield* buildAppUnderTest({
+            layers: {
+              providerInstanceRegistry: { listInstances: Effect.succeed(instances) },
+              providerRegistry: { refresh: () => probe, refreshInstance: () => probe },
+            },
+          });
+          const wsUrl = yield* getWsServerUrl("/ws");
+          yield* Effect.scoped(
+            withWsRpcClient(wsUrl, (client) =>
+              client[WS_METHODS.serverRefreshProviders]({
+                ...(mode === "targeted" ? { instanceId: ids[1]! } : {}),
+                ...(mode === "background" ? {} : { refreshModels: true }),
+              }),
+            ),
+          );
+          assert.isTrue(probed);
+        }).pipe(Effect.provide(NodeHttpServer.layerTest));
+      },
+    );
   }
 
   it.effect("serves config on reconnect without starting provider probes", () =>

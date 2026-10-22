@@ -23,6 +23,7 @@ import {
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -60,7 +61,7 @@ import { makeNeoPiDiscoveryHub } from "./NeoPiDiscovery.ts";
 
 const projectId = ProjectId.make("project");
 const instanceId = ProviderInstanceId.make("neopi-personal");
-const cwd = "/tmp/neocode-session-catalog-workspace";
+const cwd = process.cwd();
 const now = "2026-10-18T12:00:00.000Z";
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decodeProbeCommand = Schema.decodeUnknownSync(
@@ -128,6 +129,17 @@ const projectedThread = (
   ...overrides,
 });
 
+const sessionWorkspace = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const scratch = NodePath.join(NodeOS.homedir(), ".cache/npi-canary");
+  yield* fs.makeDirectory(scratch, { recursive: true });
+  const directory = yield* fs.makeTempDirectoryScoped({
+    directory: scratch,
+    prefix: "neocode-session-paths-",
+  });
+  return yield* fs.realPath(directory);
+});
+
 const harness = (options?: {
   instance?: ProviderInstance;
   nativeCommands?: boolean;
@@ -136,6 +148,7 @@ const harness = (options?: {
   domainEvents?: PubSub.PubSub<OrchestrationEvent>;
   workspaceRoot?: string;
   capabilities?: string[];
+  projects?: OrchestrationProjectShell[];
   rows?: object[];
   listOutput?: string | NeoPiSessionError;
   bindings?: ProviderRuntimeBindingWithMetadata[];
@@ -153,6 +166,7 @@ const harness = (options?: {
 }) =>
   Effect.gen(function* () {
     const testProject = { ...project, workspaceRoot: options?.workspaceRoot ?? cwd };
+    const projects = [testProject, ...(options?.projects ?? [])];
     const calls: NeoPiSessionCommandInput[] = [];
     const commands: OrchestrationCommand[] = [];
     const bindings = [...(options?.bindings ?? [])];
@@ -276,11 +290,12 @@ const harness = (options?: {
               Effect.succeed(allInstances.find((entry) => entry.instanceId === id)),
           }),
           Layer.mock(ProjectionSnapshotQuery)({
-            getProjectShellById: () => Effect.succeedSome(testProject),
+            getProjectShellById: (id) =>
+              Effect.sync(() => Option.fromUndefinedOr(projects.find((entry) => entry.id === id))),
             getShellSnapshot: () =>
               Effect.succeed({
                 snapshotSequence: 0,
-                projects: [testProject],
+                projects,
                 threads: Array.from(threads.values(), (thread) => ({
                   ...thread,
                   latestUserMessageAt: null,
@@ -352,8 +367,21 @@ const harness = (options?: {
               Effect.sync(() => {
                 commands.push(command);
                 order.push(command.type);
+                if (command.type === "project.create")
+                  projects.push({
+                    ...project,
+                    id: command.projectId,
+                    title: command.title,
+                    workspaceRoot: command.workspaceRoot,
+                  });
                 if (command.type === "thread.create")
-                  threads.set(command.threadId, projectedThread(command.threadId));
+                  threads.set(
+                    command.threadId,
+                    projectedThread(command.threadId, {
+                      projectId: command.projectId,
+                      worktreePath: command.worktreePath,
+                    }),
+                  );
                 if (command.type === "thread.session.stop") {
                   const index = bindings.findIndex((entry) => entry.threadId === command.threadId);
                   if (index >= 0) bindings[index] = { ...bindings[index]!, status: "stopped" };
@@ -680,6 +708,31 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
   );
 
   describe("list", () => {
+    it.effect("matches workspace symlinks in either direction without registering projects", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* sessionWorkspace;
+        const canonical = NodePath.join(root, "canonical");
+        const alias = NodePath.join(root, "alias");
+        yield* fs.makeDirectory(canonical);
+        yield* fs.symlink(canonical, alias);
+        for (const [workspaceRoot, nativeCwd] of [
+          [alias, canonical],
+          [canonical, alias],
+        ] as const) {
+          const { catalog, commands, bindings } = yield* harness({
+            workspaceRoot,
+            rows: [session("free", { cwd: nativeCwd })],
+          });
+          const result = yield* catalog.list({ projectId, scope: "project" });
+          expect(
+            result.status === "available" && result.sessions.map((row) => row.projectId),
+          ).toEqual([projectId]);
+          expect(commands).toEqual([]);
+          expect(bindings).toEqual([]);
+        }
+      }),
+    );
     it.effect("maps free, terminal-owned and NeoCode-owned sessions and workspace identities", () =>
       Effect.gen(function* () {
         const { catalog, calls } = yield* harness({
@@ -733,7 +786,7 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
         expect(result.status === "available" && result.sessions.map((row) => row.owner)).toEqual([
           { kind: "process", pid: 1, attachable: false },
         ]);
-        expect(calls[0]?.args).toEqual(["sessions", "list", "--json", "--cwd", cwd]);
+        expect(calls[0]?.args).toEqual(["sessions", "list", "--json", "--all"]);
       }),
     );
     it.effect("finds a bound worktree by its GUI title and owning project", () =>
@@ -905,6 +958,238 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
       }),
     );
   });
+  it.effect("resumes canonical and symlink workspaces into the same existing project", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* sessionWorkspace;
+      const canonical = NodePath.join(root, "canonical");
+      const alias = NodePath.join(root, "alias");
+      yield* fs.makeDirectory(canonical);
+      yield* fs.symlink(canonical, alias);
+      const row = session("free", { cwd: canonical });
+      const { catalog, commands, bindings, calls } = yield* harness({
+        workspaceRoot: alias,
+        rows: [row],
+        read: () => ({
+          version: 1,
+          session: { ...row, cwd: alias },
+          truncated: false,
+          branchEntryIds: [],
+          leafId: null,
+          messages: [],
+        }),
+      });
+      const result = yield* catalog.resume({
+        projectId,
+        providerInstanceId: instanceId,
+        sessionFile: row.path,
+      });
+      expect(result.created).toBe(true);
+      expect(commands).toMatchObject([
+        {
+          type: "thread.create",
+          projectId,
+          worktreePath: null,
+        },
+      ]);
+      expect(bindings[0]?.runtimePayload).toMatchObject({ cwd: canonical });
+      expect(calls.find((call) => call.args[1] === "read")?.cwd).toBe(canonical);
+    }),
+  );
+  it.effect("preserves the bound live thread and provider across aliased session files", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* sessionWorkspace;
+      const canonical = NodePath.join(root, "canonical");
+      const alias = NodePath.join(root, "alias");
+      yield* fs.makeDirectory(canonical);
+      yield* fs.symlink(canonical, alias);
+      const nativeFile = NodePath.join(canonical, "free.jsonl");
+      yield* fs.writeFileString(nativeFile, "");
+      const binding = {
+        ...bound("free", "running"),
+        resumeCursor: {
+          sessionFile: NodePath.join(alias, "free.jsonl"),
+          sessionId: "free",
+        },
+      };
+      const { catalog, commands, bindings, calls } = yield* harness({
+        workspaceRoot: canonical,
+        rows: [session("free", { path: nativeFile, cwd: alias, inUse: { pid: 123 } })],
+        bindings: [binding],
+        threads: [projectedThread(binding.threadId)],
+      });
+      expect(
+        yield* catalog.resume({
+          projectId,
+          providerInstanceId: ProviderInstanceId.make("not-the-bound-provider"),
+          sessionFile: nativeFile,
+        }),
+      ).toEqual({ threadId: binding.threadId, created: false });
+      expect(commands).toEqual([]);
+      expect(bindings).toEqual([binding]);
+      expect(calls.some((call) => call.args[1] === "read")).toBe(false);
+    }),
+  );
+  it.effect(
+    "reuses a foreign project and its native cwd without changing the selected project",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* sessionWorkspace;
+        const foreignProjectId = ProjectId.make("foreign");
+        const row = session("free", { cwd: root });
+        const { catalog, commands, bindings } = yield* harness({
+          projects: [{ ...project, id: foreignProjectId, workspaceRoot: root }],
+          rows: [row],
+          read: () => ({
+            version: 1,
+            session: row,
+            truncated: false,
+            branchEntryIds: [],
+            leafId: null,
+            messages: [],
+          }),
+        });
+        yield* catalog.resume({ projectId, providerInstanceId: instanceId, sessionFile: row.path });
+        expect(commands).toMatchObject([
+          {
+            type: "thread.create",
+            projectId: foreignProjectId,
+            worktreePath: null,
+          },
+        ]);
+        expect(bindings[0]?.runtimePayload).toMatchObject({ cwd: root });
+      }),
+  );
+  it.effect("registers an unrelated nested or prefix-sharing cwd only on explicit resume", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* sessionWorkspace;
+      const selectedRoot = NodePath.join(root, "project");
+      const nested = NodePath.join(selectedRoot, "nested");
+      const sibling = `${selectedRoot}-worktree`;
+      yield* fs.makeDirectory(nested, { recursive: true });
+      yield* fs.makeDirectory(sibling);
+      for (const nativeCwd of [nested, sibling]) {
+        const row = session("free", { cwd: nativeCwd });
+        const { catalog, commands, bindings } = yield* harness({
+          workspaceRoot: selectedRoot,
+          rows: [row],
+          read: () => ({
+            version: 1,
+            session: row,
+            truncated: false,
+            branchEntryIds: [],
+            leafId: null,
+            messages: [],
+          }),
+        });
+        const scoped = yield* catalog.list({ projectId, scope: "project" });
+        expect(scoped.status === "available" && scoped.sessions).toEqual([]);
+        const all = yield* catalog.list({ projectId, scope: "all" });
+        expect(all.status === "available" && all.sessions[0]?.projectId).toBeNull();
+        expect(commands).toEqual([]);
+        expect(bindings).toEqual([]);
+        const resumed = yield* catalog.resume({
+          projectId,
+          providerInstanceId: instanceId,
+          sessionFile: row.path,
+        });
+        const created = commands.find((command) => command.type === "project.create");
+        expect(created?.workspaceRoot).toBe(nativeCwd);
+        expect(created?.projectId).not.toBe(projectId);
+        expect(commands.find((command) => command.type === "thread.create")).toMatchObject({
+          projectId: created?.projectId,
+          worktreePath: null,
+        });
+        expect(
+          yield* catalog.resume({
+            projectId,
+            providerInstanceId: instanceId,
+            sessionFile: row.path,
+          }),
+        ).toEqual({ threadId: resumed.threadId, created: false });
+        expect(commands.filter((command) => command.type === "project.create")).toHaveLength(1);
+      }
+    }),
+  );
+  it.effect("imports an exact known worktree into its owning project", () =>
+    Effect.gen(function* () {
+      const worktreePath = yield* sessionWorkspace;
+      const row = session("free", { cwd: worktreePath });
+      const { catalog, commands, bindings } = yield* harness({
+        rows: [row],
+        threads: [projectedThread(ThreadId.make("other-native-session"), { worktreePath })],
+        read: () => ({
+          version: 1,
+          session: row,
+          truncated: false,
+          branchEntryIds: [],
+          leafId: null,
+          messages: [],
+        }),
+      });
+      const listed = yield* catalog.list({ projectId, scope: "project" });
+      expect(listed.status === "available" && listed.sessions[0]?.projectId).toBe(projectId);
+      yield* catalog.resume({ projectId, providerInstanceId: instanceId, sessionFile: row.path });
+      expect(commands).toMatchObject([{ type: "thread.create", projectId, worktreePath }]);
+      expect(bindings[0]?.runtimePayload).toMatchObject({ cwd: worktreePath });
+    }),
+  );
+  it.effect("rejects invalid native working directories before any persistent mutation", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* sessionWorkspace;
+      const file = NodePath.join(root, "not-a-directory");
+      yield* fs.writeFileString(file, "");
+      for (const [nativeCwd, reason] of [
+        ["", "no working directory"],
+        ["relative/path", "non-absolute working directory"],
+        [NodePath.join(root, "missing"), "Cannot access"],
+        [file, "not a directory"],
+      ]) {
+        const row = session("free", { cwd: nativeCwd });
+        const { catalog, commands, bindings, calls } = yield* harness({ rows: [row] });
+        const error = yield* catalog
+          .resume({
+            projectId,
+            providerInstanceId: instanceId,
+            sessionFile: row.path,
+          })
+          .pipe(Effect.flip);
+        expect(error.message).toContain(reason);
+        expect(commands).toEqual([]);
+        expect(bindings).toEqual([]);
+        expect(calls.some((call) => call.args[1] === "read")).toBe(false);
+      }
+    }),
+  );
+  it.effect("does not register a foreign cwd when native history validation fails", () =>
+    Effect.gen(function* () {
+      const root = yield* sessionWorkspace;
+      const row = session("free", { cwd: root });
+      const { catalog, commands, bindings } = yield* harness({
+        rows: [row],
+        read: () => ({
+          version: 1,
+          session: row,
+          truncated: false,
+          branchEntryIds: [],
+          leafId: "not-in-the-branch",
+          messages: [],
+        }),
+      });
+      yield* catalog
+        .resume({
+          projectId,
+          providerInstanceId: instanceId,
+          sessionFile: row.path,
+        })
+        .pipe(Effect.flip);
+      expect(commands).toEqual([]);
+      expect(bindings).toEqual([]);
+    }),
+  );
   it.effect(
     "installs the cursor before creating the thread, imports text, and resumes idempotently",
     () =>
@@ -987,7 +1272,7 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
       expect(calls.every((call) => call.source.profile === otherId)).toBe(true);
     }),
   );
-  it.effect("rejects unlisted files and mismatched workspaces without creating threads", () =>
+  it.effect("rejects unlisted files and missing workspaces without creating threads", () =>
     Effect.gen(function* () {
       const { catalog, commands } = yield* harness({
         rows: [session("foreign", { cwd: "/elsewhere" })],
@@ -1200,8 +1485,13 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
   );
   it.effect("restores only the bound thread's own worktree", () =>
     Effect.gen(function* () {
-      const worktreePath = `${cwd}-worktree`;
-      for (const nativeCwd of [worktreePath, `${cwd}-foreign-worktree`]) {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* sessionWorkspace;
+      const worktreePath = NodePath.join(root, "worktree");
+      const foreignPath = NodePath.join(root, "foreign-worktree");
+      yield* fs.makeDirectory(worktreePath);
+      yield* fs.makeDirectory(foreignPath);
+      for (const nativeCwd of [worktreePath, foreignPath]) {
         const binding = {
           ...bound("free"),
           resumeCursor: {

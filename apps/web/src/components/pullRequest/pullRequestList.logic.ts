@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema";
+import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
 
 import {
   EnvironmentId,
@@ -6,6 +7,7 @@ import {
   PullRequestListProjectError,
   PullRequestListResult,
   resolvePullRequestAuthorFilter,
+  pullRequestHostOf,
 } from "@t3tools/contracts";
 import type {
   ProjectId,
@@ -17,6 +19,7 @@ import type {
   PullRequestListCursors,
   PullRequestListFilters,
   PullRequestListState,
+  RepositoryIdentity,
   PullRequestState,
 } from "@t3tools/contracts";
 
@@ -350,20 +353,44 @@ export function filterPullRequestsByInvolvement<Entry extends ScopedEntry>(
  * Only the filters a row can be judged by from its own fields. Involvement is left out because
  * it needs to know who is signed in on each host, and the search text because searching is the
  * hosts' own answer; both are narrowed where that knowledge already lives.
+ *
+ * A saved GitHub row must also match the project's current remote. Project IDs survive a
+ * remote change, so checking only the ID would carry upstream rows into the fork's list.
  */
-export function narrowPullRequestsToFilters<Entry extends PullRequestListEntry>(
+export function narrowPullRequestsToFilters<Entry extends ScopedEntry>(
   entries: ReadonlyArray<Entry>,
   filters: {
     readonly state: PullRequestListState;
     readonly projectId: string | undefined;
     readonly host: string | undefined;
+    readonly projects?: ReadonlyArray<{
+      readonly id: string;
+      readonly environmentId: string;
+      readonly repositoryIdentity?: RepositoryIdentity | null | undefined;
+    }>;
   },
 ): ReadonlyArray<Entry> {
+  const repositories = filters.projects?.reduce((result, project) => {
+    const identity = project.repositoryIdentity;
+    const repository = sourceControlRepositorySelector(identity);
+    // Other hosts can need server-side provider refinement before their host is known.
+    result.set(
+      `${project.environmentId} ${project.id}`,
+      identity?.provider === "github" && repository !== null
+        ? `${pullRequestHostOf(identity, "github")}/${repository}`.toLowerCase()
+        : null,
+    );
+    return result;
+  }, new Map<string, string | null>());
   return entries.filter(
     (entry) =>
       (filters.state === "all" || entry.state === filters.state) &&
       (filters.projectId === undefined || entry.projectId === filters.projectId) &&
-      (filters.host === undefined || entry.host === filters.host),
+      (filters.host === undefined || entry.host === filters.host) &&
+      (repositories === undefined ||
+        repositories.get(`${entry.environmentId ?? ""} ${entry.projectId}`) === null ||
+        repositories.get(`${entry.environmentId ?? ""} ${entry.projectId}`) ===
+          `${entry.host}/${entry.repository}`.toLowerCase()),
   );
 }
 

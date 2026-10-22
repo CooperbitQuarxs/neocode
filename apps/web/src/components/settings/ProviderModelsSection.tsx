@@ -19,17 +19,11 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { CustomModelEditor } from "./CustomModelEditor";
 import { LegendList, LegendListRef } from "@legendapp/list/react";
 
-
 /** Above this many models the list gets a filter input. */
 const FILTER_THRESHOLD = 8;
 
-/**
- * Short capability words shown after a model's slug. Claude and Cursor report
- * fast mode as a boolean `fastMode` option; Codex reports it as a
- * `serviceTier` select whose fast tier is labelled "Fast" (catalog id
- * `priority`, or `fast` from the speed-tier fallback), matching the composer.
- */
-function describeModelCapabilities(model: ServerProviderModel): string[] {
+/** Capability labels describe support, not whether the setting is enabled. */
+export function describeModelCapabilities(model: ServerProviderModel): string[] {
   const descriptors = model.capabilities?.optionDescriptors ?? [];
   const labels: string[] = [];
   const hasFastMode = descriptors.some(
@@ -42,6 +36,7 @@ function describeModelCapabilities(model: ServerProviderModel): string[] {
   if (hasFastMode) labels.push("Fast mode");
   if (descriptors.some((descriptor) => descriptor.id === "thinking")) labels.push("Thinking");
   if (
+    model.capabilities?.reasoning ??
     descriptors.some(
       (descriptor) =>
         descriptor.type === "select" &&
@@ -647,9 +642,7 @@ export function ProviderModelsSection({
         </div>
       ) : null}
 
-      {error ? (
-        <p className="mt-2 text-xs text-destructive">{error}</p>
-      ) : null}
+      {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
     </div>
   );
 }

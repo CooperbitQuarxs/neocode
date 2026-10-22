@@ -60,9 +60,7 @@ it.effect(
             quotaProvider: "openai-codex",
             isCustom: false,
             capabilities: {
-              optionDescriptors: [
-                { id: "fastMode", type: "boolean", label: "Fast mode", currentValue: false },
-              ],
+              optionDescriptors: [],
             },
           },
         ],

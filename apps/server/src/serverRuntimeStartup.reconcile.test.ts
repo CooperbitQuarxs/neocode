@@ -123,7 +123,11 @@ it.effect("keeps a legacy session read-only instead of preparing or sending a re
   const legacyId = ProviderInstanceId.make("saved-codex");
   const thread = {
     ...base,
-    session: { ...base.session, providerName: ProviderDriverKind.make("codex"), providerInstanceId: legacyId },
+    session: {
+      ...base.session,
+      providerName: ProviderDriverKind.make("codex"),
+      providerInstanceId: legacyId,
+    },
   };
   const cursor = { threadId: "saved-provider-thread" };
   const binding: ProviderSessionDirectory.ProviderRuntimeBinding = {
@@ -143,33 +147,52 @@ it.effect("keeps a legacy session read-only instead of preparing or sending a re
     continueAfterRestart: true,
     providerService: {
       ...makeProviderService(),
-      startSession: () => Effect.sync(() => { starts += 1; throw new Error("Legacy session must not start"); }),
-      sendTurn: () => Effect.sync(() => { sends += 1; throw new Error("Legacy session must not send"); }),
+      startSession: () =>
+        Effect.sync(() => {
+          starts += 1;
+          throw new Error("Legacy session must not start");
+        }),
+      sendTurn: () =>
+        Effect.sync(() => {
+          sends += 1;
+          throw new Error("Legacy session must not send");
+        }),
     },
     directory: {
       getBinding: () => Effect.succeedSome(binding),
-      listBindings: () => Effect.succeed([binding]),
-      upsert: (next) => Effect.sync(() => { writes.push(next); }),
+      listBindings: () => Effect.succeed([{ ...binding, lastSeenAt: "2026-10-22T00:00:00.000Z" }]),
+      upsert: (next) =>
+        Effect.sync(() => {
+          writes.push(next);
+        }),
       recordImportedTranscript: () => Effect.die("unused"),
       getProvider: () => Effect.die("unused"),
       listThreadIds: () => Effect.die("unused"),
     },
-    dispatch: (command) => Effect.sync(() => { commands.push(command); return { sequence: commands.length }; }),
-  }).pipe(Effect.tap(() => Effect.sync(() => {
-    assert.equal(starts, 0);
-    assert.equal(sends, 0);
-    assert.equal(writes[0]?.status, "stopped");
-    assert.strictEqual(writes[0]?.resumeCursor, cursor);
-    assert.equal(writes[0]?.provider, "codex");
-    assert.equal(writes[0]?.providerInstanceId, legacyId);
-    assert.equal(commands.length, 1);
-    const command = commands[0];
-    assert.equal(command?.type, "thread.session.set");
-    if (command?.type === "thread.session.set") {
-      assert.include(command.session.lastError ?? "", "read-only");
-      assert.equal(command.session.providerName, "codex");
-    }
-  })));
+    dispatch: (command) =>
+      Effect.sync(() => {
+        commands.push(command);
+        return { sequence: commands.length };
+      }),
+  }).pipe(
+    Effect.tap(() =>
+      Effect.sync(() => {
+        assert.equal(starts, 0);
+        assert.equal(sends, 0);
+        assert.equal(writes[0]?.status, "stopped");
+        assert.strictEqual(writes[0]?.resumeCursor, cursor);
+        assert.equal(writes[0]?.provider, "codex");
+        assert.equal(writes[0]?.providerInstanceId, legacyId);
+        assert.equal(commands.length, 1);
+        const command = commands[0];
+        assert.equal(command?.type, "thread.session.set");
+        if (command?.type === "thread.session.set") {
+          assert.include(command.session.lastError ?? "", "read-only");
+          assert.equal(command.session.providerName, "codex");
+        }
+      }),
+    ),
+  );
 });
 
 it.effect("marks active running sessions that have persisted resume state", () => {
@@ -353,19 +376,14 @@ it.effect.each(
       yield* Deferred.await(continuationSent);
       yield* Deferred.await(continuationCleared);
 
-      assert.deepStrictEqual(
-        sends.toSorted((left, right) =>
-          String(left.threadId).localeCompare(String(right.threadId)),
-        ),
-        [
-          { threadId: native.id, continuation: true, interactionMode: "default" },
-          {
-            threadId: fallback.id,
-            input: "Continue where you left off.",
-            interactionMode: "default",
-          },
-        ],
-      );
+      assert.sameDeepMembers(sends, [
+        { threadId: native.id, continuation: true, interactionMode: "default" },
+        {
+          threadId: fallback.id,
+          input: "Continue where you left off.",
+          interactionMode: "default",
+        },
+      ]);
       assert.deepStrictEqual(
         dispatched.map((command) =>
           command.type === "thread.session.set"

@@ -93,7 +93,6 @@ export function CustomModelEditor({
     setDraft((current) => ({ ...current, descriptors: [...current.descriptors, descriptor] }));
   };
 
-
   const handleStartFrom = (slug: string | null) => {
     if (slug === null || slug === START_FROM_NONE) return;
     const model = startFromCandidates.find((candidate) => candidate.slug === slug);
@@ -101,6 +100,7 @@ export function CustomModelEditor({
     setError(null);
     setDraft((current) => ({
       ...current,
+      reasoning: model.capabilities?.reasoning,
       descriptors: descriptorsFromCapabilities(model.capabilities),
     }));
   };
@@ -113,7 +113,6 @@ export function CustomModelEditor({
     }
     onSave(definitionFromDraft(draft));
   };
-
 
   const renderChoice = (descriptor: EditorDescriptor, choice: EditorChoice) => (
     <div key={choice.key} className="flex items-center gap-2">

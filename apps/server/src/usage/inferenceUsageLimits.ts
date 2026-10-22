@@ -1,7 +1,15 @@
-import type { ServerProviderResetCredits, ServerProviderUsageLimits, ServerProviderUsageWindow } from "@t3tools/contracts";
+import type {
+  ServerProviderResetCredits,
+  ServerProviderUsageLimits,
+  ServerProviderUsageWindow,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
-import { clampPercent, makeUnavailableUsageLimits, makeUsageLimits } from "../provider/providerUsageLimits.ts";
+import {
+  clampPercent,
+  makeUnavailableUsageLimits,
+  makeUsageLimits,
+} from "../provider/providerUsageLimits.ts";
 
 // Inference account quotas remain available through the usage hub without loading CLI runtimes.
 interface CodexRateLimitWindow {
@@ -155,9 +163,6 @@ export function codexPlanLabel(planType: string | null | undefined): string | un
   }
 }
 
-const SESSION_MINS = 5 * 60;
-const WEEK_MINS = 7 * 24 * 60;
-
 /**
  * The account-wide windows, keyed by the SDK's `rateLimitType`. Model-scoped
  * weeklies are additive on top of these: the CLI reports them under
@@ -236,7 +241,20 @@ function makeWindow(
 }
 
 export function claudeUsageResponseToLimits(input: {
-  readonly response: { readonly rate_limits_available: boolean; readonly rate_limits?: { readonly five_hour?: { readonly utilization?: number | null; readonly resets_at?: string | null }; readonly seven_day?: { readonly utilization?: number | null; readonly resets_at?: string | null }; readonly model_scoped?: ReadonlyArray<ModelScopedWindow> } | null };
+  readonly response: {
+    readonly rate_limits_available: boolean;
+    readonly rate_limits?: {
+      readonly five_hour?: {
+        readonly utilization?: number | null;
+        readonly resets_at?: string | null;
+      } | null;
+      readonly seven_day?: {
+        readonly utilization?: number | null;
+        readonly resets_at?: string | null;
+      } | null;
+      readonly model_scoped?: ReadonlyArray<ModelScopedWindow>;
+    } | null;
+  };
   readonly checkedAt: string;
 }): { readonly limits: ServerProviderUsageLimits; readonly names: ClaudeScopedLimitNames } {
   const { response, checkedAt } = input;

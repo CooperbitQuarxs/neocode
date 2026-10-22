@@ -149,13 +149,23 @@ explicitly from the workspace, or use **Resume NeoPi session** for native histor
 NeoPi automatically checks `npi-nightly`, then `npi`, the desktop app's bundled
 `npi` (when available), and `omp` for session-catalog support. A version string
 alone is not enough. The first capable executable's path is saved in
-**Settings → Providers → NeoPi**, with a visible automatic-selection note.
+**Settings → NeoCore**, with a visible automatic-selection note.
 Set **Binary path** to override it; explicit paths are never replaced or given a
 fallback. Clear the field or enter `npi` to select automatically again. Set
 **Profile** to select an `OMP_PROFILE`.
 For a bundled desktop executable, NeoCode records the selection but resolves its
 installation location again on startup, so an AppImage's changing mount path is
 not saved as an explicit override.
+
+NeoCore edits the environment selected in Settings. Select a runtime profile from
+the list to edit its launch arguments or environment variables; existing NeoPi
+instances keep their own configuration. Mark secret variables as sensitive.
+Saved secrets stay concealed, and editing another field preserves them.
+If a profile is disabled, use **Enable NeoPi** to make it available again.
+If an explicit executable is missing, correct **Binary path** or clear it to
+return to automatic selection. Opening NeoCore or selecting a profile does not
+start or restart sessions. Model catalogs are not configured on this page.
+
 T3 reads OAuth login status but cannot log you in; API-key and local models can
 work even when the card reports authentication as unknown. Model, thinking level,
 and fast mode are selected in the composer when the CLI advertises them. With a
@@ -172,6 +182,11 @@ NeoCode thread title, even if the native file has no title or message preview.
 If one instance cannot load its catalog, the picker identifies it and keeps
 sessions from healthy instances available. Fix that instance and refresh to
 include its sessions.
+Symlink and canonical paths refer to the same project and session. Under
+**All projects**, you can resume a session from another accessible directory.
+NeoCode uses its existing project or known worktree association, or registers
+that directory as a project after validating the session. Browsing the list
+does not register projects.
 The list shows which sessions are open in a terminal. The picker waits for
 imported history before opening the thread. Reopening an already-bound, stopped
 thread restores new terminal turns into that same thread without duplicating
@@ -215,7 +230,6 @@ prove an exact boundary. Diverged branches or ambiguous older histories are
 refused without replacing the thread; the error includes the native session path
 for continuing safely in NeoPi. Pre-v2 native journals must first be continued
 in NeoPi to persist durable entry identities.
-
 
 Add another NeoPi instance for a separate profile or executable configuration.
 Each instance can have its own environment variables. Mark secret values as

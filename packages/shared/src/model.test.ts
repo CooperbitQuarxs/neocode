@@ -76,7 +76,29 @@ describe("descriptor helpers", () => {
   it("treats advertised choices as data without interpreting old prompt-injection metadata", () => {
     const selections = [{ id: "effort", value: "ultrathink" }];
     const descriptors = getProviderOptionDescriptors({ caps: claudeCaps, selections });
-    expect(buildExplicitProviderOptionSelectionsFromDescriptors(descriptors, selections)).toEqual(selections);
+    expect(buildExplicitProviderOptionSelectionsFromDescriptors(descriptors, selections)).toEqual(
+      selections,
+    );
+  });
+
+  it("preserves native reasoning capability without inventing an effort selector", () => {
+    for (const reasoning of [true, false]) {
+      const capabilities = createModelCapabilities({ reasoning, optionDescriptors: [] });
+      expect(capabilities).toEqual({ reasoning, optionDescriptors: [] });
+      const stored = toCustomModelSetting({
+        slug: "future-proxy/virtual/model",
+        name: "future-proxy/virtual/model",
+        capabilities,
+      });
+      expect(stored).toEqual({ slug: "future-proxy/virtual/model", capabilities });
+      expect(readCustomModelEntries([stored])).toEqual([
+        {
+          slug: "future-proxy/virtual/model",
+          name: "future-proxy/virtual/model",
+          capabilities,
+        },
+      ]);
+    }
   });
 
   it("applies selection values to capability descriptors", () => {
@@ -179,8 +201,6 @@ describe("descriptor helpers", () => {
     expect(getModelSelectionBooleanOptionValue(selection, "fastMode")).toBe(true);
   });
 });
-
-;
 
 describe("readCustomModelEntries", () => {
   const capabilities: ModelCapabilities = {

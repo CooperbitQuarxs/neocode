@@ -18,6 +18,7 @@ export type SettingsPath =
   | "/settings/keybindings"
   | "/settings/snap-shot"
   | "/settings/providers"
+  | "/settings/neocore"
   | "/settings/integrations"
   | "/settings/source-control"
   | "/settings/storage"
@@ -87,6 +88,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
+  "/settings/neocore": "NeoCore",
   "/settings/integrations": "Integrations",
   "/settings/source-control": "Source Control",
   "/settings/storage": "Storage",
@@ -532,8 +534,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "providers",
     title: "Providers",
     to: "/settings/providers",
+    searchTerms: ["neopi models custom favorite hidden roles inference providers"],
+  },
+  {
+    id: "neocore",
+    title: "NeoCore",
+    to: "/settings/neocore",
     searchTerms: [
-      "neopi runtime profile npi omp binary path launch arguments environment variables instances configuration models custom favorite hidden",
+      "NeoPi npi runtime startup binary path executable profile OMP_PROFILE launch arguments environment variables secrets enabled disabled reconnect",
     ],
   },
   {
@@ -823,6 +831,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   // environment at any selection. Neither needs a particular scope to render.
   "/settings/keybindings": null,
   "/settings/providers": null,
+  "/settings/neocore": null,
   "/settings/integrations": null,
   "/settings/source-control": "environment-defaults",
   "/settings/storage": "project-defaults",

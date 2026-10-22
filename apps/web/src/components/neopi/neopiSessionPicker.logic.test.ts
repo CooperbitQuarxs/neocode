@@ -39,10 +39,8 @@ describe("NeoPi session selection", () => {
     ).toContain("cannot be attached");
   });
 
-  it("requires a registered project for sessions without a bound thread", () => {
-    expect(neopiSessionRowState(session({ projectId: null })).disabledReason).toBe(
-      "Add this folder as a project first",
-    );
+  it("allows explicit resume to resolve a foreign folder without registering it first", () => {
+    expect(neopiSessionRowState(session({ projectId: null })).disabledReason).toBeNull();
   });
 
   it("keeps a bound thread actionable when discovery has no project metadata", () => {

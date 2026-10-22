@@ -17,6 +17,22 @@ const draft = (overrides: Partial<CustomModelDraft>): CustomModelDraft => ({
 });
 
 describe("customModelEditor.logic", () => {
+  it("preserves reasoning-only metadata when reopening and renaming a custom model", () => {
+    for (const reasoning of [true, false]) {
+      const capabilities = { reasoning, optionDescriptors: [] };
+      const reopened = draftFromDefinition({
+        slug: "proxy/virtual/reasoner",
+        name: "Reasoner",
+        capabilities,
+      });
+      expect(definitionFromDraft({ ...reopened, name: "Renamed" })).toEqual({
+        slug: "proxy/virtual/reasoner",
+        name: "Renamed",
+        capabilities,
+      });
+    }
+  });
+
   it("round-trips a definition through the draft, marking the current value as default", () => {
     const definition = definitionFromDraft(
       draft({
@@ -70,22 +86,20 @@ describe("customModelEditor.logic", () => {
   });
 
   it("preserves the current choice when it differs from the built-in default", () => {
-    const descriptors = descriptorsFromCapabilities(
-      {
-        optionDescriptors: [
-          {
-            id: "effort",
-            label: "Reasoning",
-            type: "select",
-            currentValue: "high",
-            options: [
-              { id: "low", label: "Low", isDefault: true },
-              { id: "high", label: "High" },
-            ],
-          },
-        ],
-      },
-    );
+    const descriptors = descriptorsFromCapabilities({
+      optionDescriptors: [
+        {
+          id: "effort",
+          label: "Reasoning",
+          type: "select",
+          currentValue: "high",
+          options: [
+            { id: "low", label: "Low", isDefault: true },
+            { id: "high", label: "High" },
+          ],
+        },
+      ],
+    });
     expect(descriptors[0]!.choices.map((choice) => choice.isDefault)).toEqual([false, true]);
     expect(
       definitionFromDraft(draft({ descriptors })).capabilities?.optionDescriptors?.[0],
@@ -93,22 +107,20 @@ describe("customModelEditor.logic", () => {
   });
 
   it("preserves advertised choices without applying retired prompt-injection rules", () => {
-    const [copied] = descriptorsFromCapabilities(
-      {
-        optionDescriptors: [
-          {
-            id: "effort",
-            label: "Reasoning",
-            type: "select",
-            options: [
-              { id: "high", label: "High", isDefault: true },
-              { id: "ultrathink", label: "Ultrathink" },
-            ],
-            promptInjectedValues: ["ultrathink"],
-          },
-        ],
-      },
-    );
+    const [copied] = descriptorsFromCapabilities({
+      optionDescriptors: [
+        {
+          id: "effort",
+          label: "Reasoning",
+          type: "select",
+          options: [
+            { id: "high", label: "High", isDefault: true },
+            { id: "ultrathink", label: "Ultrathink" },
+          ],
+          promptInjectedValues: ["ultrathink"],
+        },
+      ],
+    });
     expect(copied!.choices.map((choice) => choice.id)).toEqual(["high", "ultrathink"]);
   });
 
@@ -189,7 +201,6 @@ describe("customModelEditor.logic", () => {
       capabilities.optionDescriptors![0]!,
     );
   });
-
 
   it("collapses a blank name and no options back to a bare definition", () => {
     expect(definitionFromDraft(draft({ name: "  " }))).toEqual({

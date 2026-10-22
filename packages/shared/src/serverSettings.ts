@@ -74,10 +74,7 @@ export function isModelSelectionProviderEnabled(
     return instanceConfig.driver === "neopi" && resolveProviderInstanceEnabled(instanceConfig);
   }
 
-  return (
-    selection.instanceId === "neopi" &&
-    getLegacyProviderSettings(settings, selection.instanceId)?.enabled === true
-  );
+  return selection.instanceId === "neopi" && settings.providers.neopi.enabled === true;
 }
 
 /** Stored runtime identity wins over a draft model choice, so old history cannot be reinterpreted. */
