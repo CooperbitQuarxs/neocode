@@ -62,7 +62,7 @@ device until you sign back into the same account.
 
 ## Switch models
 
-On web and desktop, click the current model to open the native model switcher.
+On web and desktop, click the current model or press `Alt+P` to open the native model switcher.
 Choose a NeoPi inference provider or Roles, or filter by provider, model ID or
 display name. The list shows the native catalog's intelligence, context and
 per-million-token prices. Catalog throughput is an estimate. A question mark
