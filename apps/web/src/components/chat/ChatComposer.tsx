@@ -1,3 +1,4 @@
+import { getThreadRuntimeReadOnlyReason } from "@t3tools/shared/serverSettings";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { usePrimaryEnvironmentId } from "../../state/environments";
@@ -82,7 +83,6 @@ import { DISCONNECTED_COMPOSER_PLACEHOLDER } from "../../composerPlaceholder";
 import { listContinuationForEnter, listIndentForTab } from "../../composer-list-continuation";
 import {
   deriveComposerSendState,
-  getAntigravitySendBlockReason,
   readFileAsDataUrl,
   resolveComposerInteractionMode,
   resolveComposerProviderSelection,
@@ -237,7 +237,6 @@ import {
 import { useEnvironmentQuery } from "~/state/query";
 import { useDebouncedValue } from "~/state/queries";
 import { ProviderModelPicker } from "./ProviderModelPicker";
-import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
@@ -264,7 +263,6 @@ import {
 } from "./composerSlashCommandSearch";
 import { composerCapabilitiesForProvider } from "./neopiComposerUi";
 import {
-  getComposerPromptInjectionState,
   getComposerProviderState,
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
@@ -1407,6 +1405,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // back once the catalog lands.
   const providerCatalogPending = noProviderAvailable && !providerCatalogKnown;
   const showProviderUnavailable = noProviderAvailable && !providerCatalogPending;
+  const runtimeReadOnlyReason =
+    routeKind === "server" && activeThreadModelSelection
+      ? getThreadRuntimeReadOnlyReason({
+          modelSelection: activeThreadModelSelection,
+          session: activeThread?.session ?? null,
+          settings,
+          providers: providerStatuses,
+        })
+      : null;
   const providerSetupInstanceId = noProviderAvailable
     ? (unavailableProviderInstanceId ??
       (lockedProvider === null
@@ -1454,12 +1461,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     projectModelSelection: activeProjectDefaultModelSelection,
     settings,
   });
-  const providerSendBlockReason = getAntigravitySendBlockReason(
-    selectedProviderEntry?.snapshot,
-    selectedModel,
-  );
+  const providerSendBlockReason = runtimeReadOnlyReason;
   const sendDisabledReason =
     externalSendDisabledReason ??
+    runtimeReadOnlyReason ??
     (multipleModelSelections?.length === 0 ? "Select at least one model." : null) ??
     (activePendingProgress
       ? attachmentBlockReason
@@ -1536,28 +1541,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [selectedProviderEntry],
   );
 
-  const composerPromptInjectionState = useMemo(
-    () => getComposerPromptInjectionState(prompt),
-    [prompt],
-  );
   const composerProviderState = useMemo(
     () =>
       getComposerProviderState({
         provider: selectedProvider,
         model: selectedModel,
         models: selectedProviderModels,
-        promptInjectionState: composerPromptInjectionState,
         modelOptions: composerModelOptions?.[selectedInstanceId],
-        planModeEnabled: settings.planModeEnabled,
       }),
     [
       composerModelOptions,
-      composerPromptInjectionState,
       selectedInstanceId,
       selectedModel,
       selectedProvider,
       selectedProviderModels,
-      settings.planModeEnabled,
     ],
   );
 
@@ -2112,27 +2109,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // ------------------------------------------------------------------
   // Provider traits UI
   // ------------------------------------------------------------------
-  const setPromptFromTraits = useCallback(
-    (nextPrompt: string) => {
-      if (nextPrompt === promptRef.current) {
-        scheduleComposerFocus();
-        return;
-      }
-      promptRef.current = nextPrompt;
-      setComposerDraftPrompt(composerDraftTarget, nextPrompt);
-      const nextCursor = collapseExpandedComposerCursor(nextPrompt, nextPrompt.length);
-      setComposerCursor(nextCursor);
-      setComposerTrigger(detectComposerTrigger(nextPrompt, nextPrompt.length));
-      scheduleComposerFocus();
-    },
-    [
-      composerDraftTarget,
-      promptRef,
-      scheduleComposerFocus,
-      setComposerDraftPrompt,
-      setComposerTrigger,
-    ],
-  );
 
   const providerTraitsMenuContent = renderProviderTraitsMenuContent({
     provider: selectedProvider,
@@ -2142,9 +2118,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     model: selectedModel,
     models: selectedProviderModels,
     modelOptions: composerModelOptions?.[selectedInstanceId],
-    prompt,
-    onPromptChange: setPromptFromTraits,
-    planModeEnabled: settings.planModeEnabled,
   });
   const providerTraitsPickerInput = {
     provider: selectedProvider,
@@ -2154,9 +2127,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     model: selectedModel,
     models: selectedProviderModels,
     modelOptions: composerModelOptions?.[selectedInstanceId],
-    prompt,
-    onPromptChange: setPromptFromTraits,
-    planModeEnabled: settings.planModeEnabled,
     isComposerOwned: true,
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
   const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
@@ -4184,141 +4154,148 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const hiddenRestingBlockIds = restingBlockDefs
     .slice(restingBlockDefs.length - restingHiddenBlockCount)
     .map((def) => def.id);
-  const composerControls = showProviderUnavailable ? (
-    <ComposerControl
-      type="button"
-      disabled={!providerSetupInstanceId}
-      onClick={() => {
-        if (providerSetupInstanceId) {
-          onOpenProviderSetup(providerSetupInstanceId);
-        }
-      }}
-      data-chat-provider-unavailable="true"
-      className="shrink-0"
-    >
-      <CircleAlertIcon className="size-4" />
-      {providerSetupInstanceId ? "Open provider settings" : "No provider available"}
-    </ComposerControl>
-  ) : (
-    <>
-      <ProviderModelPicker
-        isComposerOwned
-        disabled={providerCatalogPending || isSendBusy}
-        {...(routeKind === "draft" && supportsMultipleModels
-          ? {
-              ...(multipleModelSelections !== null
-                ? { selectedModels: multipleModelSelections }
-                : {}),
-              onToggleModel: (instanceId: ProviderInstanceId, model: string) => {
-                const current = multipleModelSelections ?? [selectedModelSelection];
-                const matchesModel = (selection: ModelSelection) => {
-                  if (selection.instanceId !== instanceId) return false;
-                  const entry = providerInstanceEntries.find(
-                    (entry) => entry.instanceId === selection.instanceId,
-                  );
-                  const resolvedModel = resolveModelPickerSelectedModel({
-                    driverKind: entry?.driverKind,
-                    model: selection.model,
-                    options: modelOptionsByInstance.get(selection.instanceId) ?? [],
-                  });
-                  return (resolvedModel?.slug ?? selection.model) === model;
-                };
-                const exists = current.some(matchesModel);
-                const next = exists
-                  ? current.filter((selection) => !matchesModel(selection))
-                  : [...current, createModelSelection(instanceId, model)];
-                if (next.length > 1) {
-                  setMultipleModelSelections(next);
-                } else {
-                  setMultipleModelSelections(null);
-                  const remaining = next[0] ?? selectedModelSelection;
-                  onProviderModelSelect(remaining.instanceId, remaining.model, {
-                    focusComposer: false,
-                  });
-                }
-              },
-            }
-          : {})}
-        activeInstanceId={
-          providerCatalogPending
-            ? (activeThreadModelSelection?.instanceId ?? selectedInstanceId)
-            : selectedInstanceId
-        }
-        model={
-          providerCatalogPending
-            ? (activeThreadModelSelection?.model ?? selectedModelForPickerWithCustomFallback)
-            : selectedModelForPickerWithCustomFallback
-        }
-        lockedProvider={lockedProvider}
-        lockedContinuationGroupKey={lockedContinuationGroupKey}
-        instanceEntries={providerInstanceEntries}
-        keybindings={keybindings}
-        modelOptionsByInstance={modelOptionsByInstance}
-        size="sm"
-        triggerClassName="-ms-2.5 min-w-13"
-        terminalOpen={terminalOpen}
-        open={isComposerModelPickerOpen}
-        instanceIndicatorBackground="var(--contrast-input)"
-        {...(composerProviderState.modelPickerIconClassName
-          ? { activeProviderIconClassName: composerProviderState.modelPickerIconClassName }
-          : {})}
-        onOpenChange={setIsComposerModelPickerOpen}
-        getModelDisabledReason={getModelDisabledReason}
-        onInstanceModelChange={(instanceId, model) => {
-          setMultipleModelSelections(null);
-          onProviderModelSelect(instanceId, model);
+  const composerControls =
+    runtimeReadOnlyReason || showProviderUnavailable ? (
+      <ComposerControl
+        type="button"
+        disabled={runtimeReadOnlyReason !== null || !providerSetupInstanceId}
+        onClick={() => {
+          if (providerSetupInstanceId) {
+            onOpenProviderSetup(providerSetupInstanceId);
+          }
         }}
-        onOpenProviderSetup={onOpenProviderSetup}
-      />
-
+        data-chat-provider-unavailable="true"
+        className="shrink-0"
+      >
+        <CircleAlertIcon className="size-4" />
+        {runtimeReadOnlyReason ??
+          (providerSetupInstanceId ? "Open NeoPi settings" : "NeoPi unavailable")}
+      </ComposerControl>
+    ) : (
       <>
-        {restingBlockDefs.map((def, index) => {
-          const hidden = index >= restingBlockDefs.length - restingHiddenBlockCount;
-          return (
-            <div
-              key={def.id}
-              data-resting-block={def.id}
-              data-composer-block-icon-only={
-                index >= restingBlockDefs.length - iconOnlyBlockCount ? "true" : "false"
+        <ProviderModelPicker
+          isComposerOwned
+          disabled={providerCatalogPending || isSendBusy}
+          {...(routeKind === "draft" && supportsMultipleModels
+            ? {
+                ...(multipleModelSelections !== null
+                  ? { selectedModels: multipleModelSelections }
+                  : {}),
+                onToggleModel: (instanceId: ProviderInstanceId, model: string) => {
+                  const current = multipleModelSelections ?? [selectedModelSelection];
+                  const matchesModel = (selection: ModelSelection) => {
+                    if (selection.instanceId !== instanceId) return false;
+                    return selection.model === model;
+                  };
+                  const exists = current.some(matchesModel);
+                  const next = exists
+                    ? current.filter((selection) => !matchesModel(selection))
+                    : [...current, createModelSelection(instanceId, model)];
+                  if (next.length > 1) {
+                    setMultipleModelSelections(next);
+                  } else {
+                    setMultipleModelSelections(null);
+                    const remaining = next[0] ?? selectedModelSelection;
+                    onProviderModelSelect(remaining.instanceId, remaining.model, {
+                      focusComposer: false,
+                    });
+                  }
+                },
               }
-              aria-hidden={hidden || undefined}
-              inert={hidden || undefined}
-              className={cn(
-                "flex w-max min-w-max shrink-0 items-center gap-1",
-                hidden && "pointer-events-none invisible absolute",
-                index >= restingBlockDefs.length - iconOnlyBlockCount &&
-                  "[&_[data-composer-control-label]]:pointer-events-none [&_[data-composer-control-label]]:invisible [&_[data-composer-control-label]]:absolute [&_[data-composer-control-label]]:w-max [&_[data-composer-control-label]]:max-w-none [&_[data-composer-control-compact-icon]]:[visibility:inherit] [&_[data-composer-control-compact-icon]]:relative",
-              )}
-            >
-              {def.content}
-            </div>
-          );
-        })}
-        <div
-          data-resting-controls-overflow
-          aria-hidden={hiddenRestingBlockIds.length === 0 || undefined}
-          inert={hiddenRestingBlockIds.length === 0 || undefined}
-          className={cn(
-            "min-w-0 shrink-0",
-            hiddenRestingBlockIds.length === 0 && "pointer-events-none invisible absolute",
-          )}
-        >
-          <CompactComposerControlsMenu
-            interactionMode={interactionMode}
-            runtimeMode={runtimeMode}
-            size="sm"
-            hidden={hiddenRestingBlockIds.length === 0}
-            showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}
-            traitsMenuContent={
-              hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
-            }
-            onToggleInteractionMode={toggleInteractionMode}
-            onRuntimeModeChange={handleRuntimeModeChange}
-          />
-        </div>
+            : {})}
+          activeInstanceId={
+            providerCatalogPending
+              ? (activeThreadModelSelection?.instanceId ?? selectedInstanceId)
+              : selectedInstanceId
+          }
+          model={
+            providerCatalogPending
+              ? (activeThreadModelSelection?.model ?? selectedModelForPickerWithCustomFallback)
+              : selectedModelForPickerWithCustomFallback
+          }
+          lockedProvider={lockedProvider}
+          lockedContinuationGroupKey={lockedContinuationGroupKey}
+          instanceEntries={providerInstanceEntries}
+          keybindings={keybindings}
+          modelOptionsByInstance={modelOptionsByInstance}
+          size={composerControlsInStrip ? "xs" : "sm"}
+          triggerClassName={
+            composerControlsInStrip
+              ? "min-w-13 shrink text-xs! @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none"
+              : "-ms-2.5 min-w-13"
+          }
+          terminalOpen={terminalOpen}
+          open={isComposerModelPickerOpen}
+          instanceIndicatorBackground={
+            composerControlsInStrip
+              ? "color-mix(in srgb, var(--chat-composer-glass-surface) var(--glass-opacity), transparent)"
+              : "var(--contrast-input)"
+          }
+          {...(composerControlsInStrip
+            ? {
+                activeProviderIconClassName:
+                  "fill-muted-foreground/70! text-muted-foreground/70! [&_path]:fill-muted-foreground/70! [&_rect]:fill-muted-foreground/70! [&_[data-opencode-hole]]:fill-transparent!",
+              }
+            : {})}
+          onOpenChange={setIsComposerModelPickerOpen}
+          getModelDisabledReason={getModelDisabledReason}
+          onInstanceModelChange={(instanceId, model) => {
+            setMultipleModelSelections(null);
+            onProviderModelSelect(instanceId, model);
+          }}
+          onOpenProviderSetup={onOpenProviderSetup}
+        />
+
+        <>
+          {restingBlockDefs.map((def, index) => {
+            const hidden = index >= restingBlockDefs.length - restingHiddenBlockCount;
+            return (
+              <div
+                key={def.id}
+                data-resting-block={def.id}
+                data-composer-block-icon-only={
+                  index >= restingBlockDefs.length - iconOnlyBlockCount ? "true" : "false"
+                }
+                aria-hidden={hidden || undefined}
+                inert={hidden || undefined}
+                className={cn(
+                  "flex w-max min-w-max shrink-0 items-center gap-1",
+                  hidden && "pointer-events-none invisible absolute",
+                  index >= restingBlockDefs.length - iconOnlyBlockCount &&
+                    "[&_[data-composer-control-label]]:pointer-events-none [&_[data-composer-control-label]]:invisible [&_[data-composer-control-label]]:absolute [&_[data-composer-control-label]]:w-max [&_[data-composer-control-label]]:max-w-none [&_[data-composer-control-compact-icon]]:[visibility:inherit] [&_[data-composer-control-compact-icon]]:relative",
+                )}
+              >
+                {def.content}
+              </div>
+            );
+          })}
+          <div
+            data-resting-controls-overflow
+            aria-hidden={hiddenRestingBlockIds.length === 0 || undefined}
+            inert={hiddenRestingBlockIds.length === 0 || undefined}
+            className={cn(
+              "min-w-0 shrink-0",
+              hiddenRestingBlockIds.length === 0 && "pointer-events-none invisible absolute",
+            )}
+          >
+            <CompactComposerControlsMenu
+              interactionMode={interactionMode}
+              runtimeMode={runtimeMode}
+              size={composerControlsInStrip ? "xs" : "sm"}
+              hidden={composerControlsHidden || hiddenRestingBlockIds.length === 0}
+              showInteractionModeToggle={
+                planModeUiEnabled && hiddenRestingBlockIds.includes("mode")
+              }
+              traitsMenuContent={
+                hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
+              }
+              onToggleInteractionMode={toggleInteractionMode}
+              onRuntimeModeChange={handleRuntimeModeChange}
+            />
+          </div>
+        </>
       </>
-    </>
-  );
+    );
   const showTasksTab =
     !hasBannerItems &&
     !showComposerTopDrawer &&
@@ -5314,7 +5291,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               "bg-background transition-[background-color] duration-200",
               isDragOverComposer ? "bg-accent/45 ring-1 ring-primary/70" : null,
               projectSelectionRequired ? "opacity-75" : null,
-              composerProviderState.composerSurfaceClassName,
             )}
           >
             {/* Draft growth scrolls here rather than moving the frame or history. */}
