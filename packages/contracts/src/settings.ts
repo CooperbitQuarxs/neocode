@@ -1045,6 +1045,10 @@ export const WorktreeCleanup = Schema.NullOr(
 );
 export type WorktreeCleanup = typeof WorktreeCleanup.Type;
 
+// Stable IDs let a project change or hide one inherited action without
+// snapshotting the environment's list. Null hides that ID at this scope.
+const ScopedActions = Schema.Record(Schema.String, Schema.NullOr(ProjectScript));
+
 export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "worktreeCleanup",
   "defaultModelSelection",
@@ -1054,6 +1058,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
   "worktreeSubmodules",
   "defaultAutoPull",
   "defaultProjectScripts",
+  "actions",
   "enableAgentBrowserAccess",
   "enableAgentDeviceAccess",
   "textGenerationModelSelection",
@@ -1081,6 +1086,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
   worktreeSubmodules: ForwardCompatibleOptional(WorktreeSubmodules),
   defaultAutoPull: Schema.optionalKey(Schema.Boolean),
   defaultProjectScripts: Schema.optionalKey(Schema.Array(ProjectScript)),
+  actions: Schema.optionalKey(ScopedActions),
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
   enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
   textGenerationModelSelection: Schema.optionalKey(ModelSelection),
@@ -1162,6 +1168,7 @@ export const ServerSettings = Schema.Struct({
   defaultProjectScripts: Schema.Array(ProjectScript).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
+  actions: ScopedActions.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   projectScriptOverrides: Schema.Record(ProjectId, Schema.NullOr(Schema.Array(ProjectScript))).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
@@ -1533,6 +1540,7 @@ export const ServerSettingsPatch = Schema.Struct({
   ),
   defaultAutoPull: Schema.optionalKey(Schema.Boolean),
   defaultProjectScripts: Schema.optionalKey(Schema.Array(ProjectScript)),
+  actions: Schema.optionalKey(ScopedActions),
   projectScriptOverrides: Schema.optionalKey(
     Schema.Record(ProjectId, Schema.NullOr(Schema.Array(ProjectScript))),
   ),

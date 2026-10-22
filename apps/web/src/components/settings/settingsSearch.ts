@@ -724,8 +724,8 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "project-actions",
     title: "Actions",
-    to: "/settings/projects",
-    searchTerms: ["commands scripts setup run dev server checkout worktree t3.json import"],
+    to: "/settings/general",
+    searchTerms: ["commands scripts setup run dev server checkout worktree t3.json import global environment neovide editor"],
   },
   {
     id: "environment-icon",

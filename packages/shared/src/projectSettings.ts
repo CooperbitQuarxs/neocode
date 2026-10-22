@@ -182,7 +182,8 @@ function resolveProjectOverrides(
     ) {
       continue;
     }
-    effective[key] = value;
+    effective[key] =
+      key === "actions" ? { ...settings.actions, ...overrides.actions } : value;
     sources[key] = "project";
   }
   return { settings: effective as ServerSettings, sources, overrides };

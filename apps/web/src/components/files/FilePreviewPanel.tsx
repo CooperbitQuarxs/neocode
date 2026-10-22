@@ -3,7 +3,6 @@ import type {
   ChatFileAttachment,
   EditorId,
   EnvironmentId,
-  ResolvedKeybindingsConfig,
   ScopedThreadRef,
 } from "@t3tools/contracts";
 import { filePreviewDelimiter } from "@t3tools/shared/delimitedPreview";
@@ -99,7 +98,6 @@ interface FilePreviewPanelProps {
   attachment?: ChatFileAttachment;
   threadRef: ScopedThreadRef;
   composerDraftTarget: ScopedThreadRef | DraftId;
-  keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
   revealLine: number | null;
   revealRequestId: number;
@@ -911,7 +909,6 @@ export default function FilePreviewPanel({
   attachment,
   threadRef,
   composerDraftTarget,
-  keybindings,
   availableEditors,
   revealLine,
   revealRequestId,
@@ -1112,11 +1109,8 @@ export default function FilePreviewPanel({
           (environmentId === primaryEnvironmentId || remoteOpenState.mode !== "local-exec") ? (
             <OpenInPicker
               environmentId={environmentId}
-              keybindings={keybindings}
               availableEditors={availableEditors}
               openInCwd={absolutePath}
-              compact
-              enableShortcut={false}
             />
           ) : null}
           {canToggleRendered && renderedMode ? (
