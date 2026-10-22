@@ -115,5 +115,4 @@ describe("timeline scroll targets", () => {
     expect(targetsTimeline(null, timeline, -30)).toBe(false);
     expect(targetsTimeline(content, timeline, 0)).toBe(false);
   });
-
 });

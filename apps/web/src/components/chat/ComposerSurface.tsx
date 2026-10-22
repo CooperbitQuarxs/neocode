@@ -13,7 +13,7 @@ function Shell({
       data-slot="composer-shell"
       data-with-context={contextStrip || undefined}
       className={cn(
-        "@container/composer-surface group/composer-surface relative isolate w-full border-t border-border bg-background pb-[env(safe-area-inset-bottom)]",
+        "@container/composer-surface group/composer-surface relative isolate w-full border-t border-border bg-background pb-safe",
         "[--chat-composer-drawer-inset:0rem] [--chat-composer-glass-surface:var(--background)] [--chat-composer-outline:var(--border)]",
         className,
       )}
@@ -24,11 +24,7 @@ function Shell({
 
 function Host({ className, ...props }: ComponentProps<"div">) {
   return (
-    <div
-      data-slot="composer-host"
-      className={cn("relative z-10 w-full", className)}
-      {...props}
-    />
+    <div data-slot="composer-host" className={cn("relative z-10 w-full", className)} {...props} />
   );
 }
 
