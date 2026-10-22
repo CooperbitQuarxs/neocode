@@ -51,7 +51,7 @@ export function nativeSwitcherModels(input: {
 export function filterNativeSwitcherModels(models: ReadonlyArray<NativeSwitcherModel>, query: string): ReadonlyArray<NativeSwitcherModel> {
   const text = query.trim().toLocaleLowerCase();
   if (!text) return models;
-  return models.filter((model) => `${model.slug} ${model.name} ${model.group} ${model.instanceDisplayName}`.toLocaleLowerCase().includes(text));
+  return models.filter((model) => `${model.slug} ${model.name} ${model.description ?? ""} ${model.group} ${model.instanceDisplayName}`.toLocaleLowerCase().includes(text));
 }
 
 export const NATIVE_FACT_COLUMNS = ["Intelligence", "TTFT", "Tokens/s", "Context", "Input / M", "Output / M"] as const;

@@ -23,6 +23,7 @@ export const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind, Icon>
 export type ModelEsque = {
   slug: string;
   name: string;
+  description?: string | undefined;
   shortName?: string | undefined;
   subProvider?: string | undefined;
   aliases?: ReadonlyArray<string> | undefined;

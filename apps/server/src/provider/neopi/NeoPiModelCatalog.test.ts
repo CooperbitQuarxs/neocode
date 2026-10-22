@@ -64,7 +64,7 @@ it("retains a current model absent from a refreshed catalog and reflects active 
   ]);
 });
 
-it("adds visible RPC roles as a distinct picker group and selects the active role", () => {
+it("keeps the native dynamic role inventory and selects the active role", () => {
   const roles = neoPiRolesFromRpc({
     roles: [
       {
@@ -80,12 +80,12 @@ it("adds visible RPC roles as a distinct picker group and selects the active rol
           modelId: "gpt-5.6-luna",
           thinkingLevel: "low",
         },
-        hidden: false,
       },
       {
         id: "private",
         alias: "@private",
         name: "Private",
+        description: "A newly configured role",
         section: "chat",
         source: "configured",
         patterns: [],
@@ -116,6 +116,16 @@ it("adds visible RPC roles as a distinct picker group and selects the active rol
           { id: "fastMode", type: "boolean", label: "Fast mode", currentValue: true },
         ],
       },
+    },
+    {
+      slug: "@private",
+      name: "Private",
+      description: "A newly configured role",
+      shortName: "private",
+      subProvider: "Roles",
+      aliases: ["private"],
+      isCustom: false,
+      capabilities: { optionDescriptors: [] },
     },
     {
       slug: "openai/gpt-5.6-luna",

@@ -30,8 +30,8 @@ export const ModelListRow = memo(function ModelListRow(props: {
             {props.isSelected ? <CheckIcon className="size-3 shrink-0" aria-label="Selected" /> : null}
             <span className="truncate text-xs font-medium" title={props.model.slug}>{props.model.slug}</span>
           </div>
-          <div className="mt-1 truncate text-xs text-muted-foreground" title={`${props.model.name}, ${props.model.instanceDisplayName}`}>
-            {props.model.name}{props.model.isUnavailable ? ", unavailable" : ""}
+          <div className="mt-1 truncate text-xs text-muted-foreground" title={`${props.model.description || props.model.name}, ${props.model.instanceDisplayName}`}>
+            {props.model.description || props.model.name}{props.model.isUnavailable ? ", unavailable" : ""}
           </div>
         </div>
         {cells.map((value, index) => (

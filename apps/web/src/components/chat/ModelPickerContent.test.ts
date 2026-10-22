@@ -61,3 +61,15 @@ it("retains the exact saved native selection when its runtime entry disappears",
     ["custom-proxy/virtual/model:Exact", "custom-proxy", true],
   ]);
 });
+
+it("retains descriptions for newly discovered roles through composer options and filtering", () => {
+  const input = catalog([{
+    ...nativeModel("@new-project-role"),
+    description: "Find the preceding architecture decision",
+  }]);
+  const rows = nativeSwitcherModels({ ...input, activeModel: "@new-project-role" });
+  expect(rows[0]?.description).toBe("Find the preceding architecture decision");
+  expect(filterNativeSwitcherModels(rows, "preceding architecture").map((row) => row.slug)).toEqual([
+    "@new-project-role",
+  ]);
+});
