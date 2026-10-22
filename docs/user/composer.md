@@ -74,6 +74,11 @@ returns to the remembered selection.
 
 Leaving reasoning level or service tier unset uses the provider's own configuration.
 
+NeoPi's model and role badges describe supported capabilities, not which
+settings are currently enabled. A **Fast mode** badge does not mean the current
+turn uses Fast mode. Role badges follow the model NeoPi resolves for that role.
+A reasoning model can have a **Reasoning** badge without offering an effort selector.
+
 ## Quote an assistant response
 
 On web and desktop, select text within one assistant response and choose

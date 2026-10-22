@@ -84,8 +84,59 @@ export function neoPiUsageProviderId(
   return sub === NEOPI_ROLE_PICKER_GROUP ? "" : sub;
 }
 
+function modelCapabilities(
+  model: RpcModel | null,
+  fastModeEnabled?: boolean,
+  thinkingLevel?: string,
+): ServerProviderModel["capabilities"] {
+  const thinking = asRecord(model?.thinking);
+  const efforts =
+    model?.reasoning !== false && thinking && Array.isArray(thinking.efforts)
+      ? thinking.efforts.filter(
+          (value): value is string => typeof value === "string" && value.length > 0,
+        )
+      : [];
+  const defaultLevel = thinking?.defaultLevel;
+  const currentLevel = thinkingLevel ?? defaultLevel;
+  return createModelCapabilities({
+    ...(typeof model?.reasoning === "boolean" ? { reasoning: model.reasoning } : {}),
+    optionDescriptors: [
+      ...(efforts.length
+        ? [
+            {
+              id: "reasoningEffort",
+              type: "select" as const,
+              label: "Thinking",
+              options: efforts.map((level) => ({
+                id: level,
+                label: level.charAt(0).toUpperCase() + level.slice(1),
+                ...(level === defaultLevel ? { isDefault: true } : {}),
+              })),
+              ...(typeof currentLevel === "string" && efforts.includes(currentLevel)
+                ? { currentValue: currentLevel }
+                : {}),
+            },
+          ]
+        : []),
+      // Only NeoPi can decide whether its fast control applies to this model.
+      // Older catalogs omit this field, which means unknown support.
+      ...(model?.supportsFastMode === true
+        ? [
+            {
+              id: "fastMode",
+              type: "boolean" as const,
+              label: "Fast mode",
+              ...(fastModeEnabled !== undefined ? { currentValue: fastModeEnabled } : {}),
+            },
+          ]
+        : []),
+    ],
+  });
+}
+
 function toServerProviderRoleModels(
   result: GetRolesResult,
+  catalog: ReadonlyMap<string, RpcModel>,
   fastModeEnabled: boolean,
 ): ReadonlyArray<ServerProviderModel> {
   return result.roles.flatMap((role): ServerProviderModel[] => {
@@ -101,16 +152,13 @@ function toServerProviderRoleModels(
         aliases: slug === role.alias ? [role.id] : [role.id, role.alias],
         isCustom: false,
         ...(result.activeRole === role.id ? { isDefault: true } : {}),
-        capabilities: createModelCapabilities({
-          optionDescriptors: [
-            {
-              id: "fastMode",
-              type: "boolean",
-              label: "Fast mode",
-              currentValue: result.activeRole === role.id && fastModeEnabled,
-            },
-          ],
-        }),
+        capabilities: modelCapabilities(
+          role.resolved
+            ? (catalog.get(`${role.resolved.provider}/${role.resolved.modelId}`) ?? null)
+            : null,
+          result.activeRole === role.id ? fastModeEnabled : undefined,
+          role.resolved?.thinkingLevel,
+        ),
       },
     ];
   });
@@ -129,14 +177,6 @@ export function toServerProviderModels(
     const model = asRecord(entry);
     const slug = modelSlug(model);
     if (!model || !slug) return [];
-    const thinking = asRecord(model.thinking);
-    const efforts =
-      thinking && Array.isArray(thinking.efforts)
-        ? thinking.efforts.filter(
-            (value): value is string => typeof value === "string" && value.length > 0,
-          )
-        : [];
-    const defaultLevel = thinking?.defaultLevel;
     return [
       {
         slug,
@@ -146,33 +186,7 @@ export function toServerProviderModels(
         quotaProvider: model.provider as string,
         isCustom: false,
         ...(currentSlug === slug && !roleResult?.activeRole ? { isDefault: true } : {}),
-        capabilities: createModelCapabilities({
-          optionDescriptors: [
-            ...(efforts.length
-              ? [
-                  {
-                    id: "reasoningEffort",
-                    type: "select" as const,
-                    label: "Thinking",
-                    options: efforts.map((level) => ({
-                      id: level,
-                      label: level.charAt(0).toUpperCase() + level.slice(1),
-                      ...(level === defaultLevel ? { isDefault: true } : {}),
-                    })),
-                    ...(typeof defaultLevel === "string" && efforts.includes(defaultLevel)
-                      ? { currentValue: defaultLevel }
-                      : {}),
-                  },
-                ]
-              : []),
-            {
-              id: "fastMode",
-              type: "boolean" as const,
-              label: "Fast mode",
-              currentValue: currentSlug === slug && fastModeEnabled,
-            },
-          ],
-        }),
+        capabilities: modelCapabilities(model, currentSlug === slug ? fastModeEnabled : undefined),
       },
     ];
   });
@@ -187,5 +201,13 @@ export function toServerProviderModels(
         })()
       : available;
   if (!roleResult) return withCurrent;
-  return [...toServerProviderRoleModels(roleResult, fastModeEnabled), ...withCurrent];
+  const catalog = new Map<string, RpcModel>();
+  for (const entry of models) {
+    const model = asRecord(entry);
+    const slug = modelSlug(model);
+    if (model && slug) catalog.set(slug, model);
+  }
+  if (currentRecord && currentSlug && !catalog.has(currentSlug))
+    catalog.set(currentSlug, currentRecord);
+  return [...toServerProviderRoleModels(roleResult, catalog, fastModeEnabled), ...withCurrent];
 }

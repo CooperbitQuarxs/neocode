@@ -173,9 +173,11 @@ export function NeoPiSessionPicker({
     if (activeRestoration.current !== null || state.disabledReason) return;
     const next: PendingRestoration = {
       session,
-      projectId: session.projectId,
+      // Unregistered folders use the selected project only as request context.
+      // The server resolves the native cwd before choosing or creating a project.
+      projectId: session.projectId ?? (state.threadId === null ? target.projectId : null),
       threadId: state.threadId,
-      phase: session.projectId === null ? "loading-project" : "resume",
+      phase: session.projectId === null && state.threadId !== null ? "loading-project" : "resume",
     };
     activeRestoration.current = next;
     setRestoration(next);

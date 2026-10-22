@@ -12,11 +12,7 @@ export function neopiSessionRowState(session: NeoPiSessionSummary) {
   const disabledReason =
     session.owner.kind === "process" && !session.owner.attachable
       ? "This terminal session cannot be attached to. Close it in the terminal first."
-      : threadId !== null
-        ? null
-        : session.projectId === null
-          ? "Add this folder as a project first"
-          : null;
+      : null;
   return {
     title: session.title?.trim() || session.firstMessage.trim() || "Untitled session",
     ownerLabel,

@@ -179,6 +179,11 @@ NeoCode thread title, even if the native file has no title or message preview.
 If one instance cannot load its catalog, the picker identifies it and keeps
 sessions from healthy instances available. Fix that instance and refresh to
 include its sessions.
+Symlink and canonical paths refer to the same project and session. Under
+**All projects**, you can resume a session from another accessible directory.
+NeoCode uses its existing project or known worktree association, or registers
+that directory as a project after validating the session. Browsing the list
+does not register projects.
 The list shows which sessions are open in a terminal. The picker waits for
 imported history before opening the thread. Reopening an already-bound, stopped
 thread restores new terminal turns into that same thread without duplicating

@@ -64,6 +64,26 @@ const claudeCaps: ModelCapabilities = createModelCapabilities({
 });
 
 describe("descriptor helpers", () => {
+  it("preserves native reasoning capability without inventing an effort selector", () => {
+    for (const reasoning of [true, false]) {
+      const capabilities = createModelCapabilities({ reasoning, optionDescriptors: [] });
+      expect(capabilities).toEqual({ reasoning, optionDescriptors: [] });
+      const stored = toCustomModelSetting({
+        slug: "future-proxy/virtual/model",
+        name: "future-proxy/virtual/model",
+        capabilities,
+      });
+      expect(stored).toEqual({ slug: "future-proxy/virtual/model", capabilities });
+      expect(readCustomModelEntries([stored])).toEqual([
+        {
+          slug: "future-proxy/virtual/model",
+          name: "future-proxy/virtual/model",
+          capabilities,
+        },
+      ]);
+    }
+  });
+
   it("applies selection values to capability descriptors", () => {
     expect(
       getProviderOptionDescriptors({
