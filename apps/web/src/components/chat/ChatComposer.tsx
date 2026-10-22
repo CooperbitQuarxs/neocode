@@ -1,3 +1,4 @@
+import { getThreadRuntimeReadOnlyReason } from "@t3tools/shared/serverSettings";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { usePrimaryEnvironmentId } from "../../state/environments";
@@ -82,7 +83,6 @@ import { DISCONNECTED_COMPOSER_PLACEHOLDER } from "../../composerPlaceholder";
 import { listContinuationForEnter, listIndentForTab } from "../../composer-list-continuation";
 import {
   deriveComposerSendState,
-  getAntigravitySendBlockReason,
   readFileAsDataUrl,
   resolveComposerInteractionMode,
   resolveComposerProviderSelection,
@@ -1909,6 +1909,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // back once the catalog lands.
   const providerCatalogPending = noProviderAvailable && !providerCatalogKnown;
   const showProviderUnavailable = noProviderAvailable && !providerCatalogPending;
+  const runtimeReadOnlyReason = routeKind === "server" && activeThreadModelSelection
+    ? getThreadRuntimeReadOnlyReason({
+        modelSelection: activeThreadModelSelection,
+        session: activeThread?.session,
+        settings,
+        providers: providerStatuses,
+      })
+    : null;
   const providerSetupInstanceId = noProviderAvailable
     ? (unavailableProviderInstanceId ??
       (lockedProvider === null
@@ -1956,12 +1964,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     projectModelSelection: activeProjectDefaultModelSelection,
     settings,
   });
-  const providerSendBlockReason = getAntigravitySendBlockReason(
-    selectedProviderEntry?.snapshot,
-    selectedModel,
-  );
+  const providerSendBlockReason = runtimeReadOnlyReason;
   const sendDisabledReason =
     externalSendDisabledReason ??
+    runtimeReadOnlyReason ??
     (multipleModelSelections?.length === 0 ? "Select at least one model." : null) ??
     (activePendingProgress
       ? attachmentBlockReason
@@ -2044,14 +2050,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   );
   const composerProviderState = useMemo(
     () =>
-      getComposerProviderState({
-        provider: selectedProvider,
-        model: selectedModel,
-        models: selectedProviderModels,
-        promptInjectionState: composerPromptInjectionState,
-        modelOptions: composerModelOptions?.[selectedInstanceId],
-        planModeEnabled: settings.planModeEnabled,
-      }),
+      getComposerProviderState({ provider: selectedProvider,
+      model: selectedModel,
+      models: selectedProviderModels,
+      promptInjectionState: composerPromptInjectionState,
+      modelOptions: composerModelOptions?.[selectedInstanceId] }),
     [
       composerModelOptions,
       composerPromptInjectionState,
@@ -5021,10 +5024,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const hiddenRestingBlockIds = restingBlockDefs
     .slice(restingBlockDefs.length - restingHiddenBlockCount)
     .map((def) => def.id);
-  const composerControls = showProviderUnavailable ? (
+  const composerControls = runtimeReadOnlyReason || showProviderUnavailable ? (
     <ComposerControl
       type="button"
-      disabled={!providerSetupInstanceId}
+      disabled={runtimeReadOnlyReason !== null || !providerSetupInstanceId}
       onClick={() => {
         if (providerSetupInstanceId) {
           onOpenProviderSetup(providerSetupInstanceId);
@@ -5034,7 +5037,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       className="shrink-0"
     >
       <CircleAlertIcon className="size-4" />
-      {providerSetupInstanceId ? "Open provider settings" : "No provider available"}
+      {runtimeReadOnlyReason ?? (providerSetupInstanceId ? "Open NeoPi settings" : "NeoPi unavailable")}
     </ComposerControl>
   ) : (
     <>

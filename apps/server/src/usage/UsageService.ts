@@ -47,8 +47,7 @@ import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { ServerConfig } from "../config.ts";
 import { expandHomePath } from "../pathExpansion.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import { resolveCodexHomeLayout } from "../provider/Drivers/CodexHomeLayout.ts";
-import { resolveAntigravityInstanceDirectories } from "../provider/antigravityAuthSupport.ts";
+import { resolveLegacyCodexHome, legacyAntigravityDirectories } from "../provider/legacyHistoryPaths.ts";
 import { mergeProviderInstanceEnvironment } from "../provider/ProviderInstanceEnvironment.ts";
 import { readOpenCodeUsage } from "./opencodeUsageReader.ts";
 import { readAntigravityUsage } from "./antigravityUsageReader.ts";
@@ -286,12 +285,11 @@ export const make = Effect.gen(function* () {
           if (Option.isNone(decoded)) continue;
           const config = decoded.value;
           const environmentHome = environment.CODEX_HOME?.trim();
-          const layout = yield* resolveCodexHomeLayout(
+          home = yield* resolveLegacyCodexHome(
             !config.homePath.trim() && !config.shadowHomePath.trim() && environmentHome
               ? { ...config, homePath: environmentHome }
               : config,
           );
-          home = layout.sharedHomePath;
         } else if (driver === "claudeAgent") {
           const decoded = decodeClaudeSettings(instance.config ?? {});
           if (Option.isNone(decoded)) continue;
@@ -535,10 +533,8 @@ export const make = Effect.gen(function* () {
     ]);
     for (const [instanceId, instance] of Object.entries(settings.providerInstances)) {
       if (instance.driver === "antigravity") {
-        const directories = yield* resolveAntigravityInstanceDirectories(
-          config.stateDir,
-          ProviderInstanceId.make(instanceId),
-        ).pipe(
+        const directories = yield* legacyAntigravityDirectories(config.stateDir,
+        ProviderInstanceId.make(instanceId),).pipe(
           Effect.provideService(Crypto.Crypto, crypto),
           Effect.provideService(Path.Path, path),
           Effect.mapError(

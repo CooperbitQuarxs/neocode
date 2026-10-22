@@ -1401,16 +1401,17 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const serverConfig = yield* ServerConfig.ServerConfig;
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const instanceId = ProviderInstanceId.make("codex_terminal");
+      const instanceId = ProviderInstanceId.make("neopi_terminal");
 
       yield* serverSettings.updateSettings({
         providerInstances: {
           [instanceId]: {
-            driver: ProviderDriverKind.make("codex"),
+            driver: ProviderDriverKind.make("neopi"),
             environment: [
               { name: "OPENROUTER_API_KEY", value: "sk-terminal-secret", sensitive: true },
+              { name: "OMP_PROFILE", value: "work", sensitive: false },
             ],
-            config: { homePath: "~/.codex-terminal" },
+            config: { profile: "work" },
           },
         },
       });
@@ -1424,7 +1425,8 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const persisted = yield* fileSystem.readFileString(serverConfig.settingsPath);
 
       assert.equal(environment.OPENROUTER_API_KEY, "sk-terminal-secret");
-      assert.match(environment.CODEX_HOME ?? "", /[\\/][.]codex-terminal$/);
+      assert.equal(environment.OMP_PROFILE, "work");
+      assert.equal(environment.CODEX_HOME, undefined);
       assert.notInclude(persisted, "sk-terminal-secret");
       assert.include(persisted, '"valueRedacted": true');
     }).pipe(Effect.provide(makeServerSettingsLayer())),

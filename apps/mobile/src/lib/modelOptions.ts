@@ -76,13 +76,13 @@ export function isModelSelectionUnavailable(
   const driver =
     provider?.driver ?? config.settings?.providerInstances[selection.instanceId]?.driver;
   return (
-    (driver === "antigravity" || driver === "neopi") &&
+    driver !== "neopi" ||
     (!provider ||
       !provider.enabled ||
       !provider.installed ||
       provider.auth.status === "unauthenticated" ||
       provider.availability === "unavailable" ||
-      (driver === "neopi" && (provider.status === "error" || provider.status === "disabled")) ||
+      provider.status === "error" || provider.status === "disabled" ||
       !provider.models.some((model) => model.slug === selection.model))
   );
 }
@@ -104,12 +104,11 @@ export function resolveSelectableModelSelection(
   );
   const driver =
     provider?.driver ?? config.settings?.providerInstances[selection.instanceId]?.driver;
-  if (driver === "antigravity") {
-    return selection;
-  }
-  return provider &&
+  return driver === "neopi" &&
+    provider &&
     provider.enabled &&
     provider.installed &&
+    provider.availability !== "unavailable" &&
     provider.auth.status !== "unauthenticated"
     ? selection
     : null;
@@ -130,7 +129,7 @@ export function resolveDefaultableModelSelection(
   }
   const provider = config.providers.find((candidate) => candidate.instanceId === usable.instanceId);
   const model = provider?.models.find((candidate) => candidate.slug === usable.model);
-  return provider?.driver !== "antigravity" && model?.isLegacy === true ? null : usable;
+  return model?.isLegacy === true ? null : usable;
 }
 
 export function resolveNewTaskModelSelection(input: {
@@ -168,13 +167,12 @@ export function buildModelOptions(
 
   for (const provider of config?.providers ?? []) {
     if (
+      provider.driver !== "neopi" ||
       !provider.enabled ||
       !provider.installed ||
       provider.auth.status === "unauthenticated" ||
-      ((provider.driver === "antigravity" || provider.driver === "neopi") &&
-        provider.availability === "unavailable") ||
-      (provider.driver === "neopi" &&
-        (provider.status === "error" || provider.status === "disabled"))
+      provider.availability === "unavailable" ||
+      provider.status === "error" || provider.status === "disabled"
     ) {
       continue;
     }
@@ -210,10 +208,7 @@ export function buildModelOptions(
     if (existing) {
       options.set(key, {
         ...existing,
-        selection:
-          existing.providerDriver === "antigravity"
-            ? fallbackModelSelection
-            : normalizeSelectionOptions(fallbackModelSelection, existing.capabilities),
+        selection: normalizeSelectionOptions(fallbackModelSelection, existing.capabilities),
       });
     } else {
       const provider = config?.providers.find(

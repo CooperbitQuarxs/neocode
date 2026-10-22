@@ -457,7 +457,6 @@ import {
   resolveBackgroundDraftWorkspaceOptions,
   resolveComposerInteractionMode,
   resolveComposerProviderSelection,
-  getAntigravitySendBlockReason,
   resolveDraftHeroState,
   findRecordedWorktreeSetup,
   resolveVisibleWorktreeSetup,
@@ -7779,13 +7778,8 @@ export default function ChatView(props: ChatViewProps) {
       const provider = providerInstanceEntries.find(
         (entry) => entry.instanceId === selection.instanceId,
       );
-      if (!provider?.enabled || !provider.isAvailable || provider.status !== "ready") {
+      if (provider?.driverKind !== "neopi" || !provider.enabled || !provider.isAvailable || provider.status !== "ready") {
         setThreadError(threadIdForSend, `Provider for ${selection.model} is unavailable.`);
-        return;
-      }
-      const providerBlockReason = getAntigravitySendBlockReason(provider.snapshot, selection.model);
-      if (providerBlockReason) {
-        setThreadError(threadIdForSend, providerBlockReason);
         return;
       }
       const providerState = getComposerProviderState({
@@ -7794,7 +7788,6 @@ export default function ChatView(props: ChatViewProps) {
         models: provider.models,
         modelOptions: selection.options,
         promptInjectionState: getComposerPromptInjectionState(messageTextForSend),
-        planModeEnabled: settings.planModeEnabled,
       });
       const text = formatOutgoingPrompt({
         provider: provider.driverKind,

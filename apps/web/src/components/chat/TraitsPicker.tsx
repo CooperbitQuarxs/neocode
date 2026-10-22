@@ -138,7 +138,7 @@ function getSelectedTraits(
   allowPromptInjectedEffort: boolean,
   planModeEnabled: boolean,
 ) {
-  const caps = getProviderModelCapabilities(models, model, provider, planModeEnabled);
+  const caps = getProviderModelCapabilities(models, model, provider);
   const modelIsUnavailable =
     provider === "opencode" &&
     !models.some((candidate) => candidate.slug === normalizeModelSlug(model, provider));

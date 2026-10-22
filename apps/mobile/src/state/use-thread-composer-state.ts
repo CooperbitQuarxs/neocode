@@ -1,3 +1,4 @@
+import { getThreadRuntimeReadOnlyReason } from "@t3tools/shared/serverSettings";
 import type { ComposerTextPaste } from "../native/T3ComposerEditor.types";
 import { useAtomValue } from "@effect/atom-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -374,13 +375,23 @@ export function useThreadComposerState() {
 
     const modelSelection = draft.modelSelection ?? thread.modelSelection;
     const serverConfig = selectedEnvironmentRuntime?.serverConfig;
+    const readOnlyReason = getThreadRuntimeReadOnlyReason({
+      modelSelection: thread.modelSelection,
+      session: thread.session,
+      settings: serverConfig?.settings,
+      providers: serverConfig?.providers,
+    });
+    if (readOnlyReason) {
+      Alert.alert("Read-only history", readOnlyReason);
+      return null;
+    }
     if (
       selectedEnvironmentRuntime?.connectionState === "connected" &&
       isModelSelectionUnavailable(serverConfig, modelSelection)
     ) {
       Alert.alert(
-        "Antigravity model unavailable",
-        "Set up Antigravity on web or desktop, or choose another model.",
+        "NeoPi model unavailable",
+        "Configure NeoPi on this environment or choose another available NeoPi model.",
       );
       return null;
     }

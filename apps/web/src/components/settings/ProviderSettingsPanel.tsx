@@ -84,7 +84,6 @@ import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 import { ExpandableText } from "./ExpandableText";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { UsageProviderSettings } from "./UsageProviderSettings";
-import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
 import { DRIVER_OPTIONS, getDriverOption } from "./providerDriverMeta";
 import { searchableSetting } from "./settingsSearch";
 import {
@@ -134,10 +133,6 @@ const PROVIDER_SETTINGS = DRIVER_OPTIONS.map((definition) => ({
   provider: definition.value,
 }));
 
-function configuredBinaryPath(config: unknown): string {
-  if (config === null || typeof config !== "object" || !("binaryPath" in config)) return "";
-  return typeof config.binaryPath === "string" ? config.binaryPath.trim() : "";
-}
 
 function ProviderLastChecked({ lastCheckedAt }: { lastCheckedAt: string | null }) {
   useRelativeTimeTick();
@@ -729,22 +724,15 @@ export function EnvironmentProviderSettings({
     Array<[ProviderInstanceId, ProviderInstanceConfig]>
   >();
   for (const [rawId, instance] of Object.entries(settings.providerInstances ?? {})) {
+    if (instance.driver !== "neopi") continue;
     const driver = instance.driver;
     const list = instancesByDriver.get(driver) ?? [];
     list.push([rawId as ProviderInstanceId, instance]);
     instancesByDriver.set(driver, list);
   }
 
-  const defaultSlotIdsBySource = new Set<string>(
-    visibleProviderSettings.map((providerSettings) =>
-      String(defaultInstanceIdForDriver(providerSettings.provider)),
-    ),
-  );
 
   const rows: InstanceRow[] = [];
-  const visibleDriverKinds = new Set<ProviderDriverKind>(
-    visibleProviderSettings.map((providerSettings) => providerSettings.provider),
-  );
 
   for (const providerSettings of visibleProviderSettings) {
     type LegacyProviderSettings = (typeof settings.providers)[keyof typeof settings.providers];
@@ -794,17 +782,6 @@ export function EnvironmentProviderSettings({
     for (const [id, instance] of instancesByDriver.get(providerSettings.provider) ?? []) {
       if (id === defaultInstanceId) continue;
       rows.push({ instanceId: id, instance, driver: instance.driver, isDefault: false });
-    }
-  }
-  for (const [driver, list] of instancesByDriver) {
-    if (visibleDriverKinds.has(driver)) continue;
-    for (const [id, instance] of list) {
-      rows.push({
-        instanceId: id,
-        instance,
-        driver: instance.driver,
-        isDefault: defaultSlotIdsBySource.has(String(id)),
-      });
     }
   }
 
@@ -936,23 +913,7 @@ export function EnvironmentProviderSettings({
         selected={mode === "list" && selectedRow?.instanceId === row.instanceId}
         onSelect={mode === "list" ? () => setSelectedInstanceId(row.instanceId) : undefined}
         readOnly={readOnly}
-        setup={
-          mode === "editor" && row.driver === "antigravity" ? (
-            <ProviderSetupSection
-              environmentId={environmentId}
-              environmentLabel={environmentLabel}
-              instanceId={row.instanceId}
-              provider={liveProvider}
-              binaryPath={configuredBinaryPath(row.instance.config)}
-              authMethod={readAntigravityAuthMethod(row.instance.config)}
-              enabled={resolveProviderInstanceEnabled(row.instance)}
-              readOnly={readOnly}
-              onEnable={() => updateProviderInstance(row, { ...row.instance, enabled: true })}
-            />
-          ) : mode === "editor" && row.driver === "neopi" ? (
-            <NeoPiBinarySelectionNote config={row.instance.config} />
-          ) : null
-        }
+        setup={mode === "editor" ? <NeoPiBinarySelectionNote config={row.instance.config} /> : null}
         onUpdate={(next) => {
           const wasEnabled = resolveProviderInstanceEnabled(row.instance);
           const isDisabling = next.enabled === false && wasEnabled;

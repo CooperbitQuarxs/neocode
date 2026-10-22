@@ -47,11 +47,11 @@ describe("RPC authorization scopes", () => {
     );
   });
 
-  it("requires write access to import agent session history", () => {
-    expect(requiredScopeForRpcMethod(WS_METHODS.agentSessionsScan)).toBe(
+  it("requires write access to resume native NeoPi history", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.neopiSessionsList)).toBe(
       AuthOrchestrationReadScope,
     );
-    expect(requiredScopeForRpcMethod(WS_METHODS.agentSessionsImport)).toBe(
+    expect(requiredScopeForRpcMethod(WS_METHODS.neopiSessionsResume)).toBe(
       AuthOrchestrationOperateScope,
     );
   });
