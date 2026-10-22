@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { ServerProviderModel } from "@t3tools/contracts";
 
-import { groupModelsForDisplay, nextHiddenModelsForBulkToggle } from "./ProviderModelsSection";
+import {
+  describeModelCapabilities,
+  groupModelsForDisplay,
+  nextHiddenModelsForBulkToggle,
+} from "./ProviderModelsSection";
 
 function model(slug: string, isCustom = false): ServerProviderModel {
   return { slug, name: slug, isCustom, capabilities: null };
@@ -36,5 +40,72 @@ describe("nextHiddenModelsForBulkToggle", () => {
       "legacy",
       "custom",
     ]);
+  });
+});
+
+describe("describeModelCapabilities", () => {
+  it("shows native reasoning support without requiring configurable effort", () => {
+    expect(
+      describeModelCapabilities({
+        ...model("@reasoner"),
+        capabilities: { reasoning: true, optionDescriptors: [] },
+      }),
+    ).toEqual(["Reasoning"]);
+  });
+
+  it("retains legacy reasoning descriptors when native capability metadata is absent", () => {
+    expect(
+      describeModelCapabilities({
+        ...model("proxy/model"),
+        capabilities: {
+          optionDescriptors: [
+            {
+              id: "reasoningEffort",
+              type: "select",
+              label: "Thinking",
+              options: [{ id: "high", label: "High" }],
+            },
+          ],
+        },
+      }),
+    ).toEqual(["Reasoning"]);
+  });
+
+  it("does not infer reasoning support from a role's name or slug", () => {
+    expect(describeModelCapabilities(model("@reasoning-fast"))).toEqual([]);
+  });
+
+  it("uses explicit native reasoning metadata instead of stale effort descriptors", () => {
+    expect(
+      describeModelCapabilities({
+        ...model("proxy/model"),
+        capabilities: {
+          reasoning: false,
+          optionDescriptors: [
+            {
+              id: "reasoningEffort",
+              type: "select",
+              label: "Thinking",
+              options: [{ id: "high", label: "High" }],
+            },
+          ],
+        },
+      }),
+    ).toEqual([]);
+  });
+
+  it("describes available fast controls rather than their requested on/off value", () => {
+    for (const currentValue of [true, false]) {
+      expect(
+        describeModelCapabilities({
+          ...model("proxy/model"),
+          capabilities: {
+            optionDescriptors: [
+              { id: "fastMode", type: "boolean", label: "Fast mode", currentValue },
+            ],
+          },
+        }),
+      ).toEqual(["Fast mode"]);
+    }
   });
 });

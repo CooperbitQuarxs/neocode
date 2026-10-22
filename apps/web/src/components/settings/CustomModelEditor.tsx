@@ -131,6 +131,7 @@ export function CustomModelEditor({
     setError(null);
     setDraft((current) => ({
       ...current,
+      reasoning: model.capabilities?.reasoning,
       descriptors: descriptorsFromCapabilities(model.capabilities, driverKind),
     }));
   };
