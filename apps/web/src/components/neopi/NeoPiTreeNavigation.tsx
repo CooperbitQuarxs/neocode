@@ -6,7 +6,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import { NativeJson } from "./NeoPiJournalContent";
 import { restoreNativeDraft } from "./neopiNativeDraft";
-import { nativeAskQuestions, nativeAskReanswer } from "./neopiTree.logic";
+import { nativeAskQuestions, nativeAskReanswer } from "@t3tools/client-runtime/neopi-tree";
 import { nativeConversationAtoms, useNeoPiConversation } from "./useNeoPiConversation";
 import { nativeTreeSessionKey, useNativeTreeField, type NativeAnswerImage } from "./neopiTreeState";
 

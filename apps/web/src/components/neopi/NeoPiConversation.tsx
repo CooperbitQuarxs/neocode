@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
 import { NeoPiJournalContent } from "./NeoPiJournalContent";
-import { journalEntryCategory, journalEntryLabel } from "./neopiJournal.logic";
+import { journalEntryCategory, journalEntryLabel } from "@t3tools/client-runtime/neopi-journal";
 import { useNativeDraftIdentity } from "./neopiNativeDraft";
 import { useNeoPiConversation } from "./useNeoPiConversation";
 import { nativeTreeSessionKey, useNativeTreeField } from "./neopiTreeState";

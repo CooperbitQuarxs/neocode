@@ -3,7 +3,7 @@ import { nativeIdentityKey, type NativeIdentity } from "@t3tools/client-runtime/
 import { useCallback } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { NativeAskAnswer } from "./neopiTree.logic";
+import type { NativeAskAnswer } from "@t3tools/client-runtime/neopi-tree";
 
 export interface NativeAnswerImage { type: "image"; data: string; mimeType: string }
 interface NativeTreeDraft {

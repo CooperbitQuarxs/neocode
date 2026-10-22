@@ -107,6 +107,7 @@ import {
   ThreadComposer,
 } from "./ThreadComposer";
 import { ThreadFeed } from "./ThreadFeed";
+import { NeoPiConversation } from "./NeoPiConversation";
 import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
 
@@ -314,6 +315,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const navigationHeaderHeight = useContext(HeaderHeightContext) || insets.top + IOS_NAV_BAR_HEIGHT;
   const agentLabel = `${props.selectedThread.modelSelection.instanceId} agent`;
   const selectedThreadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
+  const conversationInstanceId = props.selectedThread.session?.providerInstanceId ?? props.selectedThread.modelSelection.instanceId;
+  const nativeConversationBound = props.selectedThread.session?.providerName === "neopi" ||
+    props.serverConfig?.providers.some(provider => provider.instanceId === conversationInstanceId && provider.driver === "neopi") === true;
+  const [nativeContent, setNativeContent] = useState({ key: selectedThreadKey, hasUser: false });
+  const onNativeConversationChange = useCallback((hasUser: boolean) => setNativeContent({ key: selectedThreadKey, hasUser }), [selectedThreadKey]);
   const composerEditorRef = useRef<ComposerEditorHandle>(null);
   const draftMessageRef = useRef(props.draftMessage);
   draftMessageRef.current = props.draftMessage;
@@ -385,7 +391,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     }
     if (props.creationState?.kind === "preparing") {
       // The setup header already reports progress in the feed.
-      if (props.worktreeSetup) return null;
+      if (props.worktreeSetup && !nativeConversationBound) return null;
       return {
         kind: "preparing",
         label: props.creationState.preparingWorktree ? "Setting up worktree…" : "Starting…",
@@ -394,6 +400,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     if (props.creationState?.kind === "failed") {
       return null;
     }
+    // Native busy/compaction state belongs to its live stream, not SQL turn receipts.
+    if (nativeConversationBound) return null;
     if (threadSyncLabel !== null) {
       return { kind: "syncing", label: threadSyncLabel };
     }
@@ -417,15 +425,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       (entry) => "acknowledged" in entry && entry.acknowledged === true,
     );
   const selectedThreadFeed = props.selectedThreadFeed;
-  const hasCompactableConversation =
-    selectedThreadFeed.some(
-      (entry) =>
-        entry.type === "message" &&
-        entry.message.role === "user" &&
-        ((entry.message.attachments?.length ?? 0) > 0 ||
-          entry.message.text.trim().toLowerCase() !== "/compact"),
-    ) ||
-    (Boolean(props.loadEarlier) && props.selectedThread.latestUserMessageAt !== null);
+  const hasCompactableConversation = nativeConversationBound
+    ? nativeContent.key === selectedThreadKey && nativeContent.hasUser
+    : selectedThreadFeed.some(
+        (entry) => entry.type === "message" && entry.message.role === "user" &&
+          ((entry.message.attachments?.length ?? 0) > 0 || entry.message.text.trim().toLowerCase() !== "/compact"),
+      ) || (Boolean(props.loadEarlier) && props.selectedThread.latestUserMessageAt !== null);
   const composerChrome = composerExpanded ? COMPOSER_EXPANDED_CHROME : COMPOSER_COLLAPSED_CHROME;
   const composerOverlapHeight = composerChrome + composerBottomInset;
   // While a user-input request is pending, the questionnaire owns the
@@ -683,7 +688,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
       : { width: "100%" },
   );
   const selectedInstanceId = props.selectedThread.modelSelection.instanceId;
-  useStreamingHaptics(props.selectedThread.id, props.selectedThreadFeed);
+  useStreamingHaptics(props.selectedThread.id, nativeConversationBound ? [] : props.selectedThreadFeed);
   const selectedProviderSkills = useMemo(() => {
     const provider = props.serverConfig?.providers.find(
       (candidate) => candidate.instanceId === selectedInstanceId,
@@ -709,6 +714,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
 
   useEffect(() => {
     if (
+      nativeConversationBound ||
       submittedMessageId === null ||
       anchorMessageId !== submittedMessageId ||
       lastScrolledSubmittedMessageIdRef.current === submittedMessageId ||
@@ -755,6 +761,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     });
     return () => cancelAnimationFrame(frame);
   }, [
+    nativeConversationBound,
     anchorMessageId,
     submittedMessageId,
     freeze,
@@ -843,7 +850,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     });
   }, [freeze, scrollMessageToEnd]);
 
-  const showScrollToEndButton = contentPresentationKind === "ready" && !endFollowEnabled;
+  const showScrollToEndButton = (nativeConversationBound || contentPresentationKind === "ready") && !endFollowEnabled;
   const { themeAppearance } = useAppearancePreferences();
   const isDarkMode = themeAppearance === "dark";
 
@@ -906,6 +913,20 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               />
             )}
           >
+            {nativeConversationBound ? (
+              <NeoPiConversation
+                key={`${selectedThreadKey}:${conversationInstanceId}`}
+                threadRef={{ environmentId: props.environmentId, threadId: props.selectedThread.id }}
+                cwd={props.threadCwd}
+                bottomInset={estimatedOverlayHeight + (showFloatingStatus ? FLOATING_WORKING_CONTROL_COVERAGE : 0)}
+                listRef={listRef}
+                ownerStatus={props.selectedThread.session?.status}
+                onEndFollowEnabledChange={setEndFollowEnabled}
+                onHasConversationChange={onNativeConversationChange}
+                queuedMessages={props.queuedMessages}
+                onEditPendingMessage={handleEditPendingMessage}
+              />
+            ) : (
             <ThreadFeed
               environmentId={props.environmentId}
               threadId={props.selectedThread.id}
@@ -939,6 +960,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               onUseArtifactTemplate={handleUseArtifactTemplate}
               loadEarlier={props.loadEarlier ?? null}
             />
+            )}
           </RenderErrorBoundary>
         </View>
       ) : (

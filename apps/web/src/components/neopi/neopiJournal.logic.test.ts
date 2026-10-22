@@ -9,7 +9,7 @@ import {
   journalEntryCategory,
   journalTreeRows,
   type NeoPiJournalSnapshot,
-} from "./neopiJournal.logic";
+} from "@t3tools/client-runtime/neopi-journal";
 
 type Available = Extract<NeoPiSessionJournalResult, { status: "available" }>;
 const entry = (id: string, parentId: string | null, type = "message"): NeoPiJournalEntry => ({

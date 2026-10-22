@@ -213,11 +213,30 @@ At least one project must exist in that environment to supply discovery context.
 The server resolves the selected session's real cwd and project when resuming; mobile
 does not move a session into that context project.
 
-The chat has NeoPi session configuration for its native model, effort, active role and
-role definitions. This is a read-only snapshot with explicit Refresh. Unavailable
-native features, server errors and discovery diagnostics are displayed, not treated as
-successful empty results. Model selection still uses the shared model catalog, including
-NeoPi inference providers and roles.
+Open Models from Home, the thread sidebar, or a chat's session-configuration panel.
+The page uses NeoPi's native model catalog and role definitions. It supports global
+and project-scoped role assignments, fixed/inherited/automatic effort, ordered effort
+rules, provider API keys, native login prompts and account removal. NeoPi resolves
+selectors and rejects conflicting edits; mobile does not run a second model resolver.
+The chat's configuration panel remains a read-only snapshot with explicit Refresh.
+
+The main conversation reads the canonical native branch, including history before
+compaction or context resets. Use Load older native entries to page backward. Session
+tree inspects the complete append-only journal across branches; load older journal
+pages to reach earlier forks. Messages, reasoning, tool payloads, images, summaries,
+reset markers and unknown native records remain inspectable.
+
+Navigate from an entry to restore a user draft or select another branch without
+deleting its future. Summary instructions and reopened ask answers stay with that
+native file. Saving a replacement answer does not immediately continue the agent:
+review the rebuilt branch, then acknowledge Resume. Starting a stopped native owner
+for navigation requires the separate explicit action. Unsent local drafts survive
+file switches; a pre-attachment draft retained beside an existing native draft has
+its own restore action.
+
+Unavailable features, server errors, native stream gaps and discovery diagnostics
+are displayed, never treated as successful empty history. Local outbox messages are
+marked separately from native history.
 
 Usage, NeoPi stats opens the actual native stats document for the chosen environment
 and NeoPi runtime. NeoPi owns its session analysis, traces, indexing and errors.
@@ -232,12 +251,12 @@ Expo's streaming fetch carries live updates and trace bodies; document MessagePo
 cross the native boundary through a local adapter with the shared path allowlist,
 backpressure and cancellation. Closing the view releases its server-owned stats process.
 
-This client requires a compatible NeoCode server with `neopiSessions.list`, `.resume`
-and `.configuration`, and a NeoPi runtime implementing their native session capabilities.
-It is not a client for arbitrary upstream server versions. Native role/effort-rule edits,
-provider login flows, journal-tree navigation and terminal handoff do not have mobile
-controls yet. Use NeoPi's terminal for those actions. iOS widgets and native header
-chrome are not Android features. Android uses its existing Material controls.
+This client requires a compatible NeoCode server with the native session journal,
+live conversation, tree-navigation and Models contracts, plus a NeoPi runtime
+implementing those capabilities. It is not a client for arbitrary upstream server
+versions. Terminal handoff has no mobile control; use NeoPi on the host for that
+action. iOS widgets and native header chrome are not Android features. Android uses
+its existing Material controls.
 
 The screens patch targets 4.26.2. Its Kotlin managers implement the generated setters
 for `subtitle`, `largeSubtitle`, `navigationItemStyle`, `headerCenterBarButtonItems`,
@@ -249,8 +268,9 @@ Do not reuse an old `node_modules` tree after the patch hash changes.
 Source changes are not device proof. Before accepting #145, retain the signed APK and
 checksum, record its signing certificate and ABI, install it on the authorized target,
 and capture startup, pairing, existing-project visibility, native discovery/resume,
-configuration, native stats and traces, disconnect/error handling, quota limits and an
-in-place update with connections intact.
+Models edits and login cancellation, live native history, branch navigation and
+re-answer acknowledgement, native stats and traces, disconnect/error handling, quota
+limits and an in-place update with connections intact.
 Record the tested NeoCode commit and NeoPi version. Neither a successful compile nor
 an emulator-only screenshot establishes physical-device compatibility.
 

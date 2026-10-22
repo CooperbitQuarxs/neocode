@@ -1,5 +1,5 @@
 import type { NeoPiNavigateTreeInput } from "@t3tools/contracts";
-import { journalRecord } from "./neopiJournal.logic";
+import { journalRecord } from "./neopiJournal.ts";
 
 export function nativeAskQuestions(questions: ReadonlyArray<Readonly<Record<string, unknown>>>) {
   return questions.map((question) => {

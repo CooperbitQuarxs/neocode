@@ -2,35 +2,18 @@ import { useNavigation } from "@react-navigation/native";
 import type { EnvironmentId, NeoPiSessionSummary, ScopedThreadRef } from "@t3tools/contracts";
 import { filterNeoPiSessions, neopiSessionRowState } from "@t3tools/client-runtime/neopi-sessions";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { FlatList, Modal, Pressable, ScrollView, TextInput, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useEffect, useRef, useState } from "react";
+import { FlatList, Pressable, ScrollView, TextInput, View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
 import { MaterialButton } from "../../components/MaterialButton";
-import { useProjects } from "../../state/entities";
+import { useProjects, useThreadShell } from "../../state/entities";
 import { neopiSessionConfiguration, neopiSessionList, neopiSessionResume } from "../../state/neopiSessions";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { NativeModal as SessionModal } from "./NativeNeoPiControls";
+import { NeoPiModelsEntry } from "./NeoPiModelsScreen";
 
-function SessionModal({ title, onClose, children }: {
-  title: string;
-  onClose: () => void;
-  children: ReactNode;
-}) {
-  const insets = useSafeAreaInsets();
-  return (
-    <Modal visible animationType="slide" onRequestClose={onClose}>
-      <View className="flex-1 bg-screen" style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}>
-        <View className="flex-row items-center justify-between gap-3 px-4 py-2">
-          <Text accessibilityRole="header" className="flex-1 text-lg font-t3-medium text-foreground">{title}</Text>
-          <MaterialButton label="Close" tone="text" onPress={onClose} />
-        </View>
-        {children}
-      </View>
-    </Modal>
-  );
-}
 
 export function NeoPiSessionBrowser({ environmentId, disabled = false }: {
   environmentId: EnvironmentId;
@@ -130,9 +113,12 @@ function SessionBrowser({ environmentId, onClose }: { environmentId: Environment
 
 export function NeoPiSessionConfiguration({ threadRef }: { threadRef: ScopedThreadRef }) {
   const [open, setOpen] = useState(false);
+  const thread = useThreadShell(threadRef);
+  const instanceId = thread?.session?.providerInstanceId ?? thread?.modelSelection.instanceId;
   return (
-    <View className="px-4 py-1">
+    <View className="flex-row flex-wrap items-center px-4 py-1">
       <MaterialButton label="NeoPi session configuration" tone="text" onPress={() => setOpen(true)} />
+      {instanceId ? <NeoPiModelsEntry environmentId={threadRef.environmentId} target={{ providerInstanceId: instanceId, threadId: threadRef.threadId, ...(thread ? { projectId: thread.projectId } : {}) }} /> : null}
       {open ? <ConfigurationSnapshot threadRef={threadRef} onClose={() => setOpen(false)} /> : null}
     </View>
   );
@@ -145,7 +131,7 @@ function ConfigurationSnapshot({ threadRef, onClose }: { threadRef: ScopedThread
   return (
     <SessionModal title="NeoPi session configuration" onClose={onClose}>
       <ScrollView contentContainerClassName="gap-4 px-4 pb-6">
-        <Text className="text-sm text-foreground-muted">Read-only native snapshot. Refresh to see model, effort and role changes. Mobile does not yet edit native role definitions, effort rules or provider login credentials. Use the connected NeoPi terminal for those actions.</Text>
+        <Text className="text-sm text-foreground-muted">Native session snapshot. Refresh to read model, effort and role changes. Open Models from the chat header to edit native role definitions, scoped effort rules and inference-provider accounts.</Text>
         <MaterialButton label="Refresh" disabled={result.isPending} onPress={result.refresh} />
         {result.isPending ? <Text className="text-foreground-muted">Reading native configuration…</Text> : result.error ? <Text accessibilityRole="alert" className="text-danger-foreground">{result.error}</Text> : result.data?.status === "unavailable" ? <Text accessibilityRole="alert" className="text-foreground-muted">{result.data.reason}</Text> : null}
         {snapshot ? (

@@ -3,7 +3,7 @@ import { EnvironmentId, PROVIDER_SEND_TURN_MAX_ATTACHMENTS, ThreadId, type NeoPi
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { composerTargetKey, useComposerDraftStore } from "../../composerDraftStore";
 import { nativeDraftImages, restoreNativeDraft, switchNativeDraftIdentity } from "./neopiNativeDraft";
-import { nativeAskQuestions, nativeAskReanswer } from "./neopiTree.logic";
+import { nativeAskQuestions, nativeAskReanswer } from "@t3tools/client-runtime/neopi-tree";
 import { removeLocalStorageItem } from "../../hooks/useLocalStorage";
 
 const thread = scopeThreadRef(EnvironmentId.make("native-env"), ThreadId.make("native-thread"));

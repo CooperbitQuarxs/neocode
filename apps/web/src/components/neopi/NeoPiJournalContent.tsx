@@ -2,7 +2,7 @@ import type { NeoPiJournalEntry, ScopedThreadRef } from "@t3tools/contracts";
 import { useState } from "react";
 import ChatMarkdown from "../ChatMarkdown";
 import { cn } from "../../lib/utils";
-import { journalRecord } from "./neopiJournal.logic";
+import { journalRecord } from "@t3tools/client-runtime/neopi-journal";
 
 export function NativeJson({ value, label = "Canonical JSON" }: {
   value: unknown;

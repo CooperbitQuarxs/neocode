@@ -70,7 +70,7 @@ export function journalTreeRows(entries: ReadonlyArray<NeoPiJournalEntry>) {
     else children.set(parent, [entry]);
   }
   const rows: { entry: NeoPiJournalEntry; depth: number; missingParent: boolean; childCount: number }[] = [];
-  const pending = (children.get(null) ?? []).toReversed().map((entry) => ({ entry, depth: 0 }));
+  const pending = (children.get(null) ?? []).map((entry) => ({ entry, depth: 0 })).reverse();
   const visited = new Set<string>();
   while (pending.length > 0) {
     const next = pending.pop()!;

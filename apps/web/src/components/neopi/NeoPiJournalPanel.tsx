@@ -17,7 +17,7 @@ import {
   journalEntryLabel,
   journalTreeRows,
   type NeoPiJournalSnapshot,
-} from "./neopiJournal.logic";
+} from "@t3tools/client-runtime/neopi-journal";
 
 export function NeoPiJournalPanel({ threadRef, cwd }: {
   threadRef: ScopedThreadRef;
