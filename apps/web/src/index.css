@@ -1054,7 +1054,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --accent: rgb(0 0 0 / 3%);
   --accent-foreground: var(--foreground);
   --error: #dc3a40;
-  --error-foreground: #dc3a40;
+  --error-foreground: color-mix(in srgb, var(--error) 75%, #151518);
   --tool-error-icon: var(--error);
   --error-surface: rgb(220 58 64 / 10%);
   --destructive: var(--error);
@@ -1067,7 +1067,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   --success: #12a36b;
   --success-foreground: color-mix(in srgb, var(--success) 70%, #151518);
   --warning: #c77c02;
-  --warning-foreground: color-mix(in srgb, var(--warning) 70%, #151518);
+  --warning-foreground: color-mix(in srgb, var(--warning) 60%, #151518);
   --warning-surface: rgb(199 124 2 / 11%);
   --update: var(--primary);
   --update-foreground: var(--primary);

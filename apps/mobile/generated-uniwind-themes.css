@@ -44,10 +44,10 @@
       --color-switch-inactive-thumb: #5a5a63;
       --color-warning: #eee4da;
       --color-warning-border: rgba(199, 124, 2, 0.32);
-      --color-warning-foreground: #925d09;
+      --color-warning-foreground: #80530b;
       --color-danger: #f1dfe3;
       --color-danger-border: rgba(220, 58, 64, 0.32);
-      --color-danger-foreground: #dc3a40;
+      --color-danger-foreground: #aa3136;
       --color-update: #e4dcf3;
       --color-update-foreground: #7a3fe4;
       --color-input: #ffffff;
@@ -150,7 +150,7 @@
       --color-clerk-foreground: #151518;
       --color-clerk-foreground-muted: #5a5a63;
       --color-clerk-border: #dddbdf;
-      --color-clerk-danger: #dc3a40;
+      --color-clerk-danger: #aa3136;
     }
 
     @variant dark {
@@ -454,7 +454,7 @@
       --color-clerk-foreground: #151518;
       --color-clerk-foreground-muted: #5a5a63;
       --color-clerk-border: #dddbdf;
-      --color-clerk-danger: #dc3a40;
+      --color-clerk-danger: #aa3136;
     }
 
     @variant t3-chat-dark {
@@ -758,7 +758,7 @@
       --color-clerk-foreground: #151518;
       --color-clerk-foreground-muted: #5a5a63;
       --color-clerk-border: #dddbdf;
-      --color-clerk-danger: #dc3a40;
+      --color-clerk-danger: #aa3136;
     }
 
     @variant grove-dark {
@@ -1062,7 +1062,7 @@
       --color-clerk-foreground: #151518;
       --color-clerk-foreground-muted: #5a5a63;
       --color-clerk-border: #dddbdf;
-      --color-clerk-danger: #dc3a40;
+      --color-clerk-danger: #aa3136;
     }
 
     @variant ocean-dark {
@@ -1366,7 +1366,7 @@
       --color-clerk-foreground: #151518;
       --color-clerk-foreground-muted: #5a5a63;
       --color-clerk-border: #dddbdf;
-      --color-clerk-danger: #dc3a40;
+      --color-clerk-danger: #aa3136;
     }
 
     @variant ember-dark {
@@ -1670,7 +1670,7 @@
       --color-clerk-foreground: #151518;
       --color-clerk-foreground-muted: #5a5a63;
       --color-clerk-border: #dddbdf;
-      --color-clerk-danger: #dc3a40;
+      --color-clerk-danger: #aa3136;
     }
 
     @variant iris-dark {

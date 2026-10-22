@@ -110,6 +110,10 @@ describe("theme files", () => {
       expect(
         contrastRatio(colors.messageActionForeground, colors.messageAction),
       ).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(colors.errorForeground, colors.errorSurface)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(colors.warningForeground, colors.warningSurface)).toBeGreaterThanOrEqual(
+        4.5,
+      );
     }
   });
 
