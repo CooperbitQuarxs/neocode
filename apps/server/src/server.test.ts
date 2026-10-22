@@ -135,7 +135,6 @@ import * as ProviderService from "./provider/Services/ProviderService.ts";
 import { ProviderInstanceRegistry } from "./provider/Services/ProviderInstanceRegistry.ts";
 import type { ProviderInstance } from "./provider/ProviderDriver.ts";
 import * as ProviderSessionDirectory from "./provider/Services/ProviderSessionDirectory.ts";
-import { ProviderAdapterRequestError } from "./provider/Errors.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 import * as ServiceLauncherClient from "./cloud/serviceLauncherClient.ts";
@@ -755,7 +754,6 @@ const buildAppUnderTest = (options?: {
             ...options?.layers?.providerRegistry,
           }),
           Layer.mock(ProviderService.ProviderService)({
-            uploadFeedback: () => Effect.die("Provider feedback is not stubbed in this test"),
             ...options?.layers?.providerService,
           }),
           Layer.mock(ProviderInstanceRegistry)({
@@ -5906,32 +5904,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  ;
-
-  it.effect("uploads Codex thread feedback through websocket rpc", () =>
-    Effect.gen(function* () {
-      const input = {
-        threadId: ThreadId.make("thread-feedback"),
-        reason: "The agent stopped early.",
-      };
-      const uploadFeedback = vi.fn<ProviderService.ProviderService["Service"]["uploadFeedback"]>(
-        () => Effect.succeed({ feedbackId: "codex-thread-feedback" }),
-      );
-      yield* buildAppUnderTest({
-        layers: {
-          providerService: { uploadFeedback },
-        },
-      });
-
-      const wsUrl = yield* getWsServerUrl("/ws");
-      const response = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.providerUploadFeedback](input)),
-      );
-
-      assert.deepStrictEqual(response, { feedbackId: "codex-thread-feedback" });
-      assert.deepStrictEqual(uploadFeedback.mock.calls, [[input]]);
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
-  );
 
   it.effect("serves absolute host media without a local thread and rejects relative media", () =>
     Effect.gen(function* () {
@@ -6151,39 +6123,6 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect("keeps feedback errors structured across websocket rpc", () =>
-    Effect.gen(function* () {
-      const threadId = ThreadId.make("thread-feedback-failure");
-      yield* buildAppUnderTest({
-        layers: {
-          providerService: {
-            uploadFeedback: () =>
-              Effect.fail(
-                new ProviderAdapterRequestError({
-                  provider: "codex",
-                  method: "feedback/upload",
-                  detail: "private provider detail",
-                }),
-              ),
-          },
-        },
-      });
-
-      const wsUrl = yield* getWsServerUrl("/ws");
-      const error = yield* Effect.scoped(
-        withWsRpcClient(wsUrl, (client) =>
-          client[WS_METHODS.providerUploadFeedback]({ threadId }).pipe(Effect.flip),
-        ),
-      );
-
-      assert.strictEqual(error._tag, "ProviderUploadFeedbackError");
-      if (error._tag === "ProviderUploadFeedbackError") {
-        assert.strictEqual(error.threadId, threadId);
-        assert.strictEqual(error.message, `Failed to upload feedback for thread ${threadId}.`);
-        assert.isDefined(error.cause);
-      }
-    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
-  );
 
   it.effect("shares one preview automation broker across websocket sessions", () =>
     Effect.scoped(

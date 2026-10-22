@@ -41,11 +41,6 @@ describe("RPC authorization scopes", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.cloudInstallRelayClient)).toBe(AuthRelayWriteScope);
   });
 
-  it("requires permission to operate on a thread before uploading feedback", () => {
-    expect(requiredScopeForRpcMethod(WS_METHODS.providerUploadFeedback)).toBe(
-      AuthOrchestrationOperateScope,
-    );
-  });
 
   it("requires write access to resume native NeoPi history", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.neopiSessionsList)).toBe(

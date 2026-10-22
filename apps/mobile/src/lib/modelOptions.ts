@@ -62,7 +62,7 @@ function normalizeSelectionOptions(
       };
 }
 
-/** Whether a known Antigravity or NeoPi selection needs setup or a different model. */
+/** Whether the native runtime or selected model is unavailable. */
 export function isModelSelectionUnavailable(
   config: T3ServerConfig | null | undefined,
   selection: ModelSelection | null | undefined,
@@ -87,11 +87,7 @@ export function isModelSelectionUnavailable(
   );
 }
 
-/**
- * Keep Antigravity selections when setup or catalog changes make them
- * unavailable. Other providers fall through to the server default when they
- * are disabled, missing, or signed out. Without config, keep stored selections.
- */
+/** Keep usable native selections; never reinterpret a retired runtime as NeoPi. */
 export function resolveSelectableModelSelection(
   config: T3ServerConfig | null | undefined,
   selection: ModelSelection | null,

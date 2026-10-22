@@ -11,7 +11,7 @@ import {
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-const DEFAULT_PROVIDER_DRIVER_KIND = ProviderDriverKind.make("codex");
+const DEFAULT_PROVIDER_DRIVER_KIND = ProviderDriverKind.make("neopi");
 
 export interface SelectableModelOption {
   slug: string;
@@ -213,10 +213,6 @@ export function buildExplicitProviderOptionSelectionsFromDescriptors(
 }
 
 
-/** Compare Codex model families without changing provider-owned dispatch identifiers. */
-export function codexModelFamily(slug: string): string {
-  return slug.startsWith("openai.gpt-") ? slug.slice("openai.".length) : slug;
-}
 
 export function normalizeModelSlug(
   model: string | null | undefined,

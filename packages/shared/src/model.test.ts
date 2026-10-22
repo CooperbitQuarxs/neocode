@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { ProviderInstanceId, type ModelCapabilities } from "@t3tools/contracts";
+import { ProviderDriverKind, ProviderInstanceId, type ModelCapabilities } from "@t3tools/contracts";
 
 import {
   buildExplicitProviderOptionSelectionsFromDescriptors,
@@ -13,7 +13,17 @@ import {
   toCustomModelSetting,
   getProviderOptionBooleanSelectionValue,
   getProviderOptionStringSelectionValue,
+  normalizeModelSlug,
 } from "./model.ts";
+
+describe("native model normalization", () => {
+  it("preserves native identifiers without applying retired harness aliases", () => {
+    expect(normalizeModelSlug(" 5.4 ")).toBe("5.4");
+    expect(normalizeModelSlug("openai-codex/gpt-6-astra")).toBe("openai-codex/gpt-6-astra");
+    expect(normalizeModelSlug("anthropic/claude-fable-5-1")).toBe("anthropic/claude-fable-5-1");
+    expect(normalizeModelSlug("5.4", ProviderDriverKind.make("codex"))).toBe("gpt-5.4");
+  });
+});
 
 const codexCaps: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [

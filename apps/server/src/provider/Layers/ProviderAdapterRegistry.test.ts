@@ -35,7 +35,6 @@ const fakeCodexAdapter: ProviderInstance["adapter"] = {
   hasSession: vi.fn(),
   readThread: vi.fn(),
   rollbackThread: vi.fn(),
-  uploadFeedback: vi.fn(),
   stopAll: vi.fn(),
   streamEvents: Stream.empty,
 };
