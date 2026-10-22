@@ -1417,7 +1417,9 @@ export const make = Effect.gen(function* () {
       const together = new Map<string, Array<SupportedProject>>();
       const separate: Array<SupportedProject> = [];
       for (const project of readable) {
-        if (project.api.listChangeRequestsAcross === undefined) {
+        // A selected project already has an explicit repository. Read it directly instead of
+        // searching the host first and repeating that search when the fork is not indexed.
+        if (input.projectId !== undefined || project.api.listChangeRequestsAcross === undefined) {
           separate.push(project);
           continue;
         }
