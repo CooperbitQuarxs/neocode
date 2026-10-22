@@ -329,10 +329,9 @@ function legacyThemeMode(theme: ThemePreference): ThemeAppearance | null {
 }
 
 /**
- * The standard T3 Code look as a theme palette, for seeding a new theme when
- * no theme is installed. Distinct from {@link getDefaultThemeColors}, which
- * carries the flagship T3 Chat palette used to fill roles omitted by theme
- * files.
+ * NeoCode's default Neo palette, for seeding a theme from the current look.
+ * Distinct from {@link getDefaultThemeColors}, which carries the optional
+ * T3 Chat palette used to fill roles omitted by theme files.
  */
 export function getStandardThemeColors(appearance: ThemeAppearance): ThemeColors {
   if (appearance === "dark") {

@@ -1,4 +1,8 @@
-import type { ThemeAppearance } from "./themePalettes.js";
+import {
+  T3_CODE_DARK_THEME_COLORS,
+  T3_CODE_LIGHT_THEME_COLORS,
+  type ThemeAppearance,
+} from "./themePalettes.js";
 
 export type ThemePreviewColors = Readonly<{
   canvas: string;
@@ -6,18 +10,18 @@ export type ThemePreviewColors = Readonly<{
   messageAction: string;
 }>;
 
-/** The standard T3 Code artwork is not a built-in theme, so its preview colors live here. */
+/** Default artwork uses the same roles as the live palette, not a separate preview palette. */
 export const STANDARD_THEME_PREVIEW_COLORS: Readonly<Record<ThemeAppearance, ThemePreviewColors>> =
   {
     light: {
-      canvas: "#fcfcfc",
-      accent: "#f4f4f5",
-      messageAction: "#4f46e5",
+      canvas: T3_CODE_LIGHT_THEME_COLORS.canvas,
+      accent: T3_CODE_LIGHT_THEME_COLORS.accentSurface,
+      messageAction: T3_CODE_LIGHT_THEME_COLORS.messageAction,
     },
     dark: {
-      canvas: "#0a0a0a",
-      accent: "#1c1c1f",
-      messageAction: "#8b9cff",
+      canvas: T3_CODE_DARK_THEME_COLORS.canvas,
+      accent: T3_CODE_DARK_THEME_COLORS.accentSurface,
+      messageAction: T3_CODE_DARK_THEME_COLORS.messageAction,
     },
   };
 

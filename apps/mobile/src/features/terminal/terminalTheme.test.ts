@@ -1,26 +1,24 @@
 import { describe, expect, it } from "vite-plus/test";
-import { BUILT_IN_THEMES, getThemeColorsForAppearance } from "@t3tools/shared/themePalettes";
+import {
+  BUILT_IN_THEMES,
+  T3_CODE_DARK_THEME_COLORS,
+  T3_CODE_LIGHT_THEME_COLORS,
+  getThemeColorsForAppearance,
+} from "@t3tools/shared/themePalettes";
 
 import { themeColorToNativeColor } from "../../lib/mobileTheme";
 
 import { buildGhosttyThemeConfig, getMobileTerminalTheme } from "./terminalTheme";
 
 describe("getMobileTerminalTheme", () => {
-  it("uses the shared default light terminal colors", () => {
-    expect(getMobileTerminalTheme("t3-code", "light")).toMatchObject({
-      background: "#fcfcfc",
-      foreground: "#27272a",
-      cursorForeground: "#26384e",
-      cursorBackground: "#fcfcfc",
-    });
-  });
-
-  it("uses the shared default dark terminal colors", () => {
-    expect(getMobileTerminalTheme("t3-code", "dark")).toMatchObject({
-      background: "#0a0a0a",
-      foreground: "#f5f5f5",
-      cursorForeground: "#b4cbff",
-      cursorBackground: "#0a0a0a",
+  it.each(["light", "dark"] as const)("uses the shared default %s terminal roles", (appearance) => {
+    const colors =
+      appearance === "dark" ? T3_CODE_DARK_THEME_COLORS : T3_CODE_LIGHT_THEME_COLORS;
+    expect(getMobileTerminalTheme("t3-code", appearance)).toMatchObject({
+      background: themeColorToNativeColor(colors.terminalBackground),
+      foreground: themeColorToNativeColor(colors.terminalForeground),
+      cursorForeground: themeColorToNativeColor(colors.terminalCursor),
+      cursorBackground: themeColorToNativeColor(colors.terminalBackground),
     });
   });
   it("applies the selected palette without replacing ANSI status colors", () => {
@@ -45,13 +43,14 @@ describe("getMobileTerminalTheme", () => {
 
 describe("buildGhosttyThemeConfig", () => {
   it("serializes theme colors into a ghostty config file", () => {
-    const config = buildGhosttyThemeConfig(getMobileTerminalTheme("t3-code", "dark"));
+    const terminal = getMobileTerminalTheme("t3-code", "dark");
+    const config = buildGhosttyThemeConfig(terminal);
 
-    expect(config).toContain("background = #0a0a0a");
-    expect(config).toContain("foreground = #f5f5f5");
-    expect(config).toContain("cursor-color = #b4cbff");
-    expect(config).toContain("palette = 0=#141415");
-    expect(config).toContain("palette = 15=#c6c6c8");
+    expect(config).toContain(`background = ${terminal.background}`);
+    expect(config).toContain(`foreground = ${terminal.foreground}`);
+    expect(config).toContain(`cursor-color = ${terminal.cursorForeground}`);
+    expect(config).toContain(`palette = 0=${terminal.palette[0]}`);
+    expect(config).toContain(`palette = 15=${terminal.palette[15]}`);
     expect(config.endsWith("\n")).toBe(true);
   });
 });
