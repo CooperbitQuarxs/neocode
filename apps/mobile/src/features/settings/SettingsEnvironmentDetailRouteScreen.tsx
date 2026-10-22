@@ -16,6 +16,7 @@ import { environmentSession } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useRemoteConnections } from "../../state/use-remote-environment-registry";
 import { ConnectionEnvironmentRow } from "../connection/ConnectionEnvironmentRow";
+import { NeoPiSessionBrowser } from "../threads/NeoPiSessions";
 import { SettingsActionRow } from "./components/SettingsActionRow";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
@@ -122,7 +123,6 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
     );
   }
 
-
   return (
     <SettingsScreen title={environment?.environmentLabel ?? "Environment"}>
       <ScreenScrollView
@@ -147,6 +147,15 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                 onSetEnabled={connections.onSetEnvironmentEnabled}
                 onUpdate={connections.onUpdateEnvironment}
               />
+            </SettingsSection>
+            <SettingsSection title="NeoPi sessions">
+              <View className="gap-3 p-4">
+                <Text className="text-sm text-foreground-muted">
+                  Discover and resume native sessions across all project folders on this
+                  environment.
+                </Text>
+                <NeoPiSessionBrowser environmentId={environmentId} disabled={!connected} />
+              </View>
             </SettingsSection>
             {!connected ? (
               <Text className="px-2 text-sm text-foreground-muted">

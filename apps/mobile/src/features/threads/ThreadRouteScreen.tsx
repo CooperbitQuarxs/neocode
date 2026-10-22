@@ -91,6 +91,7 @@ import {
   type ThreadInspectorMode,
 } from "./thread-inspector-content-stack";
 import { threadRouteIsHydrating } from "./thread-route-hydration";
+import { NeoPiSessionConfiguration } from "./NeoPiSessions";
 
 function ThreadHeader(
   props: Parameters<typeof useThreadHeaderOptions>[0] & {
@@ -1054,6 +1055,18 @@ function ThreadRouteContent(
         onOpenFilesInspector={handleOpenFilesInspector}
         onReturnToThread={props.onReturnToThread}
       />
+      {serverConfig?.providers.some(
+        (provider) =>
+          provider.driver === "neopi" &&
+          provider.instanceId ===
+            (selectedThread.session?.providerInstanceId ??
+              selectedThread.modelSelection.instanceId),
+      ) ? (
+        <NeoPiSessionConfiguration
+          key={`${environmentId}:${threadId}`}
+          threadRef={{ environmentId, threadId }}
+        />
+      ) : null}
 
       {renderThreadRouteBody()}
     </>

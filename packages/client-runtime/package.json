@@ -3,6 +3,18 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./neopi-journal": {
+      "types": "./src/neopiJournal.ts",
+      "default": "./src/neopiJournal.ts"
+    },
+    "./neopi-tree": {
+      "types": "./src/neopiTree.ts",
+      "default": "./src/neopiTree.ts"
+    },
+    "./neopi-sessions": {
+      "types": "./src/neopiSessions.ts",
+      "default": "./src/neopiSessions.ts"
+    },
     "./neopi-session-status": {
       "types": "./src/neopiSessionStatus.ts",
       "default": "./src/neopiSessionStatus.ts"
