@@ -12,10 +12,33 @@ const peer = (
   capabilities = new Set(["session_journal"]),
 ): Pick<NeoPiRpcClient, "request" | "capabilities"> => ({ request, capabilities });
 
+
+const readPeer = (
+  client: Pick<NeoPiRpcClient, "capabilities" | "request">,
+  expected: Parameters<typeof readNeoPiJournalPeer>[1],
+  options: Parameters<typeof readNeoPiJournalPeer>[2],
+) => readNeoPiJournalPeer(client, expected, options, (file) => Effect.succeed(file));
 describe("native journal readers", () => {
   it.effect("preserves canonical CLI entries and native paging metadata", () => Effect.gen(function* () {
     const result = yield* decodeNeoPiJournalCli(JSON.stringify(page), 0, identity);
     assert.deepEqual(result, { status: "available", page });
+  }));
+
+  it.effect("matches a live owner's symlink path to the canonical journal file", () => Effect.gen(function* () {
+    const alias = "/alias/native.jsonl";
+    const result = yield* readNeoPiJournalPeer(peer((command) => Effect.succeed(
+      command.type === "get_state" ? { ...identity, sessionFile: alias } : page,
+    )), identity, {}, (file) => Effect.succeed(file === alias ? identity.sessionFile : file));
+    assert.deepEqual(result, { status: "available", page });
+  }));
+
+  it.effect("discards a read if a live owner's symlink changes target", () => Effect.gen(function* () {
+    let resolved = 0;
+    const result = yield* readNeoPiJournalPeer(peer((command) => Effect.succeed(
+      command.type === "get_state" ? { ...identity, sessionFile: "/alias/native.jsonl" } : page,
+    )), identity, {}, () => Effect.succeed(++resolved === 1 ? identity.sessionFile : "/sessions/other.jsonl"));
+    assert.equal(result.status, "error");
+    if (result.status === "error") assert.equal(result.code, "stale_cursor");
   }));
 
   it.effect("retains a whole entry larger than the native soft page budget", () => Effect.gen(function* () {
@@ -48,14 +71,14 @@ describe("native journal readers", () => {
 
   it.effect("does not read an owner that lacks the native capability", () => Effect.gen(function* () {
     let requested = false;
-    const result = yield* readNeoPiJournalPeer(peer(() => { requested = true; return Effect.succeed(page); }, new Set()), identity, {});
+    const result = yield* readPeer(peer(() => { requested = true; return Effect.succeed(page); }, new Set()), identity, {});
     assert.equal(result.status, "unavailable");
     assert.equal(requested, false);
   }));
 
   it.effect("refuses an identity mismatch before reading journal content", () => Effect.gen(function* () {
     let journalRead = false;
-    const result = yield* readNeoPiJournalPeer(peer((command) => {
+    const result = yield* readPeer(peer((command) => {
       if (command.type !== "get_state") journalRead = true;
       return Effect.succeed({ ...identity, sessionId: "other" });
     }), identity, {});
@@ -66,7 +89,7 @@ describe("native journal readers", () => {
 
   it.effect("discards a native page if the owner changes identity during its read", () => Effect.gen(function* () {
     let stateRead = 0;
-    const result = yield* readNeoPiJournalPeer(peer((command) => Effect.succeed(command.type === "get_state"
+    const result = yield* readPeer(peer((command) => Effect.succeed(command.type === "get_state"
       ? ++stateRead === 1 ? identity : { ...identity, sessionId: "other" }
       : page)), identity, { scope: "branch", direction: "backward", cursor: "native" });
     assert.equal(result.status, "error");
@@ -75,7 +98,7 @@ describe("native journal readers", () => {
 
   it.effect("keeps native branch errors and still validates the owner's identity afterward", () => Effect.gen(function* () {
     let stateRead = 0;
-    const result = yield* readNeoPiJournalPeer(peer((command) => command.type === "get_state"
+    const result = yield* readPeer(peer((command) => command.type === "get_state"
       ? Effect.sync(() => { stateRead++; return identity; })
       : Effect.fail(new NeoPiRpcError({ code: "leaf_changed", message: "The native leaf moved" }))), identity, { scope: "branch", cursor: "previous" });
     assert.deepEqual(result, { status: "error", code: "leaf_changed", message: "The native leaf moved" });

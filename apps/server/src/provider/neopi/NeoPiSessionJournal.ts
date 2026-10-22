@@ -116,7 +116,7 @@ export const makeNeoPiSessionJournal = Effect.fn("NeoPiSessionJournal.make")(fun
         });
         if (!peer.capabilities.has(NEOPI_CAPABILITIES.controlAttached))
           return unavailable("NeoPi did not establish a control connection to the existing owner.");
-        result = yield* readNeoPiJournalPeer(peer, expected, paging);
+        result = yield* readNeoPiJournalPeer(peer, expected, paging, (file) => fs.realPath(file));
       } else if (before.inUse) {
         return unavailable("The native session is open elsewhere without a readable control socket. No second writer was started.");
       } else {

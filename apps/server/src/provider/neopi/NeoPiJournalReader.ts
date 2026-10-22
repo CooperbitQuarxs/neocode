@@ -72,18 +72,19 @@ export const readNeoPiJournalPeer = Effect.fn("NeoPiJournal.readPeer")(
     peer: Pick<NeoPiRpcClient, "capabilities" | "request">,
     expected: NeoPiConfigurationIdentity,
     options: NeoPiJournalOptions,
+    resolveFile: (file: string) => Effect.Effect<string, unknown>,
   ): Effect.fn.Return<ReadResult, unknown> {
     if (!peer.capabilities.has(NEOPI_CAPABILITIES.sessionJournal))
       return { status: "unavailable", reason: "This connected NeoPi owner does not advertise session_journal. Update NeoPi before opening native history." };
     const before = yield* decodeState(yield* peer.request({ type: "get_state" }));
-    if (!sameNeoPiJournalIdentity(before, expected))
+    if (!sameNeoPiJournalIdentity({ ...before, sessionFile: yield* resolveFile(before.sessionFile) }, expected))
       return { status: "error", code: "stale_cursor", message: "The connected native owner changed session. Restart this view." };
     const result = yield* peer.request({ type: "get_entries_page", ...options }).pipe(
       Effect.flatMap((value) => validateNeoPiJournalPage(value, expected)),
       Effect.catch((cause) => Effect.succeed(neoPiJournalError(cause))),
     );
     const after = yield* decodeState(yield* peer.request({ type: "get_state" }));
-    if (!sameNeoPiJournalIdentity(after, expected))
+    if (!sameNeoPiJournalIdentity({ ...after, sessionFile: yield* resolveFile(after.sessionFile) }, expected))
       return { status: "error", code: "stale_cursor", message: "The connected native owner changed session during this read. Restart this view." };
     return result;
   },

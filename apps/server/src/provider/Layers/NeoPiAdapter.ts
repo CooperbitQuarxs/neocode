@@ -830,15 +830,24 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
         if (status !== "ready" && status !== "running")
           return { status: "unavailable" as const, reason: "The NeoPi connection is transitioning. Retry after it settles." };
         const generation = runtime.processGeneration;
-        if (!sameNeoPiJournalIdentity(yield* SubscriptionRef.get(runtime.cursor), expected))
+        const cursorIdentity = Effect.gen(function* () {
+          const cursor = yield* SubscriptionRef.get(runtime.cursor);
+          const file = yield* fs.realPath(cursor.sessionFile).pipe(Effect.option);
+          return file._tag === "Some"
+            ? { sessionId: cursor.sessionId, sessionFile: file.value }
+            : undefined;
+        });
+        const beforeIdentity = yield* cursorIdentity;
+        if (!beforeIdentity || !sameNeoPiJournalIdentity(beforeIdentity, expected))
           return { status: "error" as const, code: "stale_cursor", message: "The bound native session changed. Restart this view." };
-        const result = yield* readNeoPiJournalPeer(runtime, expected, paging);
+        const result = yield* readNeoPiJournalPeer(runtime, expected, paging, (file) => fs.realPath(file));
         const afterStatus = yield* SubscriptionRef.get(runtime.state);
+        const afterIdentity = yield* cursorIdentity;
         if (
           sessions.get(threadId) !== session ||
           runtime.processGeneration !== generation ||
           (afterStatus !== "ready" && afterStatus !== "running") ||
-          !sameNeoPiJournalIdentity(yield* SubscriptionRef.get(runtime.cursor), expected)
+          !afterIdentity || !sameNeoPiJournalIdentity(afterIdentity, expected)
         )
           return { status: "error" as const, code: "stale_cursor", message: "The native connection changed during this read. Restart this view." };
         return result;
