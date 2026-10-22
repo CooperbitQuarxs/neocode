@@ -2,11 +2,14 @@ import { useAtomValue } from "@effect/atom-react";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { projectNeoPiSessionStatus } from "@t3tools/client-runtime/neopi-session-status";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { useThreadShell } from "../../state/entities";
+import { nativeConversationAtoms } from "./useNeoPiConversation";
 import { neopiSessionConfigurationChanges } from "../../state/neopiSessions";
 
 export function useNeoPiSessionStatus(threadRef: ScopedThreadRef) {
-  const thread = useThreadShell(threadRef);
+  const watch = useAtomValue(nativeConversationAtoms.watch({
+    environmentId: threadRef.environmentId,
+    input: { threadId: threadRef.threadId },
+  }));
   const result = useAtomValue(neopiSessionConfigurationChanges({
     environmentId: threadRef.environmentId,
     input: { threadId: threadRef.threadId },
@@ -18,8 +21,7 @@ export function useNeoPiSessionStatus(threadRef: ScopedThreadRef) {
     return { status: "loading" as const, reason: "Reading native session status..." };
   }
   return projectNeoPiSessionStatus(result.value,
-    thread?.session !== null && thread?.session !== undefined &&
-    thread.session.status !== "stopped" && thread.session.status !== "error");
+    AsyncResult.isSuccess(watch) && watch.value.connection?.status === "connected");
 }
 
 export function NeoPiSessionStatus({ threadRef }: { threadRef: ScopedThreadRef | null }) {
@@ -37,7 +39,6 @@ function ConnectedStatus({ threadRef }: { threadRef: ScopedThreadRef }) {
   const nativeModel = status.model ? `${status.model.provider}/${status.model.id}` : "Model not reported";
   return (
     <div role="group" aria-label="Native session status" tabIndex={0} className="flex min-w-0 items-center gap-3 overflow-x-auto whitespace-nowrap text-xs tabular-nums text-muted-foreground [&>span]:shrink-0" title={`${observed} ${nativeModel}, effort ${status.thinkingLevel ?? "not reported"}.`}>
-      <span>{status.attachment === "terminal" ? "Attached" : "Owned"}</span>
       <span title={`Native output throughput. ${observed}`}>
         {status.tokensPerSecond === null ? "tok/s unavailable" : `${status.tokensPerSecond.toFixed(1)} tok/s`}
       </span>
