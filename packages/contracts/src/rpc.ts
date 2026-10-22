@@ -51,6 +51,7 @@ import {
   NeoPiSessionConfigurationResult,
 } from "./neopiSessions.ts";
 import { NeoPiModelsTarget, NeoPiModelsConfiguration, NeoPiModelsUpdate, NeoPiModelsAccountsInput, NeoPiModelsAccounts, NeoPiModelsAuthStart, NeoPiModelsAuthRef, NeoPiModelsAuthRespond, NeoPiModelsAuthState, NeoPiModelsError } from "./neopiModels.ts";
+import { NeoPiModelSelectorQuery, NeoPiModelSelectorResult } from "./neopiModels.ts";
 import {
   AssetAccessError,
   AssetCreateUrlInput,
@@ -310,6 +311,7 @@ export const WS_METHODS = {
   neopiSessionsConfiguration: "neopiSessions.configuration",
   neopiSessionsWatchConfiguration: "neopiSessions.watchConfiguration",
   neopiModelsRead: "neopiModels.read",
+  neopiModelsQuerySelector: "neopiModels.querySelector",
   neopiModelsWatch: "neopiModels.watch",
   neopiModelsUpdate: "neopiModels.update",
   neopiModelsAccounts: "neopiModels.accounts",
@@ -1038,6 +1040,7 @@ const WsNeoPiSessionsWatchConfigurationRpc = Rpc.make(WS_METHODS.neopiSessionsWa
 
 const NeoPiModelsRpcError = Schema.Union([NeoPiModelsError, EnvironmentAuthorizationError]);
 const WsNeoPiModelsReadRpc = Rpc.make(WS_METHODS.neopiModelsRead, { payload: NeoPiModelsTarget, success: NeoPiModelsConfiguration, error: NeoPiModelsRpcError });
+const WsNeoPiModelsQuerySelectorRpc = Rpc.make(WS_METHODS.neopiModelsQuerySelector, { payload: NeoPiModelSelectorQuery, success: NeoPiModelSelectorResult, error: NeoPiModelsRpcError });
 const WsNeoPiModelsWatchRpc = Rpc.make(WS_METHODS.neopiModelsWatch, { payload: NeoPiModelsTarget, success: NeoPiModelsConfiguration, error: NeoPiModelsRpcError, stream: true });
 const WsNeoPiModelsUpdateRpc = Rpc.make(WS_METHODS.neopiModelsUpdate, { payload: NeoPiModelsUpdate, success: NeoPiModelsConfiguration, error: NeoPiModelsRpcError });
 const WsNeoPiModelsAccountsRpc = Rpc.make(WS_METHODS.neopiModelsAccounts, { payload: NeoPiModelsAccountsInput, success: NeoPiModelsAccounts, error: NeoPiModelsRpcError });
@@ -1542,6 +1545,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsNeoPiSessionsConfigurationRpc,
   WsNeoPiSessionsWatchConfigurationRpc,
   WsNeoPiModelsReadRpc,
+  WsNeoPiModelsQuerySelectorRpc,
   WsNeoPiModelsWatchRpc,
   WsNeoPiModelsUpdateRpc,
   WsNeoPiModelsAccountsRpc,

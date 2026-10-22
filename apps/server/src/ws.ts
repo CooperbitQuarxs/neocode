@@ -3212,6 +3212,7 @@ const makeWsRpcLayer = (
             { "rpc.aggregate": "workspace" },
           ),
         [WS_METHODS.neopiModelsRead]: (input) => neopiModels.read(input),
+        [WS_METHODS.neopiModelsQuerySelector]: (input) => neopiModels.querySelector(input),
         [WS_METHODS.neopiModelsWatch]: (input) => neopiModels.watch(input),
         [WS_METHODS.neopiModelsUpdate]: (input) => neopiModels.update(input),
         [WS_METHODS.neopiModelsAccounts]: (input) => neopiModels.accounts(input),

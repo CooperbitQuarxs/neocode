@@ -3,6 +3,7 @@ import {
   NeoPiModelsError, NeoPiModelsConfiguration, NeoPiModelsAccounts,
   type NeoPiModelsTarget, type NeoPiModelsUpdate, type NeoPiModelsAuthState,
 } from "@t3tools/contracts";
+import { NeoPiModelSelectorResult } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -31,6 +32,18 @@ export const readNativeModelsConfiguration = Effect.fnUntraced(function* (native
   yield* native.validate;
   const result = yield* native.request({ type: "get_models_configuration" }).pipe(Effect.mapError(modelError));
   return yield* Schema.decodeUnknownEffect(NeoPiModelsConfiguration)(result).pipe(Effect.mapError(() => new NeoPiModelsError({ message: "NeoPi returned an incompatible Models configuration. Update NeoPi and NeoCode together." })));
+});
+
+export const queryNativeModelSelector = Effect.fnUntraced(function* (native: NeoPiModelsConnection, query: string) {
+  if (!native.capabilities.has("model_selector"))
+    return yield* new NeoPiModelsError({ message: "This NeoPi connection does not advertise model_selector. Update the configured native executable to search models." });
+  yield* native.validate;
+  const response = yield* native.request({ type: "query_model_selector", query }).pipe(Effect.mapError(modelError));
+  const result = yield* Schema.decodeUnknownEffect(NeoPiModelSelectorResult)(response).pipe(
+    Effect.mapError(() => new NeoPiModelsError({ message: "NeoPi returned an incompatible model selector response. Update NeoPi and NeoCode together." })),
+  );
+  yield* native.validate;
+  return result;
 });
 
 /** Routes explicit graphical model operations to their native owner; it stores no model policy or credentials. */
@@ -70,6 +83,8 @@ export const makeNeoPiModels = Effect.fn("makeNeoPiModels")(function* () {
     return native;
   });
   const read = (target: NeoPiModelsTarget) => Effect.scoped(Effect.flatMap(connection(target), readNativeModelsConfiguration)).pipe(Effect.mapError(modelError));
+  const querySelector = (input: { target: NeoPiModelsTarget; query: string }) =>
+    Effect.scoped(Effect.flatMap(connection(input.target), native => queryNativeModelSelector(native, input.query))).pipe(Effect.mapError(modelError));
   const watch = (target: NeoPiModelsTarget) => Stream.unwrap(Effect.gen(function* () {
     const native = yield* connection(target);
     const changes = yield* Stream.toPull(native.changes);
@@ -147,5 +162,5 @@ export const makeNeoPiModels = Effect.fn("makeNeoPiModels")(function* () {
     yield* SubscriptionRef.update(flow.state, state => ({ ...state, prompt: null }));
   });
   yield* Effect.addFinalizer(() => Effect.forEach([...flows], ([flowId, flow]) => cancelAuth({ flowId }).pipe(Effect.ignore, Effect.andThen(Scope.close(flow.scope, Exit.void))), { discard: true }));
-  return { connection, read, watch, update, accounts, startAuth, watchAuth, respondAuth, cancelAuth };
+  return { connection, read, querySelector, watch, update, accounts, startAuth, watchAuth, respondAuth, cancelAuth };
 });

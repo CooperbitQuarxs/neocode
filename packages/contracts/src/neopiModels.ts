@@ -5,6 +5,25 @@ import { ProviderInstanceId } from "./providerInstance.ts";
 export const NeoPiModelsScope = Schema.Literals(["global", "project"]);
 export const NeoPiModelsTarget = Schema.Struct({ providerInstanceId: ProviderInstanceId, projectId: Schema.optional(ProjectId), threadId: Schema.optional(ThreadId) });
 export type NeoPiModelsTarget = typeof NeoPiModelsTarget.Type;
+export const NeoPiModelSelectorQuery = Schema.Struct({ target: NeoPiModelsTarget, query: Schema.String });
+export const NeoPiModelSelectorFacts = Schema.Struct({
+  intelligence: Schema.NullOr(Schema.Number), ttftMs: Schema.NullOr(Schema.Number),
+  tokensPerSecond: Schema.NullOr(Schema.Number), contextWindow: Schema.NullOr(Schema.Number),
+  effectiveContextWindow: Schema.NullOr(Schema.Number),
+  inputCostPerMillion: Schema.NullOr(Schema.Number), outputCostPerMillion: Schema.NullOr(Schema.Number),
+  performanceSource: Schema.NullOr(Schema.Literals(["measured", "catalog"])), serviceTier: Schema.NullOr(Schema.String),
+});
+export type NeoPiModelSelectorFacts = typeof NeoPiModelSelectorFacts.Type;
+export const NeoPiModelSelectorItem = Schema.Struct({
+  selector: Schema.String, provider: Schema.String, id: Schema.String, name: Schema.String,
+  description: Schema.optional(Schema.String), resolvedSelector: Schema.NullOr(Schema.String),
+  facts: NeoPiModelSelectorFacts,
+});
+export type NeoPiModelSelectorItem = typeof NeoPiModelSelectorItem.Type;
+export const NeoPiModelSelectorResult = Schema.Struct({
+  items: Schema.Array(NeoPiModelSelectorItem), roles: Schema.Array(NeoPiModelSelectorItem), error: Schema.NullOr(Schema.String),
+});
+export type NeoPiModelSelectorResult = typeof NeoPiModelSelectorResult.Type;
 export const NeoPiEffortSelection = Schema.Union([
   Schema.Struct({ mode: Schema.Literal("inherit") }),
   Schema.Struct({ mode: Schema.Literal("fixed"), level: Schema.String }),

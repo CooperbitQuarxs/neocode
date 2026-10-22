@@ -12,6 +12,7 @@ import { createEnvironmentRpcCommand, createEnvironmentRpcSubscriptionAtomFamily
 export function makeNeoPiModelsClientState<R, ER>(runtime: Atom.AtomRuntime<EnvironmentRegistry | R, ER>) {
   return {
     read: createEnvironmentRpcCommand(runtime, { label: "neopi-models:read", tag: WS_METHODS.neopiModelsRead }),
+    querySelector: createEnvironmentRpcCommand(runtime, { label: "neopi-models:query-selector", tag: WS_METHODS.neopiModelsQuerySelector }),
     update: createEnvironmentRpcCommand(runtime, { label: "neopi-models:update", tag: WS_METHODS.neopiModelsUpdate }),
     accounts: createEnvironmentRpcCommand(runtime, { label: "neopi-models:accounts", tag: WS_METHODS.neopiModelsAccounts }),
     startAuth: createEnvironmentRpcCommand(runtime, { label: "neopi-models:auth-start", tag: WS_METHODS.neopiModelsAuthStart }),
