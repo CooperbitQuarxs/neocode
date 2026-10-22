@@ -137,6 +137,9 @@ NDK 27.1.12297006 and CMake, with ReactAndroid requesting 3.30.5. Set `JAVA_HOME
 Gradle wrapper downloads its pinned Gradle version if needed. The APK script does not
 install JS dependencies, SDK packages globally, or anything on a device.
 
+Metro bundles the shared workspace packages from TypeScript source. Relative imports
+in those packages must use the source file extension, not an emitted `.js` path.
+
 The Shiki native dependency links its packaged Android ABI library. A host
 `libonig.so` is not an Android build prerequisite and must not enter the APK link.
 
