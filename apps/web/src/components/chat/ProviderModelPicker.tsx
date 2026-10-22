@@ -3,7 +3,7 @@ import {
   type ProviderDriverKind,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { Badge } from "../ui/badge";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -51,7 +51,6 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   triggerLabel?: string;
   triggerAriaLabel?: string;
   onOpenChange?: (open: boolean) => void;
-  onOpenProviderSetup?: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
   onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
 }) {
@@ -59,6 +58,29 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const [uncontrolledIsMenuOpen, setUncontrolledIsMenuOpen] = useState(false);
   const isMenuOpen = props.open ?? uncontrolledIsMenuOpen;
   const size = props.size ?? "sm";
+  const [triggerElement, setTriggerElement] = useState<HTMLButtonElement | null>(null);
+  const [pickerAnchor, setPickerAnchor] = useState<HTMLElement | null>(null);
+  const [pickerWidth, setPickerWidth] = useState<number | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (!isMenuOpen || !triggerElement) return;
+    // Status controls may be portaled outside the form. They still open over
+    // the active composer, rather than inheriting the tiny trigger width.
+    const anchor = props.isComposerOwned
+      ? triggerElement.closest<HTMLElement>('[data-chat-composer-form="true"]') ??
+        document.querySelector<HTMLElement>('[data-chat-composer-form="true"]') ??
+        triggerElement.closest<HTMLElement>("main")
+      : triggerElement.closest<HTMLElement>("main");
+    setPickerAnchor(anchor);
+    const update = () => setPickerWidth(anchor?.getBoundingClientRect().width ?? Math.min(1000, window.innerWidth - 16));
+    update();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    if (anchor) observer?.observe(anchor);
+    window.addEventListener("resize", update);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, [isMenuOpen, triggerElement, props.isComposerOwned]);
 
   // Resolve the active instance entry by exact routing key. The composer
   // resolves fallbacks before rendering this component; if the selected
@@ -71,7 +93,12 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
 
   const activeInstanceId = props.activeInstanceId;
   const selectedInstanceOptions = props.modelOptionsByInstance.get(activeInstanceId) ?? [];
-  const selectedModel = selectedInstanceOptions.find((option) => option.slug === props.model);
+  // Missing native selections remain visible, never replaced by the first row.
+  const selectedModel = resolveModelPickerSelectedModel({
+    driverKind: activeEntry?.driverKind,
+    model: props.model,
+    options: selectedInstanceOptions,
+  });
   const triggerTitle = selectedModel
     ? getTriggerDisplayModelName(selectedModel)
     : props.model || "Choose model";
@@ -189,7 +216,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       <PopoverTrigger
         render={
           <ComposerControl
-            aria-label={props.triggerAriaLabel ?? allModelNames}
+            ref={setTriggerElement}
+            aria-label={props.triggerAriaLabel ?? allModelNames ?? `Switch model: ${triggerTitle}`}
             size={size}
             data-chat-provider-model-picker="true"
             className={cn(
@@ -267,6 +295,9 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       <PopoverPopup
         {...(props.isComposerOwned ? composerFloatingLayerProps : {})}
         align="start"
+        side={props.isComposerOwned ? "top" : "bottom"}
+        {...(pickerAnchor ? { anchor: pickerAnchor } : {})}
+        style={{ width: pickerWidth, maxWidth: "var(--available-width)" }}
         className="before:hidden"
         padding="none"
       >
@@ -288,7 +319,6 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
           modelOptionsByInstance={props.modelOptionsByInstance}
           terminalOpen={props.terminalOpen ?? false}
           onRequestClose={() => setIsMenuOpen(false)}
-          {...(props.onOpenProviderSetup ? { onOpenProviderSetup: props.onOpenProviderSetup } : {})}
           {...(props.getModelDisabledReason
             ? { getModelDisabledReason: props.getModelDisabledReason }
             : {})}

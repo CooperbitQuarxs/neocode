@@ -79,6 +79,7 @@ function readInstanceCustomModels(
 export interface AppModelOption {
   slug: string;
   name: string;
+  description?: string;
   shortName?: string;
   subProvider?: string;
   aliases?: ReadonlyArray<string>;
@@ -87,6 +88,7 @@ export interface AppModelOption {
   isDefault?: boolean;
   isLegacy?: boolean;
   isUnavailable?: boolean;
+  nativeFacts?: ServerProvider["models"][number]["nativeFacts"];
 }
 
 function appendUnavailableDynamicModelSelection(
@@ -116,11 +118,13 @@ function toAppModelOption(model: ServerProvider["models"][number]): AppModelOpti
     isCustom: model.isCustom,
   };
   if (model.shortName) option.shortName = model.shortName;
+  if (model.description !== undefined) option.description = model.description;
   if (model.subProvider) option.subProvider = model.subProvider;
   if (model.aliases) option.aliases = model.aliases;
   if (model.badge) option.badge = model.badge;
   if (model.isDefault) option.isDefault = true;
   if (model.isLegacy) option.isLegacy = true;
+  if (model.nativeFacts) option.nativeFacts = model.nativeFacts;
   return option;
 }
 
