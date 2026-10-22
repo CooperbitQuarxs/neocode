@@ -235,7 +235,6 @@ import { useEnvironmentQuery } from "~/state/query";
 import { useDebouncedValue } from "~/state/queries";
 import { NeoPiSessionModelPicker } from "../neopi/NeoPiSessionModelPicker";
 import { NeoPiSessionStatus } from "../neopi/NeoPiSessionStatus";
-import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
@@ -5210,7 +5209,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         ) : null}
       </ComposerBanner.Dock>
       <div className="relative">
-        <ComposerSurface.Main className={composerProviderState.composerFrameClassName}>
+        <ComposerSurface.Main>
           <div
             data-chat-composer-surface="true"
             className={cn(
