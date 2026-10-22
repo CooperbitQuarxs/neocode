@@ -29,7 +29,7 @@ describe("native conversation authority", () => {
     const events = yield* hub.subscribe;
     let reads = 0;
     const owner = makeOwner(events, (command) => Effect.gen(function* () {
-      if (command.type === "get_state") return identity;
+      if (command.type === "get_state" || command.type === "snapshot_session_journal") return { ...identity, leafId: "e1" };
       reads++;
       yield* hub.publish(canonical("journal_entry", { entry }));
       yield* hub.publish(canonical("message_persisted", { messageId: "msg-1", entryId: "e1" }));
@@ -66,7 +66,7 @@ describe("native conversation authority", () => {
   }));
 
   it.effect("reports native cursor errors as a reconciliation gap", () => Effect.gen(function* () {
-    const owner = makeOwner(Stream.empty, (command) => command.type === "get_state" ? Effect.succeed(identity) :
+    const owner = makeOwner(Stream.empty, (command) => command.type === "get_state" || command.type === "snapshot_session_journal" ? Effect.succeed({ ...identity, leafId: "e1" }) :
       Effect.fail(new NeoPiRpcError({ code: "leaf_changed", message: "Native leaf changed" })));
     const result = yield* Stream.runCollect(observeNeoPiNativeOwner(owner, identity, resolveFile));
     assert.equal(result.length, 1);
@@ -163,5 +163,43 @@ describe("native conversation authority", () => {
     assert.equal(calls[0]?.type, "navigate_tree");
     assert.equal("startIfStopped" in calls[0]!, false);
     assert.equal(calls.some((command) => command.type === "prompt"), false);
+  }));
+
+  it.effect("requests an ordered native partial snapshot for every quiet GUI transport watcher", () => Effect.gen(function* () {
+    const native = canonical("message_start", { snapshot: true, messageId: "msg-live", message: {
+      role: "assistant", content: [{ type: "thinking", thinking: "native reasoning" }, { type: "text", text: "already emitted, no new tokens" }], future: { kept: true },
+    } });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      yield* Effect.scoped(Effect.gen(function* () {
+        const hub = makeNeoPiNativeEventHub();
+        const events = yield* hub.subscribe;
+        const commands: string[] = [];
+        const owner: NeoPiNativeOwner = { ...makeOwner(events), ownership: "gui", request: (command) => Effect.gen(function* () {
+          commands.push(command.type);
+          if (command.type === "snapshot_session_journal") {
+            yield* hub.publish(canonical("journal_state", { reason: "snapshot" }));
+            yield* hub.publish(native);
+            return { ...identity, leafId: "e1" };
+          }
+          return command.type === "get_state" ? { ...identity, isStreaming: true } : page;
+        }) };
+        const output = yield* Stream.runCollect(observeNeoPiNativeOwner(owner, identity, resolveFile).pipe(Stream.take(4)));
+        assert.equal(commands[0], "snapshot_session_journal");
+        assert.equal(output[0]?.type === "connection" && output[0].ownership, "gui");
+        assert.deepEqual(output[3], { type: "native", event: native });
+        assert.equal(commands.some((command) => command === "prompt" || command.startsWith("set_")), false);
+      }));
+    }
+  }));
+
+  it.effect("rejects a foreign snapshot boundary before reading the native page", () => Effect.gen(function* () {
+    const commands: string[] = [];
+    const owner = makeOwner(Stream.empty, (command) => Effect.sync(() => {
+      commands.push(command.type);
+      return { ...identity, sessionFile: "/sessions/foreign.jsonl", leafId: "e1" };
+    }));
+    const output = yield* Stream.runCollect(observeNeoPiNativeOwner(owner, identity, resolveFile));
+    assert.equal(output[0]?.type === "connection" && output[0].status, "identity_changed");
+    assert.deepEqual(commands, ["snapshot_session_journal"]);
   }));
 });

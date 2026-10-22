@@ -11,6 +11,14 @@ export const NeoPiJournalNativeEvent = Schema.Union([
   Schema.StructWithRest(Schema.Struct({ ...JournalIdentity.fields, type: Schema.Literal("message_persisted"), messageId: Schema.String, entryId: Schema.String }), [NeoPiNativeRecord]),
 ]);
 export type NeoPiJournalNativeEvent = typeof NeoPiJournalNativeEvent.Type;
+export const NeoPiStreamingMessageSnapshot = Schema.StructWithRest(Schema.Struct({
+  ...JournalIdentity.fields,
+  type: Schema.Literal("message_start"),
+  snapshot: Schema.Literal(true),
+  messageId: Schema.String,
+  message: NeoPiNativeRecord,
+}), [NeoPiNativeRecord]);
+export type NeoPiStreamingMessageSnapshot = typeof NeoPiStreamingMessageSnapshot.Type;
 export const NeoPiWatchJournalInput = Schema.Struct({ threadId: ThreadId });
 export type NeoPiWatchJournalInput = typeof NeoPiWatchJournalInput.Type;
 export const NeoPiJournalConnection = Schema.Struct({

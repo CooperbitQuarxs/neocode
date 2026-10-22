@@ -1,5 +1,5 @@
 import {
-  NeoPiNavigateTreeResult, NeoPiNativeFrame, NeoPiNativeRecord, NeoPiJournalNativeEvent,
+  NeoPiNavigateTreeResult, NeoPiNativeFrame, NeoPiNativeRecord, NeoPiJournalNativeEvent, NeoPiStreamingMessageSnapshot,
   type NeoPiJournalStreamEvent, type NeoPiNavigateTreeInput, type NeoPiResumeTreeInput,
   type NeoPiTreeOperationResult, type NeoPiTreeResumeResult, type NeoPiTreeCancelResult,
   type ThreadId, type NeoPiSessionJournalResult,
@@ -32,6 +32,14 @@ export const observeNeoPiNativeOwner = (
 ): Stream.Stream<NeoPiJournalStreamEvent> => Stream.unwrap(Effect.gen(function* () {
   if (!owner.capabilities.has("session_journal"))
     return Stream.succeed(connection("unavailable", "The native owner lacks session_journal. Update NeoPi to read canonical history.", owner.ownership));
+  if (owner.capabilities.has("session_journal_events")) {
+    const boundary = yield* Schema.decodeUnknownEffect(Schema.Struct({
+      sessionId: Schema.String, sessionFile: Schema.NullOr(Schema.String), leafId: Schema.NullOr(Schema.String),
+    }))(yield* owner.request({ type: "snapshot_session_journal" }));
+    if (boundary.sessionFile === null || !sameNeoPiJournalIdentity({
+      sessionId: boundary.sessionId, sessionFile: yield* resolveFile(boundary.sessionFile),
+    }, expected)) return Stream.succeed(connection("identity_changed", "The native snapshot belongs to a different canonical session. Refresh the binding.", owner.ownership));
+  }
   const state = yield* Schema.decodeUnknownEffect(NeoPiNativeRecord)(yield* owner.request({ type: "get_state" }));
   const page = yield* readNeoPiJournalPeer(owner, expected, { scope: "branch", direction: "backward", limit: 128 }, resolveFile);
   if (page.status !== "available") return Stream.succeed(connection("gap", page.status === "error" ? page.message : page.reason, owner.ownership));
@@ -48,8 +56,11 @@ export const observeNeoPiNativeOwner = (
     Stream.filter((event) => liveTypes.has(event.type)),
     Stream.mapEffect((event): Effect.Effect<NeoPiJournalStreamEvent, unknown> => Effect.gen(function* () {
       if (event.type === "neocode_connection_closed") return connection("disconnected", "The native owner connection closed. Reconnect and reconcile native history.", owner.ownership);
-      if (event.type === "journal_state" || event.type === "journal_entry" || event.type === "message_persisted") {
-        yield* Schema.decodeUnknownEffect(NeoPiJournalNativeEvent)(event);
+      const journalEvent = event.type === "journal_state" || event.type === "journal_entry" || event.type === "message_persisted";
+      const streamingSnapshot = event.type === "message_start" && event.snapshot === true;
+      if (journalEvent) yield* Schema.decodeUnknownEffect(NeoPiJournalNativeEvent)(event);
+      if (streamingSnapshot) yield* Schema.decodeUnknownEffect(NeoPiStreamingMessageSnapshot)(event);
+      if (journalEvent || streamingSnapshot) {
         if (typeof event.sessionId !== "string" || typeof event.sessionFile !== "string" ||
           !sameNeoPiJournalIdentity({ sessionId: event.sessionId, sessionFile: yield* resolveFile(event.sessionFile) }, expected))
           return connection("identity_changed", "The owner changed its canonical native session. The old binding is invalid.", owner.ownership);

@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import { NeoPiJournalNativeEvent, NeoPiJournalStreamEvent, NeoPiNavigateTreeInput, NeoPiResumeTreeInput, NeoPiTreeOperationResult } from "./neopiNativeConversation.ts";
+import { NeoPiJournalNativeEvent, NeoPiJournalStreamEvent, NeoPiNavigateTreeInput, NeoPiResumeTreeInput, NeoPiTreeOperationResult, NeoPiStreamingMessageSnapshot } from "./neopiNativeConversation.ts";
 
 const identity = { sessionId: "session", sessionFile: "/sessions/native.jsonl", leafId: "entry" };
 describe("native conversation wire", () => {
@@ -30,5 +30,16 @@ describe("native conversation wire", () => {
       reopenAsk: { toolCallId: "ask-1", questions: [{ id: "question", question: "Choose", options: [{ label: "Yes", value: "yes" }], customFuture: true }] } } };
     const decoded = yield* Schema.decodeUnknownEffect(NeoPiTreeOperationResult)(value);
     assert.deepEqual(yield* Schema.encodeEffect(NeoPiTreeOperationResult)(decoded), value);
+  }));
+
+  it.effect("keeps authoritative unsaved snapshots distinct from durability receipts", () => Effect.gen(function* () {
+    const snapshot = { type: "message_start", snapshot: true, ...identity, messageId: "msg-running",
+      message: { role: "assistant", content: [{ type: "thinking", thinking: "native thought" }, { type: "text", text: "partial" }], future: ["preserved"] } };
+    const decoded = yield* Schema.decodeUnknownEffect(NeoPiStreamingMessageSnapshot)(snapshot);
+    assert.deepEqual(yield* Schema.encodeEffect(NeoPiStreamingMessageSnapshot)(decoded), snapshot);
+    assert.equal("entryId" in decoded, false);
+    assert.equal(Schema.decodeUnknownOption(NeoPiJournalNativeEvent)(snapshot)._tag, "None");
+    const { messageId: _, ...withoutMessageId } = snapshot;
+    assert.equal(Schema.decodeUnknownOption(NeoPiStreamingMessageSnapshot)(withoutMessageId)._tag, "None");
   }));
 });

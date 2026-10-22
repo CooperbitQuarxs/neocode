@@ -193,6 +193,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
   // control connection. New mutating commands are refused by default.
   const attachedReadCommands = new Set([
     "get_state",
+    "snapshot_session_journal",
     "get_entries",
     "get_entries_page",
     "get_messages_page",
@@ -1238,7 +1239,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     observeNative: nativeEvents.subscribe,
     nativeRequest: (command) =>
       Effect.gen(function* () {
-        if (!["get_state", "get_entries_page", "navigate_tree", "resume_tree", "abort"].includes(command.type))
+        if (!["get_state", "get_entries_page", "snapshot_session_journal", "navigate_tree", "resume_tree", "abort"].includes(command.type))
           return yield* new NeoPiRpcError({ code: "unsupported", command: command.type, message: "Not a native conversation command." });
         return yield* (yield* current()).request(command);
       }),
