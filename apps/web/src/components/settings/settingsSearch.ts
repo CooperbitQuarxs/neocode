@@ -18,6 +18,7 @@ export type SettingsPath =
   | "/settings/keybindings"
   | "/settings/snap-shot"
   | "/settings/providers"
+  | "/settings/neocore"
   | "/settings/integrations"
   | "/settings/source-control"
   | "/settings/storage"
@@ -89,6 +90,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
+  "/settings/neocore": "NeoCore",
   "/settings/integrations": "Integrations",
   "/settings/source-control": "Source Control",
   "/settings/storage": "Storage",
@@ -542,7 +544,15 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Providers",
     to: "/settings/providers",
     searchTerms: [
-      "agents cli codex claude cursor grok opencode antigravity google sign in sign out install subscription instances authentication api key models configuration binary path config directory endpoint arguments environment variables display name accent color custom favorite hidden auto compact",
+      "agents cli codex claude cursor grok opencode antigravity google sign in sign out install subscription instances authentication api key models configuration config directory endpoint display name accent color custom favorite hidden auto compact",
+    ],
+  },
+  {
+    id: "neocore",
+    title: "NeoCore",
+    to: "/settings/neocore",
+    searchTerms: [
+      "NeoPi npi runtime startup binary path executable profile OMP_PROFILE launch arguments environment variables secrets enabled disabled reconnect",
     ],
   },
   {
@@ -725,7 +735,9 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "project-actions",
     title: "Actions",
     to: "/settings/general",
-    searchTerms: ["commands scripts setup run dev server checkout worktree t3.json import global environment neovide editor"],
+    searchTerms: [
+      "commands scripts setup run dev server checkout worktree t3.json import global environment neovide editor",
+    ],
   },
   {
     id: "environment-icon",
@@ -840,6 +852,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   // environment at any selection. Neither needs a particular scope to render.
   "/settings/keybindings": null,
   "/settings/providers": null,
+  "/settings/neocore": null,
   "/settings/integrations": null,
   "/settings/source-control": "environment-defaults",
   "/settings/storage": "project-defaults",

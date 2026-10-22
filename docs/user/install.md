@@ -156,13 +156,23 @@ Project defaults and saved selections are preserved.
 NeoPi automatically checks `npi-nightly`, then `npi`, the desktop app's bundled
 `npi` (when available), and `omp` for session-catalog support. A version string
 alone is not enough. The first capable executable's path is saved in
-**Settings → Providers → NeoPi**, with a visible automatic-selection note.
+**Settings → NeoCore**, with a visible automatic-selection note.
 Set **Binary path** to override it; explicit paths are never replaced or given a
 fallback. Clear the field or enter `npi` to select automatically again. Set
 **Profile** to select an `OMP_PROFILE`.
 For a bundled desktop executable, NeoCode records the selection but resolves its
 installation location again on startup, so an AppImage's changing mount path is
 not saved as an explicit override.
+
+NeoCore edits the environment selected in Settings. Select a runtime profile from
+the list to edit its launch arguments or environment variables; existing NeoPi
+instances keep their own configuration. Mark secret variables as sensitive.
+Saved secrets stay concealed, and editing another field preserves them.
+If a profile is disabled, use **Enable NeoPi** to make it available again.
+If an explicit executable is missing, correct **Binary path** or clear it to
+return to automatic selection. Opening NeoCore or selecting a profile does not
+start or restart sessions. Model catalogs are not configured on this page.
+
 T3 reads OAuth login status but cannot log you in; API-key and local models can
 work even when the card reports authentication as unknown. Model, thinking level,
 and fast mode are selected in the composer when the CLI advertises them. With a

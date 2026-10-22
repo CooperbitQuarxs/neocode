@@ -115,6 +115,7 @@ function provider(): ServerProvider {
 function renderPanel(options?: {
   readonly readOnly?: boolean;
   readonly targetInstanceId?: ProviderInstanceId;
+  readonly neoCore?: boolean;
 }): ReactElement<Record<string, unknown>> {
   hooks.beginRender();
   return EnvironmentProviderSettings({
@@ -124,6 +125,7 @@ function renderPanel(options?: {
     ...(options?.targetInstanceId === undefined
       ? {}
       : { targetInstanceId: options.targetInstanceId }),
+    ...(options?.neoCore === undefined ? {} : { neoCore: options.neoCore }),
   }) as ReactElement<Record<string, unknown>>;
 }
 
@@ -198,6 +200,49 @@ describe("EnvironmentProviderSettings routing", () => {
     const panel = renderPanel({ targetInstanceId: customId });
     const editor = visitElements(panel, (element) => element.props.mode === "editor");
     expect(editor?.props.instanceId).toBe(customId);
+  });
+
+  it("keeps every NeoPi profile selectable without writing settings on navigation", () => {
+    const firstId = ProviderInstanceId.make("neopi_personal");
+    const secondId = ProviderInstanceId.make("neopi_work");
+    settingsState.value = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [firstId]: { driver: ProviderDriverKind.make("neopi"), enabled: true },
+        [secondId]: {
+          driver: ProviderDriverKind.make("neopi"),
+          enabled: false,
+          config: { binaryPath: "/opt/work/npi", profile: "work", launchArgs: "--no-extensions" },
+          environment: [{ name: "API_KEY", value: "", sensitive: true, valueRedacted: true }],
+        },
+        [customId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
+      },
+    };
+    let panel = renderPanel({ neoCore: true, targetInstanceId: firstId });
+    expect(visitElements(panel, (element) => element.props.instanceId === customId)).toBeNull();
+    const workRow = visitElements(
+      panel,
+      (element) => element.props.instanceId === secondId && element.props.mode === "list",
+    );
+    (workRow?.props.onSelect as () => void)();
+    panel = renderPanel({ neoCore: true, targetInstanceId: firstId });
+    const editor = visitElements(panel, (element) => element.props.mode === "editor");
+    expect(editor?.props.instanceId).toBe(secondId);
+    expect(settingsState.updateSettings).not.toHaveBeenCalled();
+    expect(commands.refresh).not.toHaveBeenCalled();
+    expect(commands.updateProvider).not.toHaveBeenCalled();
+
+    const instance = settingsState.value.providerInstances![secondId]!;
+    (editor?.props.onUpdate as (next: typeof instance) => void)({ ...instance, enabled: true });
+    expect(settingsState.updateSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        providerInstances: expect.objectContaining({
+          [secondId]: { ...instance, enabled: true },
+          [firstId]: settingsState.value.providerInstances![firstId],
+          [customId]: settingsState.value.providerInstances![customId],
+        }),
+      }),
+    );
   });
 
   it("normalizes one account's favorites without erasing another account's choices", () => {
