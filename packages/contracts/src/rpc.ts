@@ -32,11 +32,34 @@ import {
   NeoPiSessionConfigurationResult,
 } from "./neopiSessions.ts";
 import { NeoPiSessionJournalInput, NeoPiSessionJournalResult } from "./neopiJournal.ts";
-import { NeoPiWatchJournalInput, NeoPiJournalStreamEvent, NeoPiNavigateTreeInput, NeoPiResumeTreeInput, NeoPiTreeOperationResult, NeoPiTreeResumeResult, NeoPiTreeCancelResult } from "./neopiNativeConversation.ts";
 import {
-  NeoPiThemesInput, NeoPiThemesUpdate, NeoPiThemesConfiguration, NeoPiThemesError,
+  NeoPiWatchJournalInput,
+  NeoPiJournalStreamEvent,
+  NeoPiNavigateTreeInput,
+  NeoPiResumeTreeInput,
+  NeoPiTreeOperationResult,
+  NeoPiTreeResumeResult,
+  NeoPiTreeCancelResult,
+} from "./neopiNativeConversation.ts";
+import {
+  NeoPiThemesInput,
+  NeoPiThemesUpdate,
+  NeoPiThemesConfiguration,
+  NeoPiThemesError,
 } from "./neopiThemes.ts";
-import { NeoPiModelsTarget, NeoPiModelsConfiguration, NeoPiModelsUpdate, NeoPiModelsAccountsInput, NeoPiModelsAccounts, NeoPiModelsAuthStart, NeoPiModelsAuthRef, NeoPiModelsAuthRespond, NeoPiModelsAuthState, NeoPiModelsError } from "./neopiModels.ts";
+import {
+  NeoPiModelsTarget,
+  NeoPiModelsConfiguration,
+  NeoPiModelsUpdate,
+  NeoPiModelsAccountsInput,
+  NeoPiModelsAccounts,
+  NeoPiModelsAuthStart,
+  NeoPiModelsAuthRef,
+  NeoPiModelsAuthRespond,
+  NeoPiModelsAuthState,
+  NeoPiModelsError,
+} from "./neopiModels.ts";
+import { NeoPiModelSelectorQuery, NeoPiModelSelectorResult } from "./neopiModels.ts";
 import {
   AssetAccessError,
   AssetCreateUrlInput,
@@ -295,6 +318,7 @@ export const WS_METHODS = {
   neopiThemesWatch: "neopiThemes.watch",
   neopiThemesUpdate: "neopiThemes.update",
   neopiModelsRead: "neopiModels.read",
+  neopiModelsQuerySelector: "neopiModels.querySelector",
   neopiModelsWatch: "neopiModels.watch",
   neopiModelsUpdate: "neopiModels.update",
   neopiModelsAccounts: "neopiModels.accounts",
@@ -484,7 +508,6 @@ const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, 
   success: ServerProviderUpdatedPayload,
   error: Schema.Union([EnvironmentAuthorizationError, ProviderSetupError]),
 });
-
 
 const WsProviderConsumeResetCreditRpc = Rpc.make(WS_METHODS.providerConsumeResetCredit, {
   payload: ProviderConsumeResetCreditInput,
@@ -895,18 +918,26 @@ const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
   error: Schema.Union([FilesystemBrowseError, EnvironmentAuthorizationError]),
 });
 
-
 const WsNeoPiWatchJournalRpc = Rpc.make(WS_METHODS.neopiSessionsWatchJournal, {
-  payload: NeoPiWatchJournalInput, success: NeoPiJournalStreamEvent, error: EnvironmentAuthorizationError, stream: true,
+  payload: NeoPiWatchJournalInput,
+  success: NeoPiJournalStreamEvent,
+  error: EnvironmentAuthorizationError,
+  stream: true,
 });
 const WsNeoPiNavigateTreeRpc = Rpc.make(WS_METHODS.neopiSessionsNavigateTree, {
-  payload: NeoPiNavigateTreeInput, success: NeoPiTreeOperationResult, error: EnvironmentAuthorizationError,
+  payload: NeoPiNavigateTreeInput,
+  success: NeoPiTreeOperationResult,
+  error: EnvironmentAuthorizationError,
 });
 const WsNeoPiResumeTreeRpc = Rpc.make(WS_METHODS.neopiSessionsResumeTree, {
-  payload: NeoPiResumeTreeInput, success: NeoPiTreeResumeResult, error: EnvironmentAuthorizationError,
+  payload: NeoPiResumeTreeInput,
+  success: NeoPiTreeResumeResult,
+  error: EnvironmentAuthorizationError,
 });
 const WsNeoPiCancelNavigationRpc = Rpc.make(WS_METHODS.neopiSessionsCancelNavigation, {
-  payload: NeoPiWatchJournalInput, success: NeoPiTreeCancelResult, error: EnvironmentAuthorizationError,
+  payload: NeoPiWatchJournalInput,
+  success: NeoPiTreeCancelResult,
+  error: EnvironmentAuthorizationError,
 });
 
 const WsNeoPiSessionsListRpc = Rpc.make(WS_METHODS.neopiSessionsList, {
@@ -959,14 +990,53 @@ const WsNeoPiThemesUpdateRpc = Rpc.make(WS_METHODS.neopiThemesUpdate, {
   error: Schema.Union([NeoPiThemesError, EnvironmentAuthorizationError]),
 });
 const NeoPiModelsRpcError = Schema.Union([NeoPiModelsError, EnvironmentAuthorizationError]);
-const WsNeoPiModelsReadRpc = Rpc.make(WS_METHODS.neopiModelsRead, { payload: NeoPiModelsTarget, success: NeoPiModelsConfiguration, error: NeoPiModelsRpcError });
-const WsNeoPiModelsWatchRpc = Rpc.make(WS_METHODS.neopiModelsWatch, { payload: NeoPiModelsTarget, success: NeoPiModelsConfiguration, error: NeoPiModelsRpcError, stream: true });
-const WsNeoPiModelsUpdateRpc = Rpc.make(WS_METHODS.neopiModelsUpdate, { payload: NeoPiModelsUpdate, success: NeoPiModelsConfiguration, error: NeoPiModelsRpcError });
-const WsNeoPiModelsAccountsRpc = Rpc.make(WS_METHODS.neopiModelsAccounts, { payload: NeoPiModelsAccountsInput, success: NeoPiModelsAccounts, error: NeoPiModelsRpcError });
-const WsNeoPiModelsAuthStartRpc = Rpc.make(WS_METHODS.neopiModelsAuthStart, { payload: NeoPiModelsAuthStart, success: NeoPiModelsAuthRef, error: NeoPiModelsRpcError });
-const WsNeoPiModelsAuthWatchRpc = Rpc.make(WS_METHODS.neopiModelsAuthWatch, { payload: NeoPiModelsAuthRef, success: NeoPiModelsAuthState, error: NeoPiModelsRpcError, stream: true });
-const WsNeoPiModelsAuthRespondRpc = Rpc.make(WS_METHODS.neopiModelsAuthRespond, { payload: NeoPiModelsAuthRespond, success: Schema.Void, error: NeoPiModelsRpcError });
-const WsNeoPiModelsAuthCancelRpc = Rpc.make(WS_METHODS.neopiModelsAuthCancel, { payload: NeoPiModelsAuthRef, success: Schema.Void, error: NeoPiModelsRpcError });
+const WsNeoPiModelsReadRpc = Rpc.make(WS_METHODS.neopiModelsRead, {
+  payload: NeoPiModelsTarget,
+  success: NeoPiModelsConfiguration,
+  error: NeoPiModelsRpcError,
+});
+const WsNeoPiModelsQuerySelectorRpc = Rpc.make(WS_METHODS.neopiModelsQuerySelector, {
+  payload: NeoPiModelSelectorQuery,
+  success: NeoPiModelSelectorResult,
+  error: NeoPiModelsRpcError,
+});
+const WsNeoPiModelsWatchRpc = Rpc.make(WS_METHODS.neopiModelsWatch, {
+  payload: NeoPiModelsTarget,
+  success: NeoPiModelsConfiguration,
+  error: NeoPiModelsRpcError,
+  stream: true,
+});
+const WsNeoPiModelsUpdateRpc = Rpc.make(WS_METHODS.neopiModelsUpdate, {
+  payload: NeoPiModelsUpdate,
+  success: NeoPiModelsConfiguration,
+  error: NeoPiModelsRpcError,
+});
+const WsNeoPiModelsAccountsRpc = Rpc.make(WS_METHODS.neopiModelsAccounts, {
+  payload: NeoPiModelsAccountsInput,
+  success: NeoPiModelsAccounts,
+  error: NeoPiModelsRpcError,
+});
+const WsNeoPiModelsAuthStartRpc = Rpc.make(WS_METHODS.neopiModelsAuthStart, {
+  payload: NeoPiModelsAuthStart,
+  success: NeoPiModelsAuthRef,
+  error: NeoPiModelsRpcError,
+});
+const WsNeoPiModelsAuthWatchRpc = Rpc.make(WS_METHODS.neopiModelsAuthWatch, {
+  payload: NeoPiModelsAuthRef,
+  success: NeoPiModelsAuthState,
+  error: NeoPiModelsRpcError,
+  stream: true,
+});
+const WsNeoPiModelsAuthRespondRpc = Rpc.make(WS_METHODS.neopiModelsAuthRespond, {
+  payload: NeoPiModelsAuthRespond,
+  success: Schema.Void,
+  error: NeoPiModelsRpcError,
+});
+const WsNeoPiModelsAuthCancelRpc = Rpc.make(WS_METHODS.neopiModelsAuthCancel, {
+  payload: NeoPiModelsAuthRef,
+  success: Schema.Void,
+  error: NeoPiModelsRpcError,
+});
 
 const WsAssetsCreateUrlRpc = Rpc.make(WS_METHODS.assetsCreateUrl, {
   payload: AssetCreateUrlInput,
@@ -984,7 +1054,6 @@ const WsAttachmentsDeleteRpc = Rpc.make(WS_METHODS.attachmentsDelete, {
   payload: AttachmentDeleteInput,
   error: EnvironmentAuthorizationError,
 });
-
 
 const WsSubscribeVcsStatusRpc = Rpc.make(WS_METHODS.subscribeVcsStatus, {
   payload: VcsStatusInput,
@@ -1454,6 +1523,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsNeoPiThemesWatchRpc,
   WsNeoPiThemesUpdateRpc,
   WsNeoPiModelsReadRpc,
+  WsNeoPiModelsQuerySelectorRpc,
   WsNeoPiModelsWatchRpc,
   WsNeoPiModelsUpdateRpc,
   WsNeoPiModelsAccountsRpc,

@@ -1892,7 +1892,8 @@ const makeWsRpcLayer = (
                     session: thread.value.session,
                     settings: yield* serverSettings.getSettings,
                   });
-                  if (reason) return yield* new OrchestrationDispatchCommandError({ message: reason });
+                  if (reason)
+                    return yield* new OrchestrationDispatchCommandError({ message: reason });
                 }
               }
               if (
@@ -1905,7 +1906,8 @@ const makeWsRpcLayer = (
                     modelSelection: command.modelSelection,
                     settings: yield* serverSettings.getSettings,
                   });
-                  if (reason) return yield* new OrchestrationDispatchCommandError({ message: reason });
+                  if (reason)
+                    return yield* new OrchestrationDispatchCommandError({ message: reason });
                 }
               }
               yield* ProjectCloneTracker.rejectCommandsDuringClone(projectCloneTracker, command);
@@ -3132,17 +3134,34 @@ const makeWsRpcLayer = (
             "rpc.aggregate": "workspace",
           }),
         [WS_METHODS.neopiSessionsWatchJournal]: (input) =>
-          observeRpcStream(WS_METHODS.neopiSessionsWatchJournal, neopiNativeConversation.watch(input.threadId), { "rpc.aggregate": "workspace" }),
+          observeRpcStream(
+            WS_METHODS.neopiSessionsWatchJournal,
+            neopiNativeConversation.watch(input.threadId),
+            { "rpc.aggregate": "workspace" },
+          ),
         [WS_METHODS.neopiSessionsNavigateTree]: (input) =>
-          observeRpcEffect(WS_METHODS.neopiSessionsNavigateTree, neopiNativeConversation.navigate(input), { "rpc.aggregate": "workspace" }),
+          observeRpcEffect(
+            WS_METHODS.neopiSessionsNavigateTree,
+            neopiNativeConversation.navigate(input),
+            { "rpc.aggregate": "workspace" },
+          ),
         [WS_METHODS.neopiSessionsResumeTree]: (input) =>
-          observeRpcEffect(WS_METHODS.neopiSessionsResumeTree, neopiNativeConversation.resume(input), { "rpc.aggregate": "workspace" }),
+          observeRpcEffect(
+            WS_METHODS.neopiSessionsResumeTree,
+            neopiNativeConversation.resume(input),
+            { "rpc.aggregate": "workspace" },
+          ),
         [WS_METHODS.neopiSessionsCancelNavigation]: (input) =>
-          observeRpcEffect(WS_METHODS.neopiSessionsCancelNavigation, neopiNativeConversation.cancel(input.threadId), { "rpc.aggregate": "workspace" }),
+          observeRpcEffect(
+            WS_METHODS.neopiSessionsCancelNavigation,
+            neopiNativeConversation.cancel(input.threadId),
+            { "rpc.aggregate": "workspace" },
+          ),
         [WS_METHODS.neopiThemesRead]: (input) => neopiThemes.read(input),
         [WS_METHODS.neopiThemesWatch]: (input) => neopiThemes.watch(input),
         [WS_METHODS.neopiThemesUpdate]: (input) => neopiThemes.update(input),
         [WS_METHODS.neopiModelsRead]: (input) => neopiModels.read(input),
+        [WS_METHODS.neopiModelsQuerySelector]: (input) => neopiModels.querySelector(input),
         [WS_METHODS.neopiModelsWatch]: (input) => neopiModels.watch(input),
         [WS_METHODS.neopiModelsUpdate]: (input) => neopiModels.update(input),
         [WS_METHODS.neopiModelsAccounts]: (input) => neopiModels.accounts(input),

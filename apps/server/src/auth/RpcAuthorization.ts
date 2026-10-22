@@ -116,6 +116,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.neopiThemesWatch]: AuthOrchestrationReadScope,
   [WS_METHODS.neopiThemesUpdate]: AuthOrchestrationOperateScope,
   [WS_METHODS.neopiModelsRead]: AuthOrchestrationReadScope,
+  [WS_METHODS.neopiModelsQuerySelector]: AuthOrchestrationReadScope,
   [WS_METHODS.neopiModelsWatch]: AuthOrchestrationReadScope,
   [WS_METHODS.neopiModelsUpdate]: AuthOrchestrationOperateScope,
   [WS_METHODS.neopiModelsAccounts]: AuthOrchestrationOperateScope,

@@ -23,6 +23,7 @@ import {
 } from "./ComposerControl";
 import { useComposerMenuProps } from "./composerEventScope";
 import { shortcutLabelForCommand } from "../../keybindings";
+import type { NativeSelectorContext } from "./neopiModelSwitcher";
 
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   /**
@@ -30,6 +31,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
    * icon, label and the default-highlighted combobox row.
    */
   activeInstanceId: ProviderInstanceId;
+  selectorContext: NativeSelectorContext;
   model: string;
   selectedModels?: ReadonlyArray<{ instanceId: ProviderInstanceId; model: string }>;
   onToggleModel?: (instanceId: ProviderInstanceId, model: string) => void;
@@ -66,12 +68,15 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     // Status controls may be portaled outside the form. They still open over
     // the active composer, rather than inheriting the tiny trigger width.
     const anchor = props.isComposerOwned
-      ? triggerElement.closest<HTMLElement>('[data-chat-composer-form="true"]') ??
+      ? (triggerElement.closest<HTMLElement>('[data-chat-composer-form="true"]') ??
         document.querySelector<HTMLElement>('[data-chat-composer-form="true"]') ??
-        triggerElement.closest<HTMLElement>("main")
+        triggerElement.closest<HTMLElement>("main"))
       : triggerElement.closest<HTMLElement>("main");
     setPickerAnchor(anchor);
-    const update = () => setPickerWidth(anchor?.getBoundingClientRect().width ?? Math.min(1000, window.innerWidth - 16));
+    const update = () =>
+      setPickerWidth(
+        anchor?.getBoundingClientRect().width ?? Math.min(1000, window.innerWidth - 16),
+      );
     update();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
     if (anchor) observer?.observe(anchor);
@@ -303,6 +308,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       >
         <ModelPickerContent
           activeInstanceId={activeInstanceId}
+          selectorContext={props.selectorContext}
           model={props.model}
           {...(props.selectedModels !== undefined ? { selectedModels: props.selectedModels } : {})}
           {...(props.onToggleModel

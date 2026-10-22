@@ -4,9 +4,14 @@ import { ComboboxItem } from "../ui/combobox";
 import { Kbd } from "../ui/kbd";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { modelPickerModelKey } from "./modelPickerKeys";
-import { NATIVE_FACT_COLUMNS, nativeSwitcherFactCells, type NativeSwitcherModel } from "./neopiModelSwitcher";
+import {
+  NATIVE_FACT_COLUMNS,
+  nativeSwitcherFactCells,
+  type NativeSwitcherModel,
+} from "./neopiModelSwitcher";
 
-export const NATIVE_MODEL_GRID = "grid grid-cols-[minmax(15rem,1fr)_repeat(6,5.5rem)_3rem] items-center gap-2";
+export const NATIVE_MODEL_GRID =
+  "grid grid-cols-[minmax(15rem,1fr)_repeat(6,5.5rem)_3rem] items-center gap-2";
 
 export const ModelListRow = memo(function ModelListRow(props: {
   index: number;
@@ -27,11 +32,19 @@ export const ModelListRow = memo(function ModelListRow(props: {
       <div className={`${NATIVE_MODEL_GRID} w-full py-1`}>
         <div className="min-w-0 text-left">
           <div className="flex items-center gap-1.5">
-            {props.isSelected ? <CheckIcon className="size-3 shrink-0" aria-label="Selected" /> : null}
-            <span className="truncate text-xs font-medium" title={props.model.slug}>{props.model.slug}</span>
+            {props.isSelected ? (
+              <CheckIcon className="size-3 shrink-0" aria-label="Selected" />
+            ) : null}
+            <span className="truncate text-xs font-medium" title={props.model.slug}>
+              {props.model.slug}
+            </span>
           </div>
-          <div className="mt-1 truncate text-xs text-muted-foreground" title={`${props.model.description || props.model.name}, ${props.model.instanceDisplayName}`}>
-            {props.model.description || props.model.name}{props.model.isUnavailable ? ", unavailable" : ""}
+          <div
+            className="mt-1 truncate text-xs text-muted-foreground"
+            title={`${props.model.description || props.model.name}, ${props.model.instanceDisplayName}`}
+          >
+            {props.model.description || props.model.name}
+            {props.model.isUnavailable ? ", unavailable" : ""}
           </div>
         </div>
         {cells.map((value, index) => (
@@ -41,10 +54,12 @@ export const ModelListRow = memo(function ModelListRow(props: {
             aria-label={`${NATIVE_FACT_COLUMNS[index]}: ${value}`}
             title={`${NATIVE_FACT_COLUMNS[index]}: ${value}`}
           >
-            {value === "Unknown" ? <span aria-hidden="true">?</span> : value}
+            {value}
           </span>
         ))}
-        <span className="justify-self-end">{props.jumpLabel ? <Kbd>{props.jumpLabel}</Kbd> : null}</span>
+        <span className="justify-self-end">
+          {props.jumpLabel ? <Kbd>{props.jumpLabel}</Kbd> : null}
+        </span>
       </div>
     </ComboboxItem>
   );
@@ -53,5 +68,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
       <TooltipTrigger render={<div>{row}</div>} />
       <TooltipPopup side="top">{props.disabledReason}</TooltipPopup>
     </Tooltip>
-  ) : row;
+  ) : (
+    row
+  );
 });

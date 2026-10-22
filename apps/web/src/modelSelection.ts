@@ -299,6 +299,9 @@ export function resolveAppModelSelectionForInstance(
     (candidate) => candidate.instanceId === instanceId,
   );
   if (!entry || entry.driverKind !== "neopi") return null;
+  // Native selector results can precede the provider catalog refresh. Keep the
+  // exact role or model ID rather than substituting a cached default.
+  if (selectedModel) return selectedModel;
   const options = getAppModelOptionsForInstance(
     settings,
     entry,
@@ -348,7 +351,6 @@ export function getCustomModelOptionsByInstance(
   return out;
 }
 
-
 export function resolveAppModelSelectionState(
   settings: UnifiedSettings,
   providers: ReadonlyArray<ServerProvider>,
@@ -382,10 +384,12 @@ export function resolveAppModelSelectionState(
       return createModelSelection(entry.instanceId, "", []);
     }
     const provider = entry.driverKind;
-    const { modelOptionsForDispatch } = getComposerProviderState({ provider,
-    model,
-    models: entry.models,
-    modelOptions: selectedEntry ? selection.options : undefined });
+    const { modelOptionsForDispatch } = getComposerProviderState({
+      provider,
+      model,
+      models: entry.models,
+      modelOptions: selectedEntry ? selection.options : undefined,
+    });
 
     return createModelSelection(entry.instanceId, model, modelOptionsForDispatch);
   }

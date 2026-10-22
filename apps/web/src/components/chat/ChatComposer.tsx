@@ -243,11 +243,7 @@ import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
-import {
-  ComposerControl,
-  ComposerControlIcon,
-  ComposerControlSeparator,
-} from "./ComposerControl";
+import { ComposerControl, ComposerControlIcon, ComposerControlSeparator } from "./ComposerControl";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
 import {
@@ -4110,6 +4106,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         <NeoPiSessionModelPicker
           threadRef={isServerThread ? routeThreadRef : null}
           isComposerOwned
+          selectorContext={{
+            environmentId,
+            ...((activeThread?.projectId ?? pullRequestProjectId)
+              ? { projectId: (activeThread?.projectId ?? pullRequestProjectId)! }
+              : {}),
+            ...(routeKind === "server" &&
+            activeThread?.session?.providerInstanceId &&
+            ["ready", "running", "interrupted"].includes(activeThread.session.status)
+              ? {
+                  connectedThread: {
+                    threadId: activeThread.id,
+                    providerInstanceId: activeThread.session.providerInstanceId,
+                  },
+                }
+              : {}),
+          }}
           disabled={providerCatalogPending || isSendBusy}
           {...(routeKind === "draft" && supportsMultipleModels
             ? {
@@ -4923,7 +4935,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       },
       openControl: (command) => {
         if (command === "composer.mode") {
-          const permissions = document.querySelector<HTMLButtonElement>("button[data-session-permissions]");
+          const permissions = document.querySelector<HTMLButtonElement>(
+            "button[data-session-permissions]",
+          );
           permissions?.click();
           return;
         }
@@ -5755,7 +5769,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   <ComposerFooterPrimaryActions
                     compact={isComposerPrimaryActionsCompact}
                     activeContextWindow={
-                      selectedProvider !== "neopi" && settings.contextWindowMeterEnabled ? activeContextWindow : null
+                      selectedProvider !== "neopi" && settings.contextWindowMeterEnabled
+                        ? activeContextWindow
+                        : null
                     }
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
