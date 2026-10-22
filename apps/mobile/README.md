@@ -213,7 +213,7 @@ At least one project must exist in that environment to supply discovery context.
 The server resolves the selected session's real cwd and project when resuming; mobile
 does not move a session into that context project.
 
-Open Models from Home, the thread sidebar, or a chat's session-configuration panel.
+Open Models from Home, Settings, the thread sidebar, or a chat's session-configuration panel.
 The page uses NeoPi's native model catalog and role definitions. It supports global
 and project-scoped role assignments, fixed/inherited/automatic effort, ordered effort
 rules, provider API keys, native login prompts and account removal. NeoPi resolves
