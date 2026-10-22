@@ -219,6 +219,19 @@ native features, server errors and discovery diagnostics are displayed, not trea
 successful empty results. Model selection still uses the shared model catalog, including
 NeoPi inference providers and roles.
 
+Usage, NeoPi stats opens the actual native stats document for the chosen environment
+and NeoPi runtime. NeoPi owns its session analysis, traces, indexing and errors.
+Mobile does not recalculate or combine its statistics. The Limits tab keeps live quota
+pools, reset actions, environment filtering and pull-to-refresh.
+
+Native stats requires the compatible server's authenticated `/api/neopi-stats` routes
+and NeoPi's hosted stats support. A missing capability or disconnected environment is an
+explicit error, never a fallback to the old transcript-derived Usage page. Requests use
+the existing cookie/bearer/DPoP connection transport. Credentials do not enter the WebView.
+Expo's streaming fetch carries live updates and trace bodies; document MessagePorts
+cross the native boundary through a local adapter with the shared path allowlist,
+backpressure and cancellation. Closing the view releases its server-owned stats process.
+
 This client requires a compatible NeoCode server with `neopiSessions.list`, `.resume`
 and `.configuration`, and a NeoPi runtime implementing their native session capabilities.
 It is not a client for arbitrary upstream server versions. Native role/effort-rule edits,
@@ -236,7 +249,8 @@ Do not reuse an old `node_modules` tree after the patch hash changes.
 Source changes are not device proof. Before accepting #145, retain the signed APK and
 checksum, record its signing certificate and ABI, install it on the authorized target,
 and capture startup, pairing, existing-project visibility, native discovery/resume,
-configuration, disconnect/error handling and an in-place update with connections intact.
+configuration, native stats and traces, disconnect/error handling, quota limits and an
+in-place update with connections intact.
 Record the tested NeoCode commit and NeoPi version. Neither a successful compile nor
 an emulator-only screenshot establishes physical-device compatibility.
 

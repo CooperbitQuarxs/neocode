@@ -215,9 +215,8 @@ const config: ExpoConfig = {
   scheme: variant.scheme,
   version: "1.3.1",
   runtimeVersion: {
-    // Development manifests resolve on every launch, so avoid fingerprint's
-    // expensive native-project calculation there. Preview and production stay
-    // fingerprinted so OTAs only reach binaries with matching native projects.
+    // Keep dev manifests cheap and release native inputs fingerprinted.
+    // This version does not enable OTA updates; sideload updates replace the APK.
     policy: runtimeVersionPolicy,
   },
   orientation: "portrait",
