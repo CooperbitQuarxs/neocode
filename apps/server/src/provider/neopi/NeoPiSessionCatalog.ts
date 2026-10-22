@@ -183,10 +183,11 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
       });
     const resolved = yield* fs.realPath(cwd).pipe(
       Effect.mapError(
-        (cause) => new NeoPiSessionError({
-          operation: "resume",
-          message: `Cannot access this session's working directory '${cwd}': ${cause.message}. No project or history was changed.`,
-        }),
+        (cause) =>
+          new NeoPiSessionError({
+            operation: "resume",
+            message: `Cannot access this session's working directory '${cwd}': ${cause.message}. No project or history was changed.`,
+          }),
       ),
     );
     const info = yield* fs.stat(resolved);
@@ -197,10 +198,11 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
       });
     yield* fs.access(resolved, { readable: true }).pipe(
       Effect.mapError(
-        (cause) => new NeoPiSessionError({
-          operation: "resume",
-          message: `Cannot read this session's working directory '${cwd}': ${cause.message}. No project or history was changed.`,
-        }),
+        (cause) =>
+          new NeoPiSessionError({
+            operation: "resume",
+            message: `Cannot read this session's working directory '${cwd}': ${cause.message}. No project or history was changed.`,
+          }),
       ),
     );
     return resolved;
@@ -380,10 +382,7 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
           if (thread.worktreePath)
             projectIds.set(yield* pathIdentity(thread.worktreePath), thread.projectId);
         }
-        projectIds.set(
-          yield* pathIdentity(result.success.project.workspaceRoot),
-          input.projectId,
-        );
+        projectIds.set(yield* pathIdentity(result.success.project.workspaceRoot), input.projectId);
         const nativeBindings = new Map<string, ProviderRuntimeBinding>();
         for (const binding of bindings) {
           if (binding.provider !== "neopi") continue;
@@ -522,8 +521,10 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
       for (const entry of bindings) {
         const cursor =
           entry.provider === "neopi" ? decodeCursor(entry.resumeCursor) : Option.none();
-        if (Option.isSome(cursor) &&
-          (yield* pathIdentity(cursor.value.sessionFile)) === sessionIdentity) {
+        if (
+          Option.isSome(cursor) &&
+          (yield* pathIdentity(cursor.value.sessionFile)) === sessionIdentity
+        ) {
           existing = entry;
           break;
         }

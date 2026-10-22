@@ -133,7 +133,11 @@ const sessionWorkspace = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const scratch = NodePath.join(NodeOS.homedir(), ".cache/npi-canary");
   yield* fs.makeDirectory(scratch, { recursive: true });
-  return yield* fs.makeTempDirectoryScoped({ directory: scratch, prefix: "neocode-session-paths-" });
+  const directory = yield* fs.makeTempDirectoryScoped({
+    directory: scratch,
+    prefix: "neocode-session-paths-",
+  });
+  return yield* fs.realPath(directory);
 });
 
 const harness = (options?: {
@@ -372,10 +376,13 @@ const harness = (options?: {
                     workspaceRoot: command.workspaceRoot,
                   });
                 if (command.type === "thread.create")
-                  threads.set(command.threadId, projectedThread(command.threadId, {
-                    projectId: command.projectId,
-                    worktreePath: command.worktreePath,
-                  }));
+                  threads.set(
+                    command.threadId,
+                    projectedThread(command.threadId, {
+                      projectId: command.projectId,
+                      worktreePath: command.worktreePath,
+                    }),
+                  );
                 if (command.type === "thread.session.stop") {
                   const index = bindings.findIndex((entry) => entry.threadId === command.threadId);
                   if (index >= 0) bindings[index] = { ...bindings[index]!, status: "stopped" };
@@ -710,14 +717,18 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
         const alias = NodePath.join(root, "alias");
         yield* fs.makeDirectory(canonical);
         yield* fs.symlink(canonical, alias);
-        for (const [workspaceRoot, nativeCwd] of [[alias, canonical], [canonical, alias]]) {
+        for (const [workspaceRoot, nativeCwd] of [
+          [alias, canonical],
+          [canonical, alias],
+        ] as const) {
           const { catalog, commands, bindings } = yield* harness({
             workspaceRoot,
             rows: [session("free", { cwd: nativeCwd })],
           });
           const result = yield* catalog.list({ projectId, scope: "project" });
-          expect(result.status === "available" && result.sessions.map((row) => row.projectId))
-            .toEqual([projectId]);
+          expect(
+            result.status === "available" && result.sessions.map((row) => row.projectId),
+          ).toEqual([projectId]);
           expect(commands).toEqual([]);
           expect(bindings).toEqual([]);
         }
@@ -961,17 +972,27 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
         workspaceRoot: alias,
         rows: [row],
         read: () => ({
-          version: 1, session: { ...row, cwd: alias }, truncated: false,
-          branchEntryIds: [], leafId: null, messages: [],
+          version: 1,
+          session: { ...row, cwd: alias },
+          truncated: false,
+          branchEntryIds: [],
+          leafId: null,
+          messages: [],
         }),
       });
       const result = yield* catalog.resume({
-        projectId, providerInstanceId: instanceId, sessionFile: row.path,
+        projectId,
+        providerInstanceId: instanceId,
+        sessionFile: row.path,
       });
       expect(result.created).toBe(true);
-      expect(commands).toMatchObject([{
-        type: "thread.create", projectId, worktreePath: null,
-      }]);
+      expect(commands).toMatchObject([
+        {
+          type: "thread.create",
+          projectId,
+          worktreePath: null,
+        },
+      ]);
       expect(bindings[0]?.runtimePayload).toMatchObject({ cwd: canonical });
       expect(calls.find((call) => call.args[1] === "read")?.cwd).toBe(canonical);
     }),
@@ -999,34 +1020,47 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
         bindings: [binding],
         threads: [projectedThread(binding.threadId)],
       });
-      expect(yield* catalog.resume({
-        projectId, providerInstanceId: ProviderInstanceId.make("not-the-bound-provider"),
-        sessionFile: nativeFile,
-      })).toEqual({ threadId: binding.threadId, created: false });
+      expect(
+        yield* catalog.resume({
+          projectId,
+          providerInstanceId: ProviderInstanceId.make("not-the-bound-provider"),
+          sessionFile: nativeFile,
+        }),
+      ).toEqual({ threadId: binding.threadId, created: false });
       expect(commands).toEqual([]);
       expect(bindings).toEqual([binding]);
       expect(calls.some((call) => call.args[1] === "read")).toBe(false);
     }),
   );
-  it.effect("reuses a foreign project and its native cwd without changing the selected project", () =>
-    Effect.gen(function* () {
-      const root = yield* sessionWorkspace;
-      const foreignProjectId = ProjectId.make("foreign");
-      const row = session("free", { cwd: root });
-      const { catalog, commands, bindings } = yield* harness({
-        projects: [{ ...project, id: foreignProjectId, workspaceRoot: root }],
-        rows: [row],
-        read: () => ({
-          version: 1, session: row, truncated: false,
-          branchEntryIds: [], leafId: null, messages: [],
-        }),
-      });
-      yield* catalog.resume({ projectId, providerInstanceId: instanceId, sessionFile: row.path });
-      expect(commands).toMatchObject([{
-        type: "thread.create", projectId: foreignProjectId, worktreePath: null,
-      }]);
-      expect(bindings[0]?.runtimePayload).toMatchObject({ cwd: root });
-    }),
+  it.effect(
+    "reuses a foreign project and its native cwd without changing the selected project",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* sessionWorkspace;
+        const foreignProjectId = ProjectId.make("foreign");
+        const row = session("free", { cwd: root });
+        const { catalog, commands, bindings } = yield* harness({
+          projects: [{ ...project, id: foreignProjectId, workspaceRoot: root }],
+          rows: [row],
+          read: () => ({
+            version: 1,
+            session: row,
+            truncated: false,
+            branchEntryIds: [],
+            leafId: null,
+            messages: [],
+          }),
+        });
+        yield* catalog.resume({ projectId, providerInstanceId: instanceId, sessionFile: row.path });
+        expect(commands).toMatchObject([
+          {
+            type: "thread.create",
+            projectId: foreignProjectId,
+            worktreePath: null,
+          },
+        ]);
+        expect(bindings[0]?.runtimePayload).toMatchObject({ cwd: root });
+      }),
   );
   it.effect("registers an unrelated nested or prefix-sharing cwd only on explicit resume", () =>
     Effect.gen(function* () {
@@ -1043,8 +1077,12 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
           workspaceRoot: selectedRoot,
           rows: [row],
           read: () => ({
-            version: 1, session: row, truncated: false,
-            branchEntryIds: [], leafId: null, messages: [],
+            version: 1,
+            session: row,
+            truncated: false,
+            branchEntryIds: [],
+            leafId: null,
+            messages: [],
           }),
         });
         const scoped = yield* catalog.list({ projectId, scope: "project" });
@@ -1054,17 +1092,24 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
         expect(commands).toEqual([]);
         expect(bindings).toEqual([]);
         const resumed = yield* catalog.resume({
-          projectId, providerInstanceId: instanceId, sessionFile: row.path,
+          projectId,
+          providerInstanceId: instanceId,
+          sessionFile: row.path,
         });
         const created = commands.find((command) => command.type === "project.create");
         expect(created?.workspaceRoot).toBe(nativeCwd);
         expect(created?.projectId).not.toBe(projectId);
         expect(commands.find((command) => command.type === "thread.create")).toMatchObject({
-          projectId: created?.projectId, worktreePath: null,
+          projectId: created?.projectId,
+          worktreePath: null,
         });
-        expect(yield* catalog.resume({
-          projectId, providerInstanceId: instanceId, sessionFile: row.path,
-        })).toEqual({ threadId: resumed.threadId, created: false });
+        expect(
+          yield* catalog.resume({
+            projectId,
+            providerInstanceId: instanceId,
+            sessionFile: row.path,
+          }),
+        ).toEqual({ threadId: resumed.threadId, created: false });
         expect(commands.filter((command) => command.type === "project.create")).toHaveLength(1);
       }
     }),
@@ -1077,8 +1122,12 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
         rows: [row],
         threads: [projectedThread(ThreadId.make("other-native-session"), { worktreePath })],
         read: () => ({
-          version: 1, session: row, truncated: false,
-          branchEntryIds: [], leafId: null, messages: [],
+          version: 1,
+          session: row,
+          truncated: false,
+          branchEntryIds: [],
+          leafId: null,
+          messages: [],
         }),
       });
       const listed = yield* catalog.list({ projectId, scope: "project" });
@@ -1102,9 +1151,13 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
       ]) {
         const row = session("free", { cwd: nativeCwd });
         const { catalog, commands, bindings, calls } = yield* harness({ rows: [row] });
-        const error = yield* catalog.resume({
-          projectId, providerInstanceId: instanceId, sessionFile: row.path,
-        }).pipe(Effect.flip);
+        const error = yield* catalog
+          .resume({
+            projectId,
+            providerInstanceId: instanceId,
+            sessionFile: row.path,
+          })
+          .pipe(Effect.flip);
         expect(error.message).toContain(reason);
         expect(commands).toEqual([]);
         expect(bindings).toEqual([]);
@@ -1119,13 +1172,21 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
       const { catalog, commands, bindings } = yield* harness({
         rows: [row],
         read: () => ({
-          version: 1, session: row, truncated: false,
-          branchEntryIds: [], leafId: "not-in-the-branch", messages: [],
+          version: 1,
+          session: row,
+          truncated: false,
+          branchEntryIds: [],
+          leafId: "not-in-the-branch",
+          messages: [],
         }),
       });
-      yield* catalog.resume({
-        projectId, providerInstanceId: instanceId, sessionFile: row.path,
-      }).pipe(Effect.flip);
+      yield* catalog
+        .resume({
+          projectId,
+          providerInstanceId: instanceId,
+          sessionFile: row.path,
+        })
+        .pipe(Effect.flip);
       expect(commands).toEqual([]);
       expect(bindings).toEqual([]);
     }),

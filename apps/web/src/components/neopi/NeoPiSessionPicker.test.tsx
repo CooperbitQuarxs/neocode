@@ -216,8 +216,10 @@ describe("NeoPi picker restoration", () => {
     const row = session({ projectId: null, cwd: "/workspace/foreign-worktree" });
     await mount(row);
     await act(async () => {
-      renderer!.root.findAllByType("button")
-        .find((button) => button.children.join("") === "All projects")!.props.onClick();
+      renderer!.root
+        .findAllByType("button")
+        .find((button) => button.children.join("") === "All projects")!
+        .props.onClick();
     });
     await select();
     expect(fixture.resume).toHaveBeenCalledExactlyOnceWith({
