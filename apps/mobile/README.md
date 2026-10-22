@@ -137,6 +137,9 @@ NDK 27.1.12297006 and CMake, with ReactAndroid requesting 3.30.5. Set `JAVA_HOME
 Gradle wrapper downloads its pinned Gradle version if needed. The APK script does not
 install JS dependencies, SDK packages globally, or anything on a device.
 
+The Shiki native dependency links its packaged Android ABI library. A host
+`libonig.so` is not an Android build prerequisite and must not enter the APK link.
+
 Keep a dedicated release keystore outside the checkout and back it up. All future APK
 updates must use that same signing key. To create one once:
 
