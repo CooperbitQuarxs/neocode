@@ -123,6 +123,8 @@ function canonicalSelectionsToLegacyObject(
 }
 
 export const ModelCapabilities = Schema.Struct({
+  /** Native reasoning support, including models without a configurable effort. */
+  reasoning: Schema.optional(Schema.Boolean),
   optionDescriptors: Schema.optional(Schema.Array(ProviderOptionDescriptor)),
 });
 export type ModelCapabilities = typeof ModelCapabilities.Type;

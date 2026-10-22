@@ -28,6 +28,7 @@ export interface EditorDescriptor {
 export interface CustomModelDraft {
   readonly slug: string;
   readonly name: string;
+  readonly reasoning?: boolean | undefined;
   readonly descriptors: ReadonlyArray<EditorDescriptor>;
 }
 
@@ -174,6 +175,9 @@ export function draftFromDefinition(entry: CustomModelDefinition): CustomModelDr
   return {
     slug: entry.slug,
     name: entry.name === entry.slug ? "" : entry.name,
+    ...(entry.capabilities?.reasoning !== undefined
+      ? { reasoning: entry.capabilities.reasoning }
+      : {}),
     descriptors: (entry.capabilities?.optionDescriptors ?? []).map(descriptorToEditor),
   };
 }
@@ -253,6 +257,8 @@ export function definitionFromDraft(draft: CustomModelDraft): CustomModelDefinit
     slug: draft.slug,
     name: name || draft.slug,
     capabilities:
-      descriptors.length > 0 ? createModelCapabilities({ optionDescriptors: descriptors }) : null,
+      descriptors.length > 0 || draft.reasoning !== undefined
+        ? createModelCapabilities({ reasoning: draft.reasoning, optionDescriptors: descriptors })
+        : null,
   };
 }

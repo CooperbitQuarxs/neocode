@@ -19,6 +19,22 @@ const draft = (overrides: Partial<CustomModelDraft>): CustomModelDraft => ({
 });
 
 describe("customModelEditor.logic", () => {
+  it("preserves reasoning-only metadata when reopening and renaming a custom model", () => {
+    for (const reasoning of [true, false]) {
+      const capabilities = { reasoning, optionDescriptors: [] };
+      const reopened = draftFromDefinition({
+        slug: "proxy/virtual/reasoner",
+        name: "Reasoner",
+        capabilities,
+      });
+      expect(definitionFromDraft({ ...reopened, name: "Renamed" })).toEqual({
+        slug: "proxy/virtual/reasoner",
+        name: "Renamed",
+        capabilities,
+      });
+    }
+  });
+
   it("round-trips a definition through the draft, marking the current value as default", () => {
     const definition = definitionFromDraft(
       draft({
