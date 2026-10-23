@@ -97,18 +97,20 @@ function SessionConfigurationSnapshot({ threadRef }: { threadRef: ScopedThreadRe
 
   return (
     <>
-      <DialogPanel>
-        <div className="space-y-2 text-sm">
-          <label className="flex items-center justify-between gap-4">
-            Follow model changes
-            <Switch checked={follow} onCheckedChange={setFollow} />
-          </label>
-          <p className="text-muted-foreground">
-            Follows native model and effort events. Use Refresh for role-definition changes. Advisor
-            configuration is not shown here.
-          </p>
-        </div>
-      </DialogPanel>
+      <div className="shrink-0">
+        <DialogPanel>
+          <div className="space-y-2 text-sm">
+            <label className="flex items-center justify-between gap-4">
+              Follow model changes
+              <Switch checked={follow} onCheckedChange={setFollow} />
+            </label>
+            <p className="text-muted-foreground">
+              Follows native model and effort events. Use Refresh for role-definition changes.
+              Advisor configuration is not shown here.
+            </p>
+          </div>
+        </DialogPanel>
+      </div>
       {follow ? (
         <FollowingSessionConfiguration threadRef={threadRef} />
       ) : (
