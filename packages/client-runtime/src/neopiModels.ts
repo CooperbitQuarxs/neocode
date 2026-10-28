@@ -11,6 +11,11 @@ import {
   createEnvironmentRpcSubscriptionAtomFamily,
 } from "./state/runtime.ts";
 
+/** A missing native catalog limit is unknown, not a zero-token capability. */
+export function formatNeoPiModelTokenLimit(value: number | null): string {
+  return value === null ? "Unknown" : value.toLocaleString();
+}
+
 /** Web, desktop and mobile share the native contract; a reconnect clears the previous connection's snapshot. */
 export function makeNeoPiModelsClientState<R, ER>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, ER>,

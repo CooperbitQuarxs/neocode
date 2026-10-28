@@ -77,6 +77,7 @@ export function useModelsPageTarget() {
     environmentId,
     environments,
     providers,
+    selectedInstanceId,
     provider,
     projects,
     projectId,

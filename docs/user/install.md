@@ -164,10 +164,14 @@ before sharing.
 
 ## NeoPi
 
-Open **Settings → Providers** in the web or desktop app and select the environment
-to configure its NeoPi executable. On Linux, the NeoPi-enabled AppImage includes
-`npi`; elsewhere install `npi` or a compatible `omp` CLI. Configure inference
-providers, authentication, and models in NeoPi.
+Open **Settings → NeoCore** in the web or desktop app to enable NeoPi and configure
+its executable, profile and environment. These controls remain available even
+when the Models page cannot read the native catalog. On Linux, the NeoPi-enabled
+AppImage includes `npi`; elsewhere install NeoPi nightly or stable.
+
+Use **Settings → Models** to inspect native inference providers, authentication,
+models and roles. Catalog limits that NeoPi does not know are shown as **Unknown**;
+they do not prevent opening the page or choosing an otherwise available model.
 
 NeoCode runs only NeoPi. OpenAI Codex, Anthropic, Cursor, and other inference
 providers exposed by NeoPi remain available. They are model backends, not separate

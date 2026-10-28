@@ -66,9 +66,9 @@ export const NeoPiNativeModel = Schema.Struct({
   name: Schema.String,
   kind: Schema.String,
   available: Schema.Boolean,
-  contextWindow: Schema.Number,
+  contextWindow: Schema.NullOr(Schema.Number),
   effectiveContextWindow: Schema.Number,
-  maxTokens: Schema.Number,
+  maxTokens: Schema.NullOr(Schema.Number),
   reasoning: Schema.Boolean,
   cost: Schema.Struct({
     input: Schema.Number,

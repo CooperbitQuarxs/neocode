@@ -11,6 +11,7 @@ import { NeoPiModelSelectorResult } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as SchemaIssue from "effect/SchemaIssue";
 import * as Scope from "effect/Scope";
 import * as Exit from "effect/Exit";
 import * as Stream from "effect/Stream";
@@ -23,7 +24,7 @@ import { neoPiSessionCatalogSource } from "./NeoPiSessionCatalogSource.ts";
 import type { NeoPiModelsConnection } from "./NeoPiModelsConnection.ts";
 
 const modelError = (cause: unknown) =>
-  cause instanceof NeoPiModelsError
+  Schema.is(NeoPiModelsError)(cause)
     ? cause
     : new NeoPiModelsError({ message: cause instanceof Error ? cause.message : String(cause) });
 const Cursor = Schema.Struct({ sessionId: Schema.String, sessionFile: Schema.String });
@@ -45,12 +46,15 @@ export const readNativeModelsConfiguration = Effect.fnUntraced(function* (
   const result = yield* native
     .request({ type: "get_models_configuration" })
     .pipe(Effect.mapError(modelError));
-  return yield* Schema.decodeUnknownEffect(NeoPiModelsConfiguration)(result).pipe(
+  return yield* Schema.decodeUnknownEffect(NeoPiModelsConfiguration)(result, {
+    reportInput: false,
+  }).pipe(
     Effect.mapError(
-      () =>
+      (error) =>
         new NeoPiModelsError({
           message:
-            "NeoPi returned an incompatible Models configuration. Update NeoPi and NeoCode together.",
+            `NeoPi returned an incompatible Models configuration: ${SchemaIssue.makeFormatterDefault()(error.issue)}. ` +
+            "Check the configured NeoPi executable and NeoCode versions, then refresh after updating the incompatible side. No configuration was changed.",
         }),
     ),
   );
@@ -302,14 +306,14 @@ export const makeNeoPiModels = Effect.fn("makeNeoPiModels")(function* () {
           onSuccess: () =>
             SubscriptionRef.update(state, (current) => ({
               ...current,
-              status: "complete",
+              status: "complete" as const,
               prompt: null,
               message: "Native account saved",
             })),
           onFailure: (cause) =>
             SubscriptionRef.update(state, (current) => ({
               ...current,
-              status: current.status === "cancelled" ? "cancelled" : "failed",
+              status: current.status === "cancelled" ? ("cancelled" as const) : ("failed" as const),
               prompt: null,
               message: cause.message,
             })),

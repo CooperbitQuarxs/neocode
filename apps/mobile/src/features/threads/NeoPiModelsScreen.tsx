@@ -11,6 +11,7 @@ import type {
   ProjectId,
 } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { formatNeoPiModelTokenLimit } from "@t3tools/client-runtime/neopi-models";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import * as Linking from "expo-linking";
@@ -405,7 +406,8 @@ function ModelsContent({
                 {!model.available ? " · Not connected" : ""}
                 {model.supportsFastMode ? " · Native fast mode" : ""}
                 {"\n"}Context effective/native: {model.effectiveContextWindow.toLocaleString()} /{" "}
-                {model.contextWindow.toLocaleString()} · Output {model.maxTokens.toLocaleString()}
+                {formatNeoPiModelTokenLimit(model.contextWindow)} · Output{" "}
+                {formatNeoPiModelTokenLimit(model.maxTokens)}
                 {"\n"}Input/output per million: ${model.cost.input} / ${model.cost.output}
                 {"\n"}Efforts: {model.permittedEfforts.join(", ") || "No controllable effort"}
               </Text>
