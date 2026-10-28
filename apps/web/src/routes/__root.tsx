@@ -34,7 +34,6 @@ import { SlowRpcRequestToastCoordinator } from "../components/SlowRpcRequestToas
 import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useEnvironmentThemeSync } from "../hooks/useEnvironmentTheme";
-import { NeoPiThemeSync } from "../components/neopi/NeoPiThemeSync";
 import { Button } from "../components/ui/button";
 import { StandalonePage, StandalonePageHeader } from "../components/ui/standalone-page";
 import {
@@ -248,9 +247,7 @@ function RootRouteView() {
 /** Follows the palette the primary environment's machine publishes, if any. */
 function EnvironmentThemeSync() {
   useEnvironmentThemeSync();
-  // Native theme snapshots are ephemeral and never replace saved palettes.
-  // This child owns native reconciliation independently of settings remounts.
-  return <NeoPiThemeSync />;
+  return null;
 }
 
 function ContrastAppearanceSync() {

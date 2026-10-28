@@ -37,6 +37,27 @@ export const MOBILE_THEME_OPTIONS: ReadonlyArray<{
 export type MobileThemeVariable = keyof ReturnType<typeof createMobileThemeVariables>;
 export type MobileThemeVariables = Readonly<Record<MobileThemeVariable, string>>;
 
+export interface MobileNeoPiTheme {
+  readonly name: string;
+  readonly variables: MobileThemeVariables;
+}
+
+export interface MobileNeoPiThemePreferences {
+  readonly nativeThemeCatalogEnabled?: boolean;
+  readonly nativeLightTheme?: MobileNeoPiTheme | null;
+  readonly nativeDarkTheme?: MobileNeoPiTheme | null;
+}
+
+/** Saved local palettes remain authoritative even when their source catalog is hidden. */
+export function resolveMobileNeoPiTheme(
+  preferences: MobileNeoPiThemePreferences | null,
+  appearance: MobileThemeAppearance,
+): MobileNeoPiTheme | null {
+  return (
+    (appearance === "dark" ? preferences?.nativeDarkTheme : preferences?.nativeLightTheme) ?? null
+  );
+}
+
 export function normalizeMobileThemeId(value: unknown): MobileThemeId {
   return typeof value === "string" && (MOBILE_THEME_IDS as readonly string[]).includes(value)
     ? (value as MobileThemeId)
@@ -80,6 +101,7 @@ export function createMobileThemeSelectionPatch(
     darkThemeId: nextThemeIds.dark,
     // Keep older OTA bundles on the theme for the appearance currently in use.
     themeId: nextThemeIds[activeAppearance],
+    ...(selectedAppearance === "dark" ? { nativeDarkTheme: null } : { nativeLightTheme: null }),
   };
 }
 
@@ -88,6 +110,8 @@ export function createMobileThemePairPatch(value: MobileThemeId) {
     lightThemeId: value,
     darkThemeId: value,
     themeId: value,
+    nativeLightTheme: null,
+    nativeDarkTheme: null,
   };
 }
 
@@ -410,18 +434,6 @@ export function getMobileThemePreviewColors(
   };
 }
 
-export function shouldFollowMobileNeoPiTheme(preferences: {
-  readonly nativeThemeFollow?: boolean;
-  readonly themeId?: string;
-  readonly lightThemeId?: string;
-  readonly darkThemeId?: string;
-} | null): boolean {
-  return preferences?.nativeThemeFollow ?? (preferences !== null
-    && preferences.themeId === undefined
-    && preferences.lightThemeId === undefined
-    && preferences.darkThemeId === undefined);
-}
-
 /** Native semantic roles projected into mobile tokens without replacing saved palettes. */
 export function neoPiMobileThemeVariables(
   appearance: MobileThemeAppearance,
@@ -436,7 +448,7 @@ export function neoPiMobileThemeVariables(
   const dark = relativeLuminance(rgbChannels(canvas)!) < 0.179;
   const sharedSurface = (name: string, fallback: string) => {
     const candidate = value(name, fallback);
-    return (relativeLuminance(rgbChannels(candidate)!) < 0.179) === dark ? candidate : canvas;
+    return relativeLuminance(rgbChannels(candidate)!) < 0.179 === dark ? candidate : canvas;
   };
   const surface = sharedSurface("cardBg", base.surface);
   const raised = sharedSurface("infoBg", base.surfaceRaised);
@@ -449,19 +461,34 @@ export function neoPiMobileThemeVariables(
   const accent = value("accent", base.accent);
   const colors: ThemeColors = {
     ...base,
-    canvas, chrome: canvas, toolbar: canvas, surface, surfaceRaised: raised, surfaceOverlay: raised,
-    text, textMuted: muted, mutedForeground: muted, secondaryLabel: muted, iconMuted: muted,
-    placeholder: muted, toolbarForeground: text,
-    sidebar, sidebarForeground: readableTextColor(text, sidebar),
+    canvas,
+    chrome: canvas,
+    toolbar: canvas,
+    surface,
+    surfaceRaised: raised,
+    surfaceOverlay: raised,
+    text,
+    textMuted: muted,
+    mutedForeground: muted,
+    secondaryLabel: muted,
+    iconMuted: muted,
+    placeholder: muted,
+    toolbarForeground: text,
+    sidebar,
+    sidebarForeground: readableTextColor(text, sidebar),
     sidebarMutedForeground: readableTextColor(muted, sidebar),
     sidebarRowSelected: value("selectedBg", base.sidebarRowSelected),
     sidebarRowActive: value("selectedBg", base.sidebarRowActive),
-    messageSurface: message, messageForeground: readableTextColor(value("userMessageText", text), message),
-    codeBackground: code, codeForeground: readableTextColor(text, code),
-    accent, accentForeground: readableTextColor(text, accent),
+    messageSurface: message,
+    messageForeground: readableTextColor(value("userMessageText", text), message),
+    codeBackground: code,
+    codeForeground: readableTextColor(text, code),
+    accent,
+    accentForeground: readableTextColor(text, accent),
     focus: readableTextColor(value("borderAccent", accent), textSurfaces),
     border: value("borderMuted", base.border),
-    error: value("error", base.error), warning: value("warning", base.warning),
+    error: value("error", base.error),
+    warning: value("warning", base.warning),
   };
   return createMobileThemeVariables(colors, appearance, raised);
 }

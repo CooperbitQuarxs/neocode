@@ -4,8 +4,6 @@ import * as Schema from "effect/Schema";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import {
   applyThemePalette,
-  getThemeColorVariable,
-  type ThemeColors,
   CUSTOM_THEMES_STORAGE_KEY,
   invalidateCustomThemes,
   canonicalThemePreference,
@@ -140,18 +138,15 @@ let snapshotStale = true;
 let lastDesktopTheme: "light" | "dark" | "system" | null = null;
 let lastAppliedTheme: Omit<ThemeSnapshot, "resolvedTheme"> | null = null;
 let themeStorageReadFailure: ThemeStorageError | null = null;
-let nativePalette: Readonly<Record<ThemeAppearance, ThemeColors>> | null = null;
+let themeRevision = 0;
 
-/** Ephemeral native snapshots never rewrite the saved graphical palettes. */
-export function setNeoPiThemePalette(palette: Readonly<Record<ThemeAppearance, ThemeColors>> | null) {
-  if (nativePalette === palette) return;
-  nativePalette = palette;
-  lastAppliedTheme = null;
-  applyTheme(getStored(), { suppressTransitions: true, preservePreview: false });
-  emitChange();
+/** Async palette reads must not replace a newer graphical choice or refresh. */
+export function readThemeRevision(): number {
+  return themeRevision;
 }
 
 function emitChange() {
+  themeRevision++;
   snapshotStale = true;
   for (const listener of listeners) listener();
 }
@@ -356,18 +351,14 @@ function applyTheme(theme: Theme, { suppressTransitions = false, preservePreview
   if (suppressTransitions) {
     document.documentElement.classList.add("no-transitions");
   }
-  const resolvedAppearance = nativePalette
-    ? appearanceMode === "system" ? (systemDark ? "dark" : "light") : appearanceMode
-    : resolveThemeAppearance(theme, systemDark, followSystem, appearanceMode, themeHalves);
-  const nativeColors = nativePalette?.[resolvedAppearance];
-  if (nativeColors) {
-    document.documentElement.dataset.themeId = "neopi";
-    for (const [role, value] of Object.entries(nativeColors) as Array<[keyof ThemeColors, string]>) {
-      document.documentElement.style.setProperty(getThemeColorVariable(role), value);
-    }
-  } else {
-    applyThemePalette(resolveThemeHalf(theme, themeHalves, resolvedAppearance), resolvedAppearance);
-  }
+  const resolvedAppearance = resolveThemeAppearance(
+    theme,
+    systemDark,
+    followSystem,
+    appearanceMode,
+    themeHalves,
+  );
+  applyThemePalette(resolveThemeHalf(theme, themeHalves, resolvedAppearance), resolvedAppearance);
   document.documentElement.classList.toggle("dark", resolvedAppearance === "dark");
   lastAppliedTheme = { theme, systemDark, followSystem, appearanceMode, themeHalves };
   syncBrowserChromeTheme();
@@ -403,18 +394,13 @@ export function syncDesktopTheme(
   if (typeof window === "undefined") return;
   const bridge = window.desktopBridge;
   const halves = readStoredThemeHalves();
-  const desktopTheme = nativePalette
-    ? appearanceMode ?? readAppearanceModePreference(theme)
-    : resolveDesktopTheme(theme, followSystem, appearanceMode, halves);
+  const desktopTheme = resolveDesktopTheme(theme, followSystem, appearanceMode, halves);
   if (!bridge || typeof bridge.setTheme !== "function" || lastDesktopTheme === desktopTheme) {
     return;
   }
 
   lastDesktopTheme = desktopTheme;
-  const sync = nativePalette
-    ? syncDesktopThemePreference(bridge, desktopTheme, desktopTheme === "system", desktopTheme, null)
-    : syncDesktopThemePreference(bridge, theme, followSystem, appearanceMode, halves);
-  void sync.catch(
+  void syncDesktopThemePreference(bridge, theme, followSystem, appearanceMode, halves).catch(
     (cause: unknown) => {
       const error = isDesktopThemeSyncError(cause)
         ? cause
@@ -447,9 +433,13 @@ function getSnapshot(): ThemeSnapshot {
   const systemDark = followSystem ? getSystemDark() : false;
   const themeHalves = readStoredThemeHalves();
 
-  const resolvedTheme = nativePalette
-    ? appearanceMode === "system" ? (systemDark ? "dark" : "light") : appearanceMode
-    : resolveThemeAppearance(theme, systemDark, followSystem, appearanceMode, themeHalves);
+  const resolvedTheme = resolveThemeAppearance(
+    theme,
+    systemDark,
+    followSystem,
+    appearanceMode,
+    themeHalves,
+  );
   if (
     lastSnapshot &&
     lastSnapshot.theme === theme &&

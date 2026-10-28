@@ -2,12 +2,9 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { BUILT_IN_THEMES } from "@t3tools/shared/themePalettes";
 
 import {
-  applyThemeColorPreview,
-  applyThemePalette,
   getThemeColorsForMode,
   getThemeDefinition,
   getThemeModes,
-  getThemePreviewSidebarArtwork,
   getThemePreferenceMode,
   isKnownThemePreference,
   getCustomThemes,
@@ -24,9 +21,7 @@ import {
   resolveDesktopTheme,
   resolveThemeAppearance,
   serializeThemeFile,
-  subscribeToThemePreview,
   subscribeToCustomThemes,
-  themeAllowsSidebarArtwork,
   T3_CHAT_THEME,
   EMBER_THEME,
   GROVE_THEME,
@@ -98,12 +93,19 @@ describe("native theme projection", () => {
       const colors = neoPiThemeColors(appearance, native);
       expect(asHex(colors.canvas)).toBe(native.pageBg);
       expect(asHex(colors.sidebar)).toBe(native.statusLineBg);
-      for (const surface of [colors.canvas, colors.surface, colors.surfaceRaised, colors.surfaceOverlay]) {
+      for (const surface of [
+        colors.canvas,
+        colors.surface,
+        colors.surfaceRaised,
+        colors.surfaceOverlay,
+      ]) {
         expect(contrastRatio(colors.text, surface)).toBeGreaterThanOrEqual(4.5);
         expect(contrastRatio(colors.textMuted, surface)).toBeGreaterThanOrEqual(4.5);
         expect(contrastRatio(colors.focus, surface)).toBeGreaterThanOrEqual(3);
       }
-      expect(contrastRatio(colors.messageForeground, colors.messageSurface)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(colors.messageForeground, colors.messageSurface)).toBeGreaterThanOrEqual(
+        4.5,
+      );
       expect(contrastRatio(colors.sidebarForeground, colors.sidebar)).toBeGreaterThanOrEqual(4.5);
       const original = getDefaultThemeColors(appearance);
       expect(colors.messageAction).toBe(original.messageAction);
@@ -367,42 +369,6 @@ describe("theme files", () => {
     expect(parseThemeFile(JSON.parse(serialized)).collection).toEqual(theme.collection);
   });
 
-  it("keeps sidebar artwork disabled for custom theme files", () => {
-    const theme = parseThemeFile({
-      version: THEME_FILE_VERSION,
-      name: "Art sidebar",
-      appearance: "light",
-      colors: { accent: "#5b6cff" },
-      sidebarArtwork: true,
-    });
-
-    expect(theme.sidebarArtwork).toBeUndefined();
-    expect(JSON.parse(serializeThemeFile(theme))).not.toHaveProperty("sidebarArtwork");
-  });
-
-  it("suppresses sidebar artwork during a live custom-theme preview", () => {
-    const listener = vi.fn();
-    const unsubscribe = subscribeToThemePreview(listener);
-    vi.stubGlobal("document", {
-      documentElement: {
-        classList: { toggle: vi.fn() },
-        dataset: {},
-        style: { removeProperty: vi.fn(), setProperty: vi.fn() },
-      },
-    });
-
-    applyThemeColorPreview(T3_CHAT_THEME.colors, "light");
-    expect(getThemePreviewSidebarArtwork()).toBe(false);
-    expect(listener).toHaveBeenCalledTimes(1);
-
-    applyThemePalette("system");
-    expect(getThemePreviewSidebarArtwork()).toBeNull();
-    expect(listener).toHaveBeenCalledTimes(2);
-
-    unsubscribe();
-    vi.unstubAllGlobals();
-  });
-
   it("keeps optional light and dark palettes under one theme id", () => {
     const theme = parseThemeFile({
       version: THEME_FILE_VERSION,
@@ -479,8 +445,6 @@ describe("theme files", () => {
     for (const theme of [T3_CHAT_THEME, GROVE_THEME, OCEAN_THEME, EMBER_THEME, IRIS_THEME]) {
       expect(getThemeDefinition(theme.id)).toBe(theme);
       expect(getThemeModes(theme)).toEqual(["light", "dark"]);
-      expect(theme.sidebarArtwork).toBe(true);
-      expect(themeAllowsSidebarArtwork(theme.id)).toBe(true);
       expect(theme.colors.accent).toMatch(/^oklch\(/);
       expect(theme.variants?.dark?.accent).toMatch(/^oklch\(/);
 
@@ -515,7 +479,6 @@ describe("theme files", () => {
         );
       }
     }
-    expect(themeAllowsSidebarArtwork("my-custom-theme")).toBe(false);
   });
 
   it("rejects a variant that repeats the base appearance", () => {
@@ -778,7 +741,6 @@ describe("theme files", () => {
         name: "Aurora",
         appearance: "light",
         colors: { canvas: "#f8fbff", accent: "#5b6cff" },
-        sidebarArtwork: true,
       }),
     );
     const updatedTheme = updateCustomTheme({
@@ -792,7 +754,6 @@ describe("theme files", () => {
       label: "Aurora Night",
       colors: { accent: canonical("hsl(263 70% 58%)") },
     });
-    expect(updatedTheme).not.toHaveProperty("sidebarArtwork");
     const storedThemes = JSON.parse(stored.get(CUSTOM_THEMES_STORAGE_KEY) ?? "[]");
     expect(storedThemes[0]).toEqual(untouchedTheme);
     expect(storedThemes[1]).toMatchObject({
@@ -800,7 +761,6 @@ describe("theme files", () => {
       label: "Aurora Night",
       colors: { accent: canonical("hsl(263 70% 58%)") },
     });
-    expect(storedThemes[1]).not.toHaveProperty("sidebarArtwork");
     invalidateCustomThemes();
     expect(getCustomThemes().find((theme) => theme.id === "aurora")).toMatchObject({
       id: "aurora",

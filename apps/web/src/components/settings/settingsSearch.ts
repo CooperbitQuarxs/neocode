@@ -186,7 +186,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "theme",
     title: "Themes",
     to: "/settings/appearance",
-    searchTerms: ["appearance colors palette native NeoPi terminal shared theme scope inherit"],
+    searchTerms: ["appearance colors palette NeoPi catalog local default"],
     targetId: "appearance",
   },
   {

@@ -787,13 +787,7 @@ function OpenCommandPaletteDialog(props: {
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const {
-    theme,
-    themeHalves,
-    resolvedTheme,
-    appearanceMode,
-    setAppearanceMode,
-  } = useTheme();
+  const { theme, themeHalves, resolvedTheme, appearanceMode, setAppearanceMode } = useTheme();
   const providers = useAtomValue(primaryServerProvidersAtom);
   const providerEntryByEnvironmentAndInstanceId = useMemo(() => {
     const map = new Map<string, ProviderInstanceEntry>();
@@ -1897,8 +1891,8 @@ function OpenCommandPaletteDialog(props: {
   actionItems.push({
     kind: "action",
     value: "action:change-theme",
-    searchTerms: ["change theme", "appearance", "colors", "palette", "NeoPi", "terminal"],
-    title: "Change NeoPi theme",
+    searchTerms: ["change theme", "appearance", "colors", "palette", "NeoPi", "local"],
+    title: "Choose graphical theme",
     icon: <PaletteIcon className={ITEM_ICON_CLASS} />,
     shortcutCommand: "theme.select",
     run: async () => {
@@ -1936,7 +1930,6 @@ function OpenCommandPaletteDialog(props: {
     ],
   };
   actionItems.push(changeAppearanceItem);
-
 
   actionItems.push({
     kind: "action",
@@ -1990,7 +1983,9 @@ function OpenCommandPaletteDialog(props: {
     title: "Open Models",
     icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
     shortcutCommand: "models.open",
-    run: async () => { openModels(); },
+    run: async () => {
+      openModels();
+    },
   });
 
   actionItems.push({
@@ -2073,9 +2068,9 @@ function OpenCommandPaletteDialog(props: {
           addProjectEnvironmentId,
           buildAddProjectRemoteSourceReadiness(sourceControlDiscovery.data),
         )
-        : currentView?.groups[0]?.value === "appearance"
-          ? changeAppearanceItem.groups
-          : (currentView?.groups ?? rootGroups);
+      : currentView?.groups[0]?.value === "appearance"
+        ? changeAppearanceItem.groups
+        : (currentView?.groups ?? rootGroups);
 
   const filteredGroups = filterCommandPaletteGroups({
     activeGroups,

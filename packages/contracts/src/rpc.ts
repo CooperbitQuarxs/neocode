@@ -43,9 +43,10 @@ import {
 } from "./neopiNativeConversation.ts";
 import {
   NeoPiThemesInput,
-  NeoPiThemesUpdate,
   NeoPiThemesConfiguration,
   NeoPiThemesError,
+  NeoPiThemePaletteInput,
+  NeoPiThemePalette,
 } from "./neopiThemes.ts";
 import {
   NeoPiModelsTarget,
@@ -315,8 +316,7 @@ export const WS_METHODS = {
   neopiSessionsResumeTree: "neopiSessions.resumeTree",
   neopiSessionsCancelNavigation: "neopiSessions.cancelNavigation",
   neopiThemesRead: "neopiThemes.read",
-  neopiThemesWatch: "neopiThemes.watch",
-  neopiThemesUpdate: "neopiThemes.update",
+  neopiThemesPalette: "neopiThemes.palette",
   neopiModelsRead: "neopiModels.read",
   neopiModelsQuerySelector: "neopiModels.querySelector",
   neopiModelsWatch: "neopiModels.watch",
@@ -978,15 +978,9 @@ const WsNeoPiThemesReadRpc = Rpc.make(WS_METHODS.neopiThemesRead, {
   success: NeoPiThemesConfiguration,
   error: Schema.Union([NeoPiThemesError, EnvironmentAuthorizationError]),
 });
-const WsNeoPiThemesWatchRpc = Rpc.make(WS_METHODS.neopiThemesWatch, {
-  payload: NeoPiThemesInput,
-  success: NeoPiThemesConfiguration,
-  error: Schema.Union([NeoPiThemesError, EnvironmentAuthorizationError]),
-  stream: true,
-});
-const WsNeoPiThemesUpdateRpc = Rpc.make(WS_METHODS.neopiThemesUpdate, {
-  payload: NeoPiThemesUpdate,
-  success: NeoPiThemesConfiguration,
+const WsNeoPiThemesPaletteRpc = Rpc.make(WS_METHODS.neopiThemesPalette, {
+  payload: NeoPiThemePaletteInput,
+  success: NeoPiThemePalette,
   error: Schema.Union([NeoPiThemesError, EnvironmentAuthorizationError]),
 });
 const NeoPiModelsRpcError = Schema.Union([NeoPiModelsError, EnvironmentAuthorizationError]);
@@ -1520,8 +1514,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsNeoPiResumeTreeRpc,
   WsNeoPiCancelNavigationRpc,
   WsNeoPiThemesReadRpc,
-  WsNeoPiThemesWatchRpc,
-  WsNeoPiThemesUpdateRpc,
+  WsNeoPiThemesPaletteRpc,
   WsNeoPiModelsReadRpc,
   WsNeoPiModelsQuerySelectorRpc,
   WsNeoPiModelsWatchRpc,

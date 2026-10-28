@@ -1,31 +1,31 @@
 # Appearance and themes
 
-Open **Settings → Appearance** to choose NeoPi's native dark and light themes.
-The list comes from the connected NeoPi runtime, including its installed custom
-themes. Web, desktop and mobile use the same native settings as terminal
-**Settings → Appearance**.
+Open **Settings → Appearance** to choose this client's light and dark palettes.
+The default is NeoCode's Neo palette. Appearance choices do not change NeoPi's
+terminal theme or its settings.
 
-On web and desktop, the settings scope chooses which environment and project you
-change. On mobile, choose the native runtime and scope in Appearance. User scope
-sets that runtime profile's default; project scope overrides it for that project.
-**Inherit** removes only the selected scope's override. The effective theme and
-both saved scopes are shown beside each selection.
+**Show NeoPi themes** is off by default. Enable it to browse the themes installed
+in a connected NeoPi runtime, including custom themes, and select one for this
+client's light or dark appearance. Selecting a theme saves a local copy of its
+colors. It works offline and does not follow later changes to NeoPi's active
+theme. Hiding the catalog leaves your saved selection unchanged.
 
-Connected clients reconcile native theme changes. If another client changes a
-selection while you are saving, refresh and choose again rather than overwriting
-its choice. Disconnected or older runtimes cannot change native themes. Update
-the NeoPi executable in NeoCore and reconnect if shared themes are unsupported.
+On web and desktop, the settings scope chooses which environment or project's
+catalog to browse. On mobile, choose the runtime in Appearance. These choices
+select a catalog to read; they do not change native user or project settings.
+An older runtime may need an update before it can supply named palettes.
 
-On web and desktop, **Change NeoPi theme** in the command palette opens Appearance.
-The existing theme shortcut opens the same page. **Change appearance** still
-selects System, Light or Dark on this client; it does not change native settings.
-These shortcuts remain customizable under **Settings → Keybindings**.
+Choose **Neo default** under **Graphical palette** on web and desktop to restore
+the default palette. On mobile, select **NeoCode** for either appearance or both.
+Existing saved graphical palettes remain available.
+
+On web and desktop, **Choose graphical theme** in the command palette opens
+Appearance. The existing theme shortcut opens the same page. **Change appearance**
+selects System, Light or Dark locally. These shortcuts remain customizable under
+**Settings → Keybindings**.
 
 Fonts, text sizes, contrast, motion, chat width and other graphical layout
-preferences stay separate. **Follow NeoPi themes** changes which palette this
-client displays, without deleting its previous named palette or light/dark mix.
-Existing named palettes remain selected until you choose to follow NeoPi.
-Turn following off to restore them, or select a preserved graphical palette.
+preferences stay separate from palette selection.
 Android uses **Material You Layout** by default unless you have turned it off in Appearance.
 It changes shapes, spacing, and controls independently
 of the selected theme.
@@ -39,11 +39,10 @@ without replaying its transitions.
 
 ## Saved graphical palettes
 
-Existing graphical palettes remain on this device. The **Edit graphical palette**
-command on web and desktop edits a device-local palette and stops following
-NeoPi; it does not modify terminal themes. New shared themes belong in NeoPi's
-theme directory so every connected client can discover them.
+The **Edit graphical palette** command on web and desktop edits a device-local
+palette. It does not modify terminal themes. To make a new native theme available
+in multiple clients, install it in NeoPi's theme directory, then explicitly
+select it in each client's Appearance settings.
 
-Old server-published palettes are still loaded when needed to resolve an explicit
-saved graphical choice. They no longer replace native theme selections or act as
-defaults for connected clients.
+Server-published palettes are loaded when needed to resolve an explicit saved
+graphical choice. They do not replace the default or a different selected palette.

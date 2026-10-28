@@ -1,72 +1,232 @@
-import { useAtomRefresh, useAtomSet } from "@effect/atom-react";
+import { RegistryContext, useAtomRefresh, useAtomSet } from "@effect/atom-react";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Modal, Pressable, View } from "react-native";
 import { AppText as Text } from "../../../../components/AppText";
-import { neopiThemesUpdate, useMobileNativeTheme } from "../../../../state/neopiThemes";
-import { updateMobilePreferencesAtom } from "../../../../state/preferences";
+import { neoPiMobileThemeVariables, resolveMobileNeoPiTheme } from "../../../../lib/mobileTheme";
+import { neopiThemesPalette, useMobileNeoPiThemeCatalog } from "../../../../state/neopiThemes";
+import {
+  mobileThemeSelectionRevisionAtom,
+  updateMobilePreferencesAtom,
+} from "../../../../state/preferences";
 import { useAtomCommand } from "../../../../state/use-atom-command";
 
 export function NeoPiThemeSettings() {
-  const native = useMobileNativeTheme();
+  const native = useMobileNeoPiThemeCatalog();
+  const registry = useContext(RegistryContext);
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
-  const update = useAtomCommand(neopiThemesUpdate, { reportFailure: false });
+  const readPalette = useAtomCommand(neopiThemesPalette, { reportFailure: false });
   const refresh = useAtomRefresh(native.atom);
   const [picker, setPicker] = useState<"target" | "dark" | "light" | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const options = useMemo(() => picker === "target"
-    ? native.choices.map(choice => ({ key: choice.key, label: choice.label, name: null }))
-    : [{ key: "inherit", label: "Inherit", name: null }, ...(native.snapshot?.themes ?? []).map(name => ({ key: JSON.stringify(name), label: name, name }))],
-  [picker, native.choices, native.snapshot]);
-  const selected = picker === "target" ? native.target?.key : picker && native.snapshot
-    ? native.snapshot.selection[picker][native.target?.target.projectId ? "project" : "global"] : null;
+  const requestVersion = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      requestVersion.current += 1;
+    };
+  }, []);
+  const options = useMemo(
+    () =>
+      picker === "target"
+        ? native.choices.map((choice) => ({ key: choice.key, label: choice.label, name: null }))
+        : [
+            { key: "graphical", label: "Use saved graphical palette", name: null },
+            ...(native.catalog?.themes ?? []).map((name) => ({
+              key: JSON.stringify(name),
+              label: name,
+              name,
+            })),
+          ],
+    [picker, native.choices, native.catalog],
+  );
+  const selected =
+    picker === "target"
+      ? native.target?.key
+      : picker
+        ? (resolveMobileNeoPiTheme(native.stored, picker)?.name ?? null)
+        : null;
   const choose = async (option: { key: string; name: string | null }) => {
-    if (picker === "target") { savePreferences({ nativeThemeTarget: option.key }); setPicker(null); return; }
-    if (!picker || !native.target || !native.snapshot || pending) return;
+    if (picker === "target") {
+      requestVersion.current += 1;
+      setPending(false);
+      setError(null);
+      savePreferences({ nativeThemeTarget: option.key });
+      setPicker(null);
+      return;
+    }
+    if (!picker || !native.enabled || pending) return;
     const appearance = picker;
-    const scope = native.target.target.projectId ? "project" : "global";
-    setPicker(null); setPending(true); setError(null);
+    const preference = appearance === "dark" ? "nativeDarkTheme" : "nativeLightTheme";
+    setPicker(null);
+    setError(null);
+    if (option.name === null) {
+      savePreferences({ [preference]: null });
+      return;
+    }
+    if (!native.target) return;
+    const selectionRevision = registry.get(mobileThemeSelectionRevisionAtom);
+    const version = ++requestVersion.current;
+    setPending(true);
     try {
-      const response = await update({ environmentId: native.target.environmentId, input: {
-        target: native.target.target, appearance, scope, name: option.name,
-        expected: native.snapshot.selection[appearance][scope],
-      } });
+      const response = await readPalette({
+        environmentId: native.target.environmentId,
+        input: { target: native.target.target, name: option.name },
+      });
+      if (
+        !mounted.current ||
+        version !== requestVersion.current ||
+        selectionRevision !== registry.get(mobileThemeSelectionRevisionAtom)
+      )
+        return;
       if (response._tag === "Failure") throw squashAtomCommandFailure(response);
-      refresh();
+      const theme = {
+        name: response.value.name,
+        variables: neoPiMobileThemeVariables(appearance, response.value.colors),
+      };
+      savePreferences({ [preference]: theme });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not update the native theme. Refresh before trying again.");
-      refresh();
-    } finally { setPending(false); }
+      if (
+        mounted.current &&
+        version === requestVersion.current &&
+        selectionRevision === registry.get(mobileThemeSelectionRevisionAtom)
+      ) {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "Could not read the NeoPi palette. Your local theme has not changed.",
+        );
+      }
+    } finally {
+      if (mounted.current && version === requestVersion.current) setPending(false);
+    }
   };
-  return <View className="gap-3">
-    <Text className="text-base font-t3-medium">NeoPi themes</Text>
-    <Text className="text-sm text-foreground-muted">Shared with terminal Settings. User and project selections stay in NeoPi; fonts and layout stay on this device.</Text>
-    <Pressable accessibilityRole="switch" accessibilityState={{ checked: native.follow }} className="rounded-xl border border-border bg-card p-3" onPress={() => savePreferences({ nativeThemeFollow: !native.follow })}>
-      <Text>{native.follow ? "Following NeoPi themes" : "Use NeoPi themes"}</Text>
-      <Text className="text-xs text-foreground-muted">{native.follow ? "Tap to restore the saved graphical palette" : "Your saved graphical palette will remain stored"}</Text>
-    </Pressable>
-    <Pressable accessibilityRole="button" className="rounded-xl border border-border bg-card p-3" onPress={() => setPicker("target")}>
-      <Text>{native.target?.label ?? "Choose a connected NeoPi runtime and scope"}</Text>
-    </Pressable>
-    {AsyncResult.isFailure(native.result) ? <Text accessibilityRole="alert" className="text-danger-foreground">Native themes unavailable. Check the NeoPi connection and update its executable if shared themes are unsupported.</Text> : !native.snapshot ? <Text className="text-sm text-foreground-muted">Native theme changes are unavailable while disconnected. Connect an environment, then refresh.</Text> : (["dark", "light"] as const).map(appearance => {
-      const selection = native.snapshot!.selection[appearance];
-      return <Pressable key={appearance} accessibilityRole="button" disabled={pending} className="rounded-xl border border-border bg-card p-3" onPress={() => setPicker(appearance)}>
-        <Text>{appearance === "dark" ? "Dark theme" : "Light theme"}: {selection.effective}</Text>
-        <Text className="text-xs text-foreground-muted">User: {selection.global ?? "default"}. Project: {selection.project ?? "inherited"}.</Text>
-      </Pressable>;
-    })}
-    {error ? <Text accessibilityRole="alert" className="text-danger-foreground">{error}</Text> : null}
-    <Pressable accessibilityRole="button" disabled={pending} onPress={refresh} className="self-start rounded-xl border border-border px-3 py-2"><Text>Refresh native themes</Text></Pressable>
-    <Modal visible={picker !== null} animationType="none" onRequestClose={() => setPicker(null)} presentationStyle="pageSheet">
-      <View className="flex-1 bg-screen px-4 pb-4 pt-12">
-        <View className="mb-4 flex-row items-center justify-between">
-          <Text className="text-lg font-t3-medium">{picker === "target" ? "Native runtime and scope" : `${picker === "dark" ? "Dark" : "Light"} native theme`}</Text>
-          <Pressable accessibilityRole="button" onPress={() => setPicker(null)} className="p-3"><Text>Close</Text></Pressable>
+  return (
+    <View className="gap-3">
+      <Text className="text-base font-t3-medium">NeoPi themes</Text>
+      <Text className="text-sm text-foreground-muted">
+        Make NeoPi palettes available to choose on this device. Choices are saved locally and never
+        change terminal settings.
+      </Text>
+      <Pressable
+        accessibilityRole="switch"
+        accessibilityState={{ checked: native.enabled }}
+        className="rounded-xl border border-border bg-card p-3"
+        onPress={() => {
+          requestVersion.current += 1;
+          setPending(false);
+          setError(null);
+          setPicker(null);
+          savePreferences({ nativeThemeCatalogEnabled: !native.enabled });
+        }}
+      >
+        <Text>{native.enabled ? "Show NeoPi themes: on" : "Show NeoPi themes: off"}</Text>
+        <Text className="text-xs text-foreground-muted">
+          {native.enabled
+            ? "Hide the catalog without changing your chosen local palettes"
+            : "Off by default. Showing the catalog does not select the terminal's active theme"}
+        </Text>
+      </Pressable>
+      {!native.enabled && (native.stored?.nativeDarkTheme || native.stored?.nativeLightTheme) ? (
+        <Text className="text-sm text-foreground-muted">
+          Local palettes: Dark — {native.stored.nativeDarkTheme?.name ?? "Saved graphical palette"};
+          Light — {native.stored.nativeLightTheme?.name ?? "Saved graphical palette"}. Select a
+          graphical palette below to replace either choice.
+        </Text>
+      ) : null}
+      {native.enabled ? (
+        <>
+          <Pressable
+            accessibilityRole="button"
+            className="rounded-xl border border-border bg-card p-3"
+            onPress={() => setPicker("target")}
+          >
+            <Text>{native.target?.label ?? "Choose a connected NeoPi catalog source"}</Text>
+          </Pressable>
+          {(["dark", "light"] as const).map((appearance) => (
+            <Pressable
+              key={appearance}
+              accessibilityRole="button"
+              disabled={pending}
+              className="rounded-xl border border-border bg-card p-3"
+              onPress={() => setPicker(appearance)}
+            >
+              <Text>
+                {appearance === "dark" ? "Dark" : "Light"} local palette:{" "}
+                {resolveMobileNeoPiTheme(native.stored, appearance)?.name ??
+                  "Saved graphical palette"}
+              </Text>
+            </Pressable>
+          ))}
+          {AsyncResult.isFailure(native.result) ? (
+            <Text accessibilityRole="alert" className="text-danger-foreground">
+              NeoPi catalog unavailable. Check the connection and NeoPi version. Saved local
+              palettes remain available.
+            </Text>
+          ) : !native.catalog ? (
+            <Text className="text-sm text-foreground-muted">
+              Connect a NeoPi environment to load its palette catalog. Saved local palettes work
+              offline.
+            </Text>
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            onPress={refresh}
+            className="self-start rounded-xl border border-border px-3 py-2"
+          >
+            <Text>Refresh palette catalog</Text>
+          </Pressable>
+        </>
+      ) : null}
+      {error ? (
+        <Text accessibilityRole="alert" className="text-danger-foreground">
+          {error}
+        </Text>
+      ) : null}
+      <Modal
+        visible={picker !== null}
+        animationType="none"
+        onRequestClose={() => setPicker(null)}
+        presentationStyle="pageSheet"
+      >
+        <View className="flex-1 bg-screen px-4 pb-4 pt-12">
+          <View className="mb-4 flex-row items-center justify-between">
+            <Text className="text-lg font-t3-medium">
+              {picker === "target"
+                ? "NeoPi catalog source"
+                : `${picker === "dark" ? "Dark" : "Light"} local palette`}
+            </Text>
+            <Pressable accessibilityRole="button" onPress={() => setPicker(null)} className="p-3">
+              <Text>Close</Text>
+            </Pressable>
+          </View>
+          <FlatList
+            data={options}
+            keyExtractor={(option) => option.key}
+            renderItem={({ item }) => (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{
+                  selected: picker === "target" ? selected === item.key : selected === item.name,
+                }}
+                className="border-b border-border py-4"
+                onPress={() => {
+                  void choose(item);
+                }}
+              >
+                <Text>{item.label}</Text>
+              </Pressable>
+            )}
+            ListEmptyComponent={
+              <Text>No connected NeoPi runtimes. Add a connection in Settings.</Text>
+            }
+          />
         </View>
-        <FlatList data={options} keyExtractor={option => option.key} renderItem={({ item }) => <Pressable accessibilityRole="button" accessibilityState={{ selected: picker === "target" ? selected === item.key : selected === item.name }} className="border-b border-border py-4" onPress={() => { void choose(item); }}><Text>{item.label}</Text></Pressable>} ListEmptyComponent={<Text>No connected native runtimes. Add a connection in Settings.</Text>} />
-      </View>
-    </Modal>
-  </View>;
+      </Modal>
+    </View>
+  );
 }
