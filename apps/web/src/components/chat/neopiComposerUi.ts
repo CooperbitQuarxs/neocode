@@ -71,6 +71,7 @@ function consumeNeoPiEditorAction(
 /** Provider-owned registrations; absent providers retain upstream composer behavior. */
 const composerProviderCapabilities = {
   neopi: {
+    ownsSlashCommands: true,
     project: (activities: ReadonlyArray<OrchestrationThreadActivity>) => {
       const ui = projectNeoPiComposerUi(activities);
       return {

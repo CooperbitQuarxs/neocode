@@ -556,7 +556,10 @@ export function resolveComposerProviderSelection(input: {
     ? (input.entries.find((entry) => entry.instanceId === input.lockedInstanceId)
         ?.continuationGroupKey ?? null)
     : null;
-  const requiresExactInstance = input.lockedInstanceId != null && lockedContinuationGroupKey === null;
+  const requiresExactInstance =
+    input.lockedProvider !== null &&
+    input.lockedInstanceId != null &&
+    lockedContinuationGroupKey === null;
   const compatibleEntries = input.entries.filter(
     (entry) =>
       entry.driverKind === "neopi" &&
@@ -601,7 +604,6 @@ export function resolveComposerInteractionMode(input: {
     interactionMode: enabled ? input.interactionMode : "default",
   };
 }
-
 
 export function buildRunningThreadTurnInterruptInput(
   thread: Pick<Thread, "id" | "session"> | null | undefined,

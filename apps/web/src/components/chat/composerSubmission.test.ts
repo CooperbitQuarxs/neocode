@@ -26,6 +26,35 @@ const assistantCitation = {
 };
 
 describe("submitComposerDraft", () => {
+  it.each(["An ordinary prompt", "/model", "/help"])(
+    "preserves %s while a provider is unavailable and dispatches after recovery",
+    (prompt) => {
+      const onSend = vi.fn();
+      const preventDefault = vi.fn();
+      const input = {
+        prompt,
+        submissionTarget: "provider-turn" as const,
+        event: { preventDefault },
+        onSend,
+      };
+
+      expect(submitComposerDraft({ ...input, disabledReason: "NeoPi is unavailable." })).toEqual({
+        validationMessage: "NeoPi is unavailable.",
+        didDispatch: false,
+      });
+      expect(onSend).not.toHaveBeenCalled();
+      expect(preventDefault).toHaveBeenCalledOnce();
+      expect(input.prompt).toBe(prompt);
+
+      expect(submitComposerDraft({ ...input, disabledReason: null })).toEqual({
+        validationMessage: null,
+        didDispatch: true,
+      });
+      expect(onSend).toHaveBeenCalledOnce();
+      expect(input.prompt).toBe(prompt);
+    },
+  );
+
   it("keeps an oversized draft editable and sends a corrected follow-up", () => {
     let draft = "x".repeat(PROVIDER_SEND_TURN_MAX_INPUT_CHARS + 1);
     let validationMessage: string | null = null;

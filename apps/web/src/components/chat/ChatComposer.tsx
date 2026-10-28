@@ -1393,15 +1393,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     projectModelSelection: activeProjectDefaultModelSelection,
     settings,
   });
-  const providerSendBlockReason = runtimeReadOnlyReason;
+  const providerSendBlockReason =
+    runtimeReadOnlyReason ??
+    (noProviderAvailable
+      ? providerCatalogPending
+        ? "Waiting for the NeoPi provider catalog."
+        : "NeoPi is unavailable. Open NeoPi settings to reconnect the selected instance."
+      : null);
   const sendDisabledReason =
     externalSendDisabledReason ??
-    runtimeReadOnlyReason ??
+    providerSendBlockReason ??
     (multipleModelSelections?.length === 0 ? "Select at least one model." : null) ??
-    (activePendingProgress
-      ? attachmentBlockReason
-      : (attachmentBlockReason ??
-        (multipleModelSelections === null ? providerSendBlockReason : null)));
+    attachmentBlockReason;
   const isSendDisabled = sendDisabledReason !== null;
   const selectedProviderStatus = useMemo(
     () => selectedProviderEntry?.snapshot ?? null,
@@ -1844,11 +1847,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           (skill.scope ? `${skill.scope} skill` : ""),
       }));
       const visibleProviderSlashCommandItems = providerSlashCommandItems.filter(
-        (item) => item.command.name !== "compact" || compactSlashCommandAvailable,
+        (item) =>
+          providerComposerCapabilities?.ownsSlashCommands ||
+          item.command.name !== "compact" ||
+          compactSlashCommandAvailable,
       );
       const slashCommandItems = slashCommandItemsForPromptPosition(
         [...builtInSlashCommandItems, ...visibleProviderSlashCommandItems, ...skillItems],
         composerTrigger.rangeStart === 0,
+        noProviderAvailable || providerComposerCapabilities?.ownsSlashCommands === true,
       );
       return searchSlashCommandItems(slashCommandItems, query);
     }
@@ -1921,6 +1928,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     compactSlashCommandAvailable,
     composerTrigger,
     exactPullRequestLookup.data,
+    noProviderAvailable,
+    providerComposerCapabilities,
     planModeUiEnabled,
     pullRequestLookup.data,
     pullRequestProjectId,
@@ -3156,10 +3165,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const submitComposer = useCallback(
     (event?: { preventDefault: () => void }, intent: ComposerSubmissionIntent = "foreground") => {
-      if (noProviderAvailable || isSendDisabled) {
-        event?.preventDefault();
-        return;
-      }
       // A send while a pasted image is still compressing would strand that
       // image: the turn snapshot wouldn't include it, and it would surface
       // in the *next* draft instead. Only oversized images hit this — small
@@ -3190,6 +3195,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       const submission = submitComposerDraft({
         prompt: promptRef.current,
         submissionTarget: activePendingProgress ? "pending-user-input" : "provider-turn",
+        disabledReason: sendDisabledReason,
         event,
         onSend: (sendEvent) => {
           // ChatView reports its final composed-input preflight through the
@@ -3210,8 +3216,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       activePendingProgress,
       attachmentTargetKey,
       blurMobileComposerAfterSend,
-      isSendDisabled,
-      noProviderAvailable,
+      sendDisabledReason,
       onSend,
       promptRef,
       shouldBlurMobileComposerOnSubmit,
@@ -5682,7 +5687,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             </div>
 
             <ComposerPromptLengthValidation
-              message={providerInputSubmissionError ?? composerSubmissionError}
+              message={
+                providerInputSubmissionError ?? composerSubmissionError ?? providerSendBlockReason
+              }
             />
 
             {/* Bottom toolbar */}

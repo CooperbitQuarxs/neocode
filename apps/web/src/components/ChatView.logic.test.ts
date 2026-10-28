@@ -889,8 +889,18 @@ const readySession = {
 };
 
 it("keeps a legacy session's runtime identity authoritative over a new draft choice", () => {
-  const thread = makeThread({ latestTurn: completedTurn, session: { ...readySession, providerName: "claudeAgent" } });
-  expect(deriveLockedProvider({ thread, selectedProvider: "neopi", threadProvider: "saved-legacy", providers: [] })).toBe("claudeAgent");
+  const thread = makeThread({
+    latestTurn: completedTurn,
+    session: { ...readySession, providerName: "claudeAgent" },
+  });
+  expect(
+    deriveLockedProvider({
+      thread,
+      selectedProvider: "neopi",
+      threadProvider: "saved-legacy",
+      providers: [],
+    }),
+  ).toBe("claudeAgent");
 });
 
 describe("draft promotion during worktree setup", () => {
@@ -1081,48 +1091,124 @@ describe("buildThreadTurnInterruptInput", () => {
 });
 
 describe("resolveComposerProviderSelection", () => {
-  const models: ServerProvider["models"] = [{ slug: "openai-codex/current", name: "Current", isCustom: false, capabilities: null }];
-  const entry = (driver: string, id = driver, overrides: Partial<ServerProvider> = {}) => deriveProviderInstanceEntries([{
-    driver: ProviderDriverKind.make(driver), instanceId: ProviderInstanceId.make(id), enabled: true,
-    installed: true, status: "ready", auth: { status: "unknown" }, version: null, checkedAt: now,
-    models, slashCommands: [], skills: [], ...overrides,
-  }])[0]!;
+  const models: ServerProvider["models"] = [
+    { slug: "openai-codex/current", name: "Current", isCustom: false, capabilities: null },
+  ];
+  const entry = (driver: string, id = driver, overrides: Partial<ServerProvider> = {}) =>
+    deriveProviderInstanceEntries([
+      {
+        driver: ProviderDriverKind.make(driver),
+        instanceId: ProviderInstanceId.make(id),
+        enabled: true,
+        installed: true,
+        status: "ready",
+        auth: { status: "unknown" },
+        version: null,
+        checkedAt: now,
+        models,
+        slashCommands: [],
+        skills: [],
+        ...overrides,
+      },
+    ])[0]!;
 
   it("uses a ready NeoPi instance even when an old runtime arrives first", () => {
     const native = entry("neopi");
-    expect(resolveComposerProviderSelection({ entries: [entry("codex"), native], candidateInstanceIds: [ProviderInstanceId.make("codex")], lockedProvider: null, lockedInstanceId: null }).selectedProviderEntry).toBe(native);
+    expect(
+      resolveComposerProviderSelection({
+        entries: [entry("codex"), native],
+        candidateInstanceIds: [ProviderInstanceId.make("codex")],
+        lockedProvider: null,
+        lockedInstanceId: null,
+      }).selectedProviderEntry,
+    ).toBe(native);
   });
+
+  it.each(["codex", "removed"])(
+    "releases an unstarted %s instance choice without releasing an established writer",
+    (instanceId) => {
+      const native = entry("neopi");
+      const savedInstanceId = ProviderInstanceId.make(instanceId);
+      const selection = {
+        entries: [entry("codex"), native],
+        candidateInstanceIds: [savedInstanceId],
+        lockedInstanceId: savedInstanceId,
+      };
+      expect(
+        resolveComposerProviderSelection({ ...selection, lockedProvider: null })
+          .selectedProviderEntry,
+      ).toBe(native);
+      expect(
+        resolveComposerProviderSelection({
+          ...selection,
+          lockedProvider: ProviderDriverKind.make(instanceId === "codex" ? "codex" : "neopi"),
+        }).selectedProviderEntry,
+      ).toBeUndefined();
+    },
+  );
 
   it("does not reinterpret legacy history as a NeoPi session", () => {
     const legacy = entry("claudeAgent", "saved-work");
-    const selection = resolveComposerProviderSelection({ entries: [legacy, entry("neopi")], candidateInstanceIds: [legacy.instanceId], lockedProvider: legacy.driverKind, lockedInstanceId: legacy.instanceId });
+    const selection = resolveComposerProviderSelection({
+      entries: [legacy, entry("neopi")],
+      candidateInstanceIds: [legacy.instanceId],
+      lockedProvider: legacy.driverKind,
+      lockedInstanceId: legacy.instanceId,
+    });
     expect(selection.selectedProviderEntry).toBeUndefined();
     expect(selection.unavailableProviderInstanceId).toBe(legacy.instanceId);
   });
 
   it("does not offer an enabled old runtime when no NeoPi instance is ready", () => {
-    const selection = resolveComposerProviderSelection({ entries: [entry("codex"), entry("neopi", "neopi", { enabled: false })], candidateInstanceIds: [], lockedProvider: null, lockedInstanceId: null });
+    const selection = resolveComposerProviderSelection({
+      entries: [entry("codex"), entry("neopi", "neopi", { enabled: false })],
+      candidateInstanceIds: [],
+      lockedProvider: null,
+      lockedInstanceId: null,
+    });
     expect(selection.selectedProviderEntry).toBeUndefined();
   });
 
   it("uses another ready NeoPi configuration when an obsolete draft choice cannot run", () => {
     const personal = entry("neopi", "personal");
-    const selection = resolveComposerProviderSelection({ entries: [entry("neopi", "neopi", { status: "error" }), personal], candidateInstanceIds: [ProviderInstanceId.make("removed")], lockedProvider: null, lockedInstanceId: null });
+    const selection = resolveComposerProviderSelection({
+      entries: [entry("neopi", "neopi", { status: "error" }), personal],
+      candidateInstanceIds: [ProviderInstanceId.make("removed")],
+      lockedProvider: null,
+      lockedInstanceId: null,
+    });
     expect(selection.selectedProviderEntry).toBe(personal);
   });
 
   it("does not move a native session to a different instance without continuation identity", () => {
-    const selection = resolveComposerProviderSelection({ entries: [entry("neopi", "other")], candidateInstanceIds: [ProviderInstanceId.make("removed")], lockedProvider: ProviderDriverKind.make("neopi"), lockedInstanceId: ProviderInstanceId.make("removed") });
+    const selection = resolveComposerProviderSelection({
+      entries: [entry("neopi", "other")],
+      candidateInstanceIds: [ProviderInstanceId.make("removed")],
+      lockedProvider: ProviderDriverKind.make("neopi"),
+      lockedInstanceId: ProviderInstanceId.make("removed"),
+    });
     expect(selection.selectedProviderEntry).toBeUndefined();
   });
 
   it("keeps an established native continuation group authoritative", () => {
-    const original = entry("neopi", "original", { enabled: false, continuation: { groupKey: "native-profile" } });
-    const compatible = entry("neopi", "compatible", { continuation: { groupKey: "native-profile" } });
+    const original = entry("neopi", "original", {
+      enabled: false,
+      continuation: { groupKey: "native-profile" },
+    });
+    const compatible = entry("neopi", "compatible", {
+      continuation: { groupKey: "native-profile" },
+    });
     const unrelated = entry("neopi", "other", { continuation: { groupKey: "other-profile" } });
-    expect(resolveComposerProviderSelection({ entries: [original, unrelated, compatible], candidateInstanceIds: [unrelated.instanceId], lockedProvider: ProviderDriverKind.make("neopi"), lockedInstanceId: original.instanceId }).selectedProviderEntry).toBe(compatible);
+    expect(
+      resolveComposerProviderSelection({
+        entries: [original, unrelated, compatible],
+        candidateInstanceIds: [unrelated.instanceId],
+        lockedProvider: ProviderDriverKind.make("neopi"),
+        lockedInstanceId: original.instanceId,
+      }).selectedProviderEntry,
+    ).toBe(compatible);
   });
-});;
+});
 
 describe("resolveComposerInteractionMode", () => {
   it("resets a restored plan draft when the selected instance does not support plan mode", () => {

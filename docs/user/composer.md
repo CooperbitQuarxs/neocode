@@ -16,6 +16,11 @@ becomes an attachment when inserting it would exceed the message limit. On a
 hardware keyboard, use `Cmd+Shift+V` on Apple devices or `Ctrl+Shift+V` elsewhere
 to keep a large paste editable in the composer instead.
 
+Slash commands, including `/model`, come from the selected NeoPi runtime and are
+sent to it unchanged. Use the model button or `Alt+P` for NeoCode's graphical
+switcher. If no enabled NeoPi runtime is available, the composer keeps your draft;
+open **Settings → NeoCore** to enable or configure one.
+
 ## Attach files
 
 Attach up to 100 files per message. Each image can be up to 10 MiB, with at most
@@ -76,13 +81,13 @@ from the Models management page.
 
 ## Custom models
 
-On web and desktop, use Settings → Providers → **Models** to add an unlisted model with a custom
-name and options. Only options supported by the provider integration affect turns. Antigravity
-uses its account catalog and does not support custom models.
+NeoPi owns the model catalog and role configuration. Use **Settings → Models** to
+inspect the catalog and manage native model roles. Configure an unlisted model
+in NeoPi rather than adding a separate NeoCode runtime.
 
-The filter searches the provider's full catalog, including models outside the
-visible rows. Favorites, ordering and hidden-model preferences apply to the
-whole catalog. Adding a custom model brings its row into view.
+The switcher's filter searches the native catalog, including models outside the
+visible rows. Missing catalog facts remain unknown instead of being filled with
+invented limits or prices.
 
 ## Model defaults
 
