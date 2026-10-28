@@ -76,6 +76,7 @@ import {
 import { getDesktopSnapShotBridge } from "../lib/desktopSnapShot";
 import { installDesktopPasteAsText } from "../lib/desktopPasteAsText";
 import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
+import { isProjectDirectoryAvailable } from "../lib/projectLanding";
 
 export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
@@ -524,6 +525,13 @@ function EventRouter({
         return;
       }
       if (handledBootstrapThreadIdRef.current === payload.bootstrapThreadId) {
+        return;
+      }
+      if (
+        !bootstrapProject ||
+        !(await isProjectDirectoryAvailable(bootstrapProject)) ||
+        readPathname() !== "/"
+      ) {
         return;
       }
       await navigate({
