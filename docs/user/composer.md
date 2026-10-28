@@ -63,6 +63,7 @@ Choose a NeoPi inference provider or Roles, or filter by provider, model ID or
 display name. The list shows the native catalog's intelligence, context and
 per-million-token prices. Catalog throughput is an estimate. A question mark
 means the native source has not supplied that fact, including measured TTFT.
+Missing metrics do not make a model unavailable; you can still select it.
 Saved selections that are no longer available stay visible.
 
 Use the arrow keys and Enter to select, or click a model. Escape dismisses the

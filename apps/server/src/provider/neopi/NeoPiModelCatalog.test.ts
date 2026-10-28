@@ -1,3 +1,11 @@
+import * as Schema from "effect/Schema";
+import {
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ServerConfig,
+  ServerConfigStreamEvent,
+} from "@t3tools/contracts";
+import { buildServerProvider } from "../providerSnapshot.ts";
 import { expect, it } from "vite-plus/test";
 import {
   neoPiRoleFromModelSlug,
@@ -5,6 +13,13 @@ import {
   neoPiUsageProviderId,
   toServerProviderModels,
 } from "./NeoPiModelCatalog.ts";
+
+const decodeProviderInstanceId = Schema.decodeUnknownSync(ProviderInstanceId);
+const decodeProviderDriverKind = Schema.decodeUnknownSync(ProviderDriverKind);
+const decodeServerConfig = Schema.decodeUnknownSync(ServerConfig);
+const configStreamCodec = Schema.toCodecJson(Schema.Array(ServerConfigStreamEvent));
+const encodeConfigStream = Schema.encodeSync(configStreamCodec);
+const decodeConfigStream = Schema.decodeUnknownSync(configStreamCodec);
 
 it("preserves each model's actual effort ladder and current default", () => {
   const models = toServerProviderModels(
@@ -430,4 +445,106 @@ it("uses only the exact resolved model's facts for roles", () => {
   );
   expect(models[0]?.nativeFacts).toEqual({ intelligence: 40, contextWindow: 128000 });
   expect(models[1]?.nativeFacts).toBeUndefined();
+});
+
+it("keeps models with unknown facts connected through config snapshots and status updates", () => {
+  const models = toServerProviderModels(
+    [
+      { provider: "local", id: "known", contextWindow: 128000, cost: { input: 0, output: 0 } },
+      { provider: "local", id: "unknown" },
+    ],
+    { provider: "local", id: "uncatalogued" },
+    false,
+    neoPiRolesFromRpc({
+      roles: [
+        {
+          id: "unresolved",
+          alias: "@unresolved",
+          name: "Unresolved",
+          source: "configured",
+          patterns: ["missing/*"],
+        },
+        {
+          id: "resolved",
+          alias: "@resolved",
+          name: "Resolved",
+          source: "configured",
+          patterns: ["local/known"],
+          resolved: { provider: "local", modelId: "known" },
+        },
+      ],
+    }),
+  );
+  const provider = {
+    ...buildServerProvider({
+      presentation: { displayName: "NeoPi" },
+      enabled: true,
+      checkedAt: "2026-10-28T00:00:00.000Z",
+      models,
+      probe: {
+        installed: true,
+        version: "18.10.3",
+        status: "ready",
+        auth: { status: "unknown" },
+      },
+    }),
+    instanceId: decodeProviderInstanceId("neopi"),
+    driver: decodeProviderDriverKind("neopi"),
+  };
+  const config = decodeServerConfig({
+    environment: {
+      environmentId: "env-1",
+      label: "Test",
+      platform: { os: "linux", arch: "x64" },
+      serverVersion: "1.0.0",
+      capabilities: {},
+    },
+    auth: {
+      policy: "desktop-managed-local",
+      bootstrapMethods: [],
+      sessionMethods: [],
+      sessionCookieName: "test-session",
+    },
+    cwd: "/project",
+    keybindingsConfigPath: "/project/keybindings.json",
+    keybindings: [],
+    issues: [],
+    providers: [],
+    availableEditors: [],
+    observability: {
+      logsDirectoryPath: "/project/logs",
+      localTracingEnabled: false,
+      otlpTracesEnabled: false,
+      otlpMetricsEnabled: false,
+    },
+    settings: {},
+  });
+  const events: ReadonlyArray<typeof ServerConfigStreamEvent.Type> = [
+    { version: 1, type: "snapshot", config: { ...config, providers: [provider] } },
+    { version: 1, type: "providerStatuses", payload: { providers: [provider] } },
+  ];
+  // Encode the live snapshot before JSON.stringify can silently drop undefined fields.
+  const encoded = encodeConfigStream(events);
+  const decoded = decodeConfigStream(JSON.parse(JSON.stringify(encoded)));
+  for (const event of decoded) {
+    const providers =
+      event.type === "snapshot"
+        ? event.config.providers
+        : event.type === "providerStatuses"
+          ? event.payload.providers
+          : [];
+    expect(providers).toEqual([provider]);
+    expect(providers[0]?.models.map((model) => model.slug)).toEqual([
+      "@unresolved",
+      "@resolved",
+      "local/known",
+      "local/unknown",
+      "local/uncatalogued",
+    ]);
+    expect(providers[0]?.models[1]?.nativeFacts).toEqual({
+      contextWindow: 128000,
+      inputCostPerMillion: 0,
+      outputCostPerMillion: 0,
+    });
+  }
 });
