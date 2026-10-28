@@ -44,7 +44,12 @@ export const requestNativeStats = (input: NativeStatsRequest) =>
       const signer = yield* Effect.serviceOption(ManagedRelayDpopSigner);
       const remoteAuthorization = yield* Effect.serviceOption(RemoteEnvironmentAuthorization);
       const client = HttpClient.withScope(yield* HttpClient.HttpClient);
-      const path = `/api/neopi-stats/${encodeURIComponent(input.instanceId)}/${encodeURIComponent(input.viewId)}${input.path}`;
+      // environmentEndpointUrl takes only a pathname; native query strings must
+      // stay outside it or "?" becomes "%3F" and the proxy rejects the route.
+      const queryIndex = input.path.indexOf("?");
+      const pathname = queryIndex === -1 ? input.path : input.path.slice(0, queryIndex);
+      const search = queryIndex === -1 ? "" : input.path.slice(queryIndex);
+      const path = `/api/neopi-stats/${encodeURIComponent(input.instanceId)}/${encodeURIComponent(input.viewId)}${pathname}`;
       const response = yield* executeAuthenticatedEnvironmentHttpRequest({
         prepared: prepared.value,
         signer,
@@ -53,7 +58,7 @@ export const requestNativeStats = (input: NativeStatsRequest) =>
         group: "metadata",
         method: input.method,
         timeoutMs: 45_000,
-        url: (base) => environmentEndpointUrl(base, path),
+        url: (base) => `${environmentEndpointUrl(base, path)}${search}`,
         request: ({ headers, url }) =>
           client.execute(
             HttpClientRequest.make(input.method)(url).pipe(
