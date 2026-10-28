@@ -48,6 +48,12 @@ export function createMobilePreferencesState(runtime: Atom.AtomRuntime<MobilePre
     Atom.keepAlive,
     Atom.withLabel("mobile:preferences:confirmed"),
   );
+  // Action identity matters: re-selecting the same graphical palette still
+  // supersedes a previously requested asynchronous NeoPi palette.
+  const themeSelectionRevisionAtom = Atom.make(0).pipe(
+    Atom.keepAlive,
+    Atom.withLabel("mobile:preferences:theme-selection-revision"),
+  );
   let nextPatchVersion = 0;
 
   const preferencesAtom = Atom.make((get) => {
@@ -71,6 +77,20 @@ export function createMobilePreferencesState(runtime: Atom.AtomRuntime<MobilePre
                 AsyncResult.isSuccess(currentPreferences) ? currentPreferences.value : {},
               )
             : update;
+        if (
+          [
+            "themeId",
+            "lightThemeId",
+            "darkThemeId",
+            "themeMode",
+            "nativeLightTheme",
+            "nativeDarkTheme",
+            "nativeThemeCatalogEnabled",
+            "nativeThemeTarget",
+          ].some((key) => Object.hasOwn(patch, key))
+        ) {
+          get.set(themeSelectionRevisionAtom, get(themeSelectionRevisionAtom) + 1);
+        }
         const version = ++nextPatchVersion;
         const current = get(optimisticPatchAtom);
         const versions = { ...current.versions };
@@ -129,7 +149,7 @@ export function createMobilePreferencesState(runtime: Atom.AtomRuntime<MobilePre
     )
     .pipe(Atom.keepAlive, Atom.withLabel("mobile:preferences:update"));
 
-  return { preferencesAtom, updatePreferencesAtom } as const;
+  return { preferencesAtom, updatePreferencesAtom, themeSelectionRevisionAtom } as const;
 }
 
 const mobilePreferencesRuntime = Atom.runtime(Runtime.runtimeContextLayer);
@@ -137,3 +157,4 @@ export const mobilePreferencesState = createMobilePreferencesState(mobilePrefere
 
 export const mobilePreferencesAtom = mobilePreferencesState.preferencesAtom;
 export const updateMobilePreferencesAtom = mobilePreferencesState.updatePreferencesAtom;
+export const mobileThemeSelectionRevisionAtom = mobilePreferencesState.themeSelectionRevisionAtom;
