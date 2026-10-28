@@ -165,6 +165,11 @@ function toServerProviderRoleModels(
 ): ReadonlyArray<ServerProviderModel> {
   return result.roles.flatMap((role): ServerProviderModel[] => {
     const slug = `@${role.id}`;
+    const nativeFacts = nativeModelFacts(
+      role.resolved
+        ? (catalog.get(`${role.resolved.provider}/${role.resolved.modelId}`) ?? null)
+        : null,
+    );
     return [
       {
         slug,
@@ -176,11 +181,7 @@ function toServerProviderRoleModels(
         aliases: slug === role.alias ? [role.id] : [role.id, role.alias],
         isCustom: false,
         ...(result.activeRole === role.id ? { isDefault: true } : {}),
-        nativeFacts: nativeModelFacts(
-          role.resolved
-            ? (catalog.get(`${role.resolved.provider}/${role.resolved.modelId}`) ?? null)
-            : null,
-        ),
+        ...(nativeFacts ? { nativeFacts } : {}),
         capabilities: modelCapabilities(
           role.resolved
             ? (catalog.get(`${role.resolved.provider}/${role.resolved.modelId}`) ?? null)
@@ -206,6 +207,7 @@ export function toServerProviderModels(
     const model = asRecord(entry);
     const slug = modelSlug(model);
     if (!model || !slug) return [];
+    const nativeFacts = nativeModelFacts(model);
     return [
       {
         slug,
@@ -216,7 +218,7 @@ export function toServerProviderModels(
         quotaProvider: model.provider as string,
         isCustom: false,
         ...(currentSlug === slug && !roleResult?.activeRole ? { isDefault: true } : {}),
-        nativeFacts: nativeModelFacts(model),
+        ...(nativeFacts ? { nativeFacts } : {}),
         capabilities: modelCapabilities(model, currentSlug === slug ? fastModeEnabled : undefined),
       },
     ];
