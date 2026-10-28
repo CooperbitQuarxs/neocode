@@ -181,9 +181,11 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
   const setState = (value: NeoPiRuntimeState) =>
     SubscriptionRef.set(state, value).pipe(
       Effect.andThen(invalidateConfiguration),
-      Effect.andThen(() => value === "stopped" || value === "failed" || value === "stopping"
-        ? nativeEvents.publish({ type: "neocode_connection_closed", state: value })
-        : Effect.void),
+      Effect.andThen(() =>
+        value === "stopped" || value === "failed" || value === "stopping"
+          ? nativeEvents.publish({ type: "neocode_connection_closed", state: value })
+          : Effect.void,
+      ),
     );
   const current = () =>
     client
@@ -461,10 +463,25 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       // Native observers retain process-local message IDs independently of SQL
       // turns. Only message_persisted can associate one with a durable entry.
       yield* nativeEvents.publish(frame);
-      if (frame.type === "journal_state" || frame.type === "journal_entry" || frame.type === "message_persisted") return;
+      if (
+        frame.type === "journal_state" ||
+        frame.type === "journal_entry" ||
+        frame.type === "message_persisted"
+      )
+        return;
       // External terminal work must not create or settle NeoCode SQL turns.
       if (attached && !active) return;
-      if (!active && (frame.type.startsWith("message_") || frame.type === "agent_start" || frame.type === "agent_end" || frame.type === "turn_start" || frame.type === "turn_end")) return;
+      // A proposal settles the graphical turn before the native run ends.
+      // Its terminal event must still release withdrawal and expiry waiters.
+      if (
+        !active &&
+        (frame.type.startsWith("message_") ||
+          frame.type === "agent_start" ||
+          (frame.type === "agent_end" && !pendingProposal) ||
+          frame.type === "turn_start" ||
+          frame.type === "turn_end")
+      )
+        return;
       const turn = active;
       yield* emit({ ...frame, ...(turn ? { turnId: turn.id } : {}) });
       const rejected = pendingProposal;
@@ -698,7 +715,9 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
           args,
           cwd: launch.cwd,
           env: launch.env,
-          eventQueueCapacity: 1,
+          // Event handlers await replies on this connection (turn boundaries,
+          // state refreshes). Backpressuring stdout here can strand those
+          // replies behind queued events. Window observers have their own budgets.
           ...(input.requestTimeoutMs === undefined
             ? {}
             : { requestTimeoutMs: input.requestTimeoutMs }),
@@ -723,7 +742,8 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
                 Effect.gen(function* () {
                   if (typeof frame.loginId === "string") {
                     if (frame.method === "input") modelsAuthUi.add(frame.id);
-                    if (frame.method === "cancel" && typeof frame.targetId === "string") modelsAuthUi.delete(frame.targetId);
+                    if (frame.method === "cancel" && typeof frame.targetId === "string")
+                      modelsAuthUi.delete(frame.targetId);
                     yield* emit(frame);
                     return;
                   }
@@ -1278,8 +1298,21 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     observeNative: nativeEvents.subscribe,
     nativeRequest: (command) =>
       Effect.gen(function* () {
-        if (!["get_state", "get_entries_page", "snapshot_session_journal", "navigate_tree", "resume_tree", "abort"].includes(command.type))
-          return yield* new NeoPiRpcError({ code: "unsupported", command: command.type, message: "Not a native conversation command." });
+        if (
+          ![
+            "get_state",
+            "get_entries_page",
+            "snapshot_session_journal",
+            "navigate_tree",
+            "resume_tree",
+            "abort",
+          ].includes(command.type)
+        )
+          return yield* new NeoPiRpcError({
+            code: "unsupported",
+            command: command.type,
+            message: "Not a native conversation command.",
+          });
         return yield* (yield* current()).request(command);
       }),
     invalidateConfiguration,
