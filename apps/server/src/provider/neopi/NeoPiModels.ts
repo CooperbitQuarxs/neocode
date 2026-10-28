@@ -9,6 +9,7 @@ import {
 } from "@t3tools/contracts";
 import { NeoPiModelSelectorResult } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as SchemaIssue from "effect/SchemaIssue";
@@ -32,6 +33,8 @@ interface AuthFlow {
   readonly connection: NeoPiModelsConnection;
   readonly state: SubscriptionRef.SubscriptionRef<NeoPiModelsAuthState>;
   readonly scope: Scope.Closeable;
+  readonly cancel: Effect.Effect<void, NeoPiModelsError>;
+  watchers: number;
 }
 
 export const readNativeModelsConfiguration = Effect.fnUntraced(function* (
@@ -86,14 +89,203 @@ export const queryNativeModelSelector = Effect.fnUntraced(function* (
   return result;
 });
 
+/** Native login state and resources share one lifetime, independent of any one observer. */
+export const makeNativeModelsAuth = Effect.fn("makeNativeModelsAuth")(function* (
+  connection: (
+    target: NeoPiModelsTarget,
+  ) => Effect.Effect<NeoPiModelsConnection, unknown, Scope.Scope>,
+) {
+  const lifetime = yield* Effect.scope;
+  const flows = new Map<string, AuthFlow>();
+  const requireFlow = (flowId: string) =>
+    flows.has(flowId)
+      ? Effect.succeed(flows.get(flowId)!)
+      : Effect.fail(
+          new NeoPiModelsError({
+            message: "This native login is no longer active. Start login again.",
+          }),
+        );
+  const settleAuth = (
+    state: AuthFlow["state"],
+    status: NeoPiModelsAuthState["status"],
+    message: string,
+  ) =>
+    SubscriptionRef.update(state, (current) =>
+      current.status === "running" ? { ...current, status, prompt: null, message } : current,
+    );
+  const cancelAuth = (input: { flowId: string }) =>
+    Effect.flatMap(requireFlow(input.flowId), (flow) => flow.cancel);
+  const startAuth = (input: { target: NeoPiModelsTarget; providerId: string }) =>
+    Effect.uninterruptibleMask((restore) =>
+      Effect.gen(function* () {
+        const scope = yield* Scope.make();
+        const native = yield* restore(
+          connection(input.target).pipe(
+            Effect.provideService(Scope.Scope, scope),
+            Effect.tapError(() => Scope.close(scope, Exit.void)),
+            Effect.onInterrupt(() => Scope.close(scope, Exit.void)),
+          ),
+        );
+        if (!native.capabilities.has("cancellable_login")) {
+          yield* Scope.close(scope, Exit.void);
+          return yield* new NeoPiModelsError({
+            message:
+              "This native connection cannot safely run cancellable login. Update NeoPi before logging in here.",
+          });
+        }
+        const flowId = NodeCrypto.randomUUID();
+        const state = yield* SubscriptionRef.make<NeoPiModelsAuthState>({
+          flowId,
+          status: "running",
+          message: null,
+          url: null,
+          instructions: null,
+          prompt: null,
+        });
+        // Memoize cancellation so simultaneous button presses and watch teardown
+        // cannot send a second cancel after NeoPi has retired the native login.
+        const cancel = yield* Effect.cached(
+          Effect.gen(function* () {
+            if ((yield* SubscriptionRef.get(state)).status !== "running") return;
+            const result = yield* native
+              .request({ type: "cancel_login", loginId: flowId })
+              .pipe(Effect.result);
+            if (result._tag === "Failure") {
+              // Completion can overtake the cancel response. Never replace a
+              // native terminal result with a stale cancellation error.
+              if ((yield* SubscriptionRef.get(state)).status !== "running") return;
+              const error = modelError(result.failure);
+              yield* settleAuth(state, "failed", error.message);
+              yield* Scope.close(scope, Exit.void);
+              return yield* error;
+            }
+            // The cancel acknowledgement is not the login result. NeoPi can
+            // still finish saving an account before it observes the abort.
+          }),
+        );
+        const flow: AuthFlow = { connection: native, state, scope, cancel, watchers: 0 };
+        const ui = yield* Stream.toPull(native.ui).pipe(Effect.provideService(Scope.Scope, scope));
+        // toPull is lazy; start consuming before login can emit its first prompt.
+        yield* Stream.fromPull(Effect.succeed(ui)).pipe(
+          Stream.runForEach((frame) => {
+            if (frame.loginId !== flowId) return Effect.void;
+            return SubscriptionRef.update(state, (current) => {
+              if (current.status !== "running") return current;
+              if (frame.method === "open_url" && typeof frame.url === "string")
+                return {
+                  ...current,
+                  url: frame.url,
+                  instructions: typeof frame.instructions === "string" ? frame.instructions : null,
+                };
+              if (frame.method === "notify" && typeof frame.message === "string")
+                return { ...current, message: frame.message };
+              if (frame.method === "input" && typeof frame.title === "string")
+                return {
+                  ...current,
+                  prompt: {
+                    id: frame.id,
+                    title: frame.title,
+                    placeholder: typeof frame.placeholder === "string" ? frame.placeholder : null,
+                    secret: frame.secret === true,
+                  },
+                };
+              if (frame.method === "cancel" && frame.targetId === current.prompt?.id)
+                return { ...current, prompt: null };
+              return current;
+            });
+          }),
+          Effect.forkIn(scope, { startImmediately: true, uninterruptible: false }),
+        );
+        const login = yield* native
+          .request({ type: "login", providerId: input.providerId, id: flowId })
+          .pipe(
+            Effect.matchEffect({
+              onSuccess: () => settleAuth(state, "complete", "Native account saved"),
+              onFailure: (cause) =>
+                settleAuth(
+                  state,
+                  cause.code === "login_cancelled" ? "cancelled" : "failed",
+                  cause.message,
+                ),
+            }),
+            Effect.onInterrupt(() =>
+              settleAuth(
+                state,
+                "failed",
+                "The native login connection closed before login completed.",
+              ),
+            ),
+            Effect.forkIn(scope, { startImmediately: true, uninterruptible: false }),
+          );
+        // The request belongs to the flow scope; a separate fiber closes it so
+        // watch teardown also interrupts a borrowed connection's pending request.
+        yield* Fiber.await(login).pipe(
+          Effect.andThen(Scope.close(scope, Exit.void)),
+          Effect.forkIn(lifetime, { uninterruptible: false }),
+        );
+        flows.set(flowId, flow);
+        return { flowId };
+      }),
+    ).pipe(Effect.mapError(modelError));
+  const watchAuth = (input: { flowId: string }) =>
+    Stream.unwrap(
+      Effect.gen(function* () {
+        const flow = yield* requireFlow(input.flowId);
+        yield* Effect.acquireRelease(
+          Effect.sync(() => {
+            flow.watchers += 1;
+          }),
+          () =>
+            Effect.gen(function* () {
+              flow.watchers -= 1;
+              if (flow.watchers !== 0) return;
+              if ((yield* SubscriptionRef.get(flow.state)).status === "running")
+                yield* flow.cancel.pipe(Effect.ignore);
+              yield* Scope.close(flow.scope, Exit.void);
+              flows.delete(input.flowId);
+            }),
+        );
+        return SubscriptionRef.changes(flow.state).pipe(
+          Stream.takeUntil((state) => state.status !== "running"),
+        );
+      }),
+    ).pipe(Stream.mapError(modelError));
+  const respondAuth = (input: { flowId: string; requestId: string; value: string }) =>
+    Effect.gen(function* () {
+      const flow = yield* requireFlow(input.flowId);
+      const current = yield* SubscriptionRef.get(flow.state);
+      if (current.status !== "running" || current.prompt?.id !== input.requestId)
+        return yield* new NeoPiModelsError({
+          message: "The native login prompt changed. Use its current prompt.",
+        });
+      yield* flow.connection.validate;
+      yield* flow.connection
+        .respondUi({ id: input.requestId, value: input.value })
+        .pipe(Effect.mapError(modelError));
+      yield* SubscriptionRef.update(flow.state, (state) =>
+        state.prompt?.id === input.requestId ? { ...state, prompt: null } : state,
+      );
+    });
+  yield* Effect.addFinalizer(() =>
+    Effect.forEach(
+      [...flows],
+      ([flowId, flow]) =>
+        cancelAuth({ flowId }).pipe(
+          Effect.ignore,
+          Effect.andThen(Scope.close(flow.scope, Exit.void)),
+        ),
+      { discard: true },
+    ),
+  );
+  return { startAuth, watchAuth, respondAuth, cancelAuth };
+});
+
 /** Routes explicit graphical model operations to their native owner; it stores no model policy or credentials. */
 export const makeNeoPiModels = Effect.fn("makeNeoPiModels")(function* () {
   const instances = yield* ProviderInstanceRegistry;
   const snapshots = yield* ProjectionSnapshotQuery;
   const directory = yield* ProviderSessionDirectory;
   const serverConfig = yield* ServerConfig;
-  const lifetime = yield* Effect.scope;
-  const flows = new Map<string, AuthFlow>();
   const connection = Effect.fnUntraced(function* (target: NeoPiModelsTarget) {
     const instance = yield* instances.getInstance(target.providerInstanceId);
     const source = instance && neoPiSessionCatalogSource(instance);
@@ -140,6 +332,7 @@ export const makeNeoPiModels = Effect.fn("makeNeoPiModels")(function* () {
     const native = yield* source.modelsConnection(cwd, target.threadId, expected);
     return native;
   });
+  const auth = yield* makeNativeModelsAuth(connection);
   const read = (target: NeoPiModelsTarget) =>
     Effect.scoped(Effect.flatMap(connection(target), readNativeModelsConfiguration)).pipe(
       Effect.mapError(modelError),
@@ -217,153 +410,6 @@ export const makeNeoPiModels = Effect.fn("makeNeoPiModels")(function* () {
         );
       }),
     ).pipe(Effect.mapError(modelError));
-  const requireFlow = (flowId: string) =>
-    flows.has(flowId)
-      ? Effect.succeed(flows.get(flowId)!)
-      : Effect.fail(
-          new NeoPiModelsError({
-            message: "This native login is no longer active. Start login again.",
-          }),
-        );
-  const cancelAuth = (input: { flowId: string }) =>
-    Effect.gen(function* () {
-      const flow = yield* requireFlow(input.flowId);
-      const current = yield* SubscriptionRef.get(flow.state);
-      if (current.status !== "running") return;
-      yield* flow.connection
-        .request({ type: "cancel_login", loginId: input.flowId })
-        .pipe(Effect.mapError(modelError));
-      yield* SubscriptionRef.set(flow.state, {
-        ...current,
-        status: "cancelled",
-        prompt: null,
-        message: "Login cancelled",
-      });
-    });
-  const startAuth = (input: { target: NeoPiModelsTarget; providerId: string }) =>
-    Effect.gen(function* () {
-      const scope = yield* Scope.make();
-      const acquired = yield* connection(input.target).pipe(
-        Effect.provideService(Scope.Scope, scope),
-        Effect.result,
-      );
-      if (acquired._tag === "Failure") {
-        yield* Scope.close(scope, Exit.void);
-        return yield* Effect.fail(modelError(acquired.failure));
-      }
-      const native = acquired.success;
-      if (!native.capabilities.has("cancellable_login")) {
-        yield* Scope.close(scope, Exit.void);
-        return yield* new NeoPiModelsError({
-          message:
-            "This native connection cannot safely run cancellable login. Update NeoPi before logging in here.",
-        });
-      }
-      const flowId = NodeCrypto.randomUUID();
-      const state = yield* SubscriptionRef.make<NeoPiModelsAuthState>({
-        flowId,
-        status: "running",
-        message: null,
-        url: null,
-        instructions: null,
-        prompt: null,
-      });
-      const flow = { connection: native, state, scope };
-      flows.set(flowId, flow);
-      const ui = yield* Stream.toPull(native.ui).pipe(Effect.provideService(Scope.Scope, scope));
-      yield* Stream.fromPull(Effect.succeed(ui)).pipe(
-        Stream.runForEach((frame) => {
-          if (frame.loginId !== flowId) return Effect.void;
-          return SubscriptionRef.update(state, (current) => {
-            if (current.status !== "running") return current;
-            if (frame.method === "open_url" && typeof frame.url === "string")
-              return {
-                ...current,
-                url: frame.url,
-                instructions: typeof frame.instructions === "string" ? frame.instructions : null,
-              };
-            if (frame.method === "notify" && typeof frame.message === "string")
-              return { ...current, message: frame.message };
-            if (frame.method === "input" && typeof frame.title === "string")
-              return {
-                ...current,
-                prompt: {
-                  id: frame.id,
-                  title: frame.title,
-                  placeholder: typeof frame.placeholder === "string" ? frame.placeholder : null,
-                  secret: frame.secret === true,
-                },
-              };
-            if (frame.method === "cancel" && frame.targetId === current.prompt?.id)
-              return { ...current, prompt: null };
-            return current;
-          });
-        }),
-        Effect.forkIn(scope),
-      );
-      yield* native.request({ type: "login", providerId: input.providerId, id: flowId }).pipe(
-        Effect.matchEffect({
-          onSuccess: () =>
-            SubscriptionRef.update(state, (current) => ({
-              ...current,
-              status: "complete" as const,
-              prompt: null,
-              message: "Native account saved",
-            })),
-          onFailure: (cause) =>
-            SubscriptionRef.update(state, (current) => ({
-              ...current,
-              status: current.status === "cancelled" ? ("cancelled" as const) : ("failed" as const),
-              prompt: null,
-              message: cause.message,
-            })),
-        }),
-        Effect.ensuring(Scope.close(scope, Exit.void)),
-        Effect.forkIn(lifetime),
-      );
-      return { flowId };
-    }).pipe(Effect.mapError(modelError));
-  const watchAuth = (input: { flowId: string }) =>
-    Stream.unwrap(
-      Effect.gen(function* () {
-        const flow = yield* requireFlow(input.flowId);
-        yield* Effect.addFinalizer(() =>
-          cancelAuth(input).pipe(
-            Effect.ignore,
-            Effect.andThen(Scope.close(flow.scope, Exit.void)),
-            Effect.andThen(Effect.sync(() => flows.delete(input.flowId))),
-          ),
-        );
-        return SubscriptionRef.changes(flow.state).pipe(
-          Stream.takeUntil((state) => state.status !== "running"),
-        );
-      }),
-    ).pipe(Stream.mapError(modelError));
-  const respondAuth = (input: { flowId: string; requestId: string; value: string }) =>
-    Effect.gen(function* () {
-      const flow = yield* requireFlow(input.flowId);
-      const current = yield* SubscriptionRef.get(flow.state);
-      if (current.status !== "running" || current.prompt?.id !== input.requestId)
-        return yield* new NeoPiModelsError({
-          message: "The native login prompt changed. Use its current prompt.",
-        });
-      yield* flow.connection.validate;
-      yield* flow.connection
-        .respondUi({ id: input.requestId, value: input.value })
-        .pipe(Effect.mapError(modelError));
-      yield* SubscriptionRef.update(flow.state, (state) => ({ ...state, prompt: null }));
-    });
-  yield* Effect.addFinalizer(() =>
-    Effect.forEach(
-      [...flows],
-      ([flowId, flow]) =>
-        cancelAuth({ flowId }).pipe(
-          Effect.ignore,
-          Effect.andThen(Scope.close(flow.scope, Exit.void)),
-        ),
-      { discard: true },
-    ),
-  );
   return {
     connection,
     read,
@@ -371,9 +417,6 @@ export const makeNeoPiModels = Effect.fn("makeNeoPiModels")(function* () {
     watch,
     update,
     accounts,
-    startAuth,
-    watchAuth,
-    respondAuth,
-    cancelAuth,
+    ...auth,
   };
 });

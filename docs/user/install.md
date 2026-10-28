@@ -205,11 +205,13 @@ If an explicit executable is missing, correct **Binary path** or clear it to
 return to automatic selection. Opening NeoCore or selecting a profile does not
 start or restart sessions. Model catalogs are not configured on this page.
 
-T3 reads OAuth login status but cannot log you in; API-key and local models can
-work even when the card reports authentication as unknown. Model, thinking level,
-and fast mode are selected in the composer when the CLI advertises them. With a
-current `npi`, NeoPi threads use the CLI's normal session folders, so they also
-appear in `npi --resume`; older CLIs keep them isolated under T3's home directory.
+Use **Models** to manage NeoPi's inference-provider accounts and scoped model
+choices. Login and cancellation are handled by the selected native connection.
+Cancelling a login does not undo an account save that already completed; native
+failures remain visible so you can retry from Models. API-key and local models
+can work even when authentication is reported as unknown.
+With a current `npi`, NeoPi threads use the CLI's normal session folders, so they
+also appear in `npi --resume`; older CLIs keep them isolated under T3's home directory.
 
 To continue a terminal session in NeoCode, use **Resume NeoPi session** (beside
 **New thread** in the sidebar, or in the command palette). It lists the
@@ -311,7 +313,7 @@ in NeoPi to persist durable entry identities.
 Add another NeoPi instance for a separate profile or executable configuration.
 Each instance can have its own environment variables. Mark secret values as
 sensitive; NeoCode does not display their original values after saving.
-NeoPi upgrades and inference-provider sign-in remain in NeoPi, not NeoCode.
+Upgrade the NeoPi executable separately; Models manages provider sign-in through it.
 
 ## Next steps
 
