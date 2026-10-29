@@ -16,10 +16,12 @@ export function NativeSessionTree({
   target,
   request,
   onClose,
+  onReturnFocus,
 }: {
   target: NativeSessionTarget;
   request: Request;
   onClose: () => void;
+  onReturnFocus?: () => void;
 }) {
   const { conversation, session } = useNativeSession(target);
   const [entries, setEntries] = useState<readonly NeoPiJournalEntry[]>([]);
@@ -81,7 +83,16 @@ export function NativeSessionTree({
         if (!open) onClose();
       }}
     >
-      <DialogPopup>
+      <DialogPopup
+        finalFocus={
+          onReturnFocus
+            ? () => {
+                onReturnFocus();
+                return false;
+              }
+            : undefined
+        }
+      >
         <DialogHeader>
           <DialogTitle>Session tree</DialogTitle>
         </DialogHeader>

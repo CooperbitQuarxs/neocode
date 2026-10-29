@@ -9,6 +9,7 @@ import {
   type NativeTranscriptRow,
 } from "@t3tools/client-runtime/neopi-native-sessions";
 import { journalEntryLabel } from "@t3tools/client-runtime/neopi-journal";
+import { createNativeSubmissionFollow } from "@t3tools/client-runtime/neopi-submission-follow";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
 import { AppText as Text } from "../../components/AppText";
@@ -55,26 +56,58 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
   const { feed, request, error } = useNativeSession(target);
   const timelineRef = useRef<FlatList<NativeTranscriptRow>>(null);
   const nearEndRef = useRef(false);
-  const submissionGenerationRef = useRef(0);
-  const submissionFrameRef = useRef<number | null>(null);
-  const [submittedGeneration, setSubmittedGeneration] = useState<number | null>(null);
+  const followRevisionRef = useRef(feed.conversation.revision);
+  followRevisionRef.current = feed.conversation.revision;
+  const followRowsRef = useRef<readonly NativeTranscriptRow[]>([]);
+  const layoutRef = useRef({ height: 0, viewport: 0, offset: 0 });
+  const measuredRowsRef = useRef(new Map<string, number>());
+  const submissionFollow = useMemo(
+    () =>
+      createNativeSubmissionFollow({
+        scheduleFrame: (callback) => requestAnimationFrame(callback),
+        cancelFrame: (frame) => cancelAnimationFrame(frame),
+        readLayout: () => {
+          const last = followRowsRef.current.at(-1);
+          const layout = layoutRef.current;
+          return {
+            measured: !!last && measuredRowsRef.current.has(last.id) && layout.viewport > 0,
+            atEnd: layout.height - layout.viewport - layout.offset <= 1,
+            revision: JSON.stringify([
+              last?.id,
+              followRevisionRef.current,
+              measuredRowsRef.current.get(last?.id ?? ""),
+              layout.height,
+              layout.viewport,
+              layout.offset,
+            ]),
+          };
+        },
+        scrollToEnd: () => timelineRef.current?.scrollToEnd({ animated: false }),
+      }),
+    [],
+  );
   const cancelSubmissionFollow = useCallback(() => {
-    submissionGenerationRef.current += 1;
-    if (submissionFrameRef.current !== null) cancelAnimationFrame(submissionFrameRef.current);
-    submissionFrameRef.current = null;
-  }, []);
+    submissionFollow.cancel();
+  }, [submissionFollow]);
   useEffect(() => cancelSubmissionFollow, [cancelSubmissionFollow]);
   const submit = useCallback<Request>(
     async (command, attachments) => {
-      if (command.type !== "prompt") return request(command, attachments);
+      if (command.type !== "prompt") {
+        cancelSubmissionFollow();
+        return request(command, attachments);
+      }
       cancelSubmissionFollow();
-      const generation = submissionGenerationRef.current;
-      const result = await request(command, attachments);
-      if (generation !== submissionGenerationRef.current) return result;
-      setSubmittedGeneration(generation);
-      return result;
+      const generation = submissionFollow.begin();
+      try {
+        const result = await request(command, attachments);
+        submissionFollow.accept(generation);
+        return result;
+      } catch (cause) {
+        submissionFollow.reject(generation);
+        throw cause;
+      }
     },
-    [request, cancelSubmissionFollow],
+    [request, cancelSubmissionFollow, submissionFollow],
   );
   const composer = useNativeComposerState({
     target,
@@ -94,6 +127,10 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
   const key = nativeSessionKey(target);
   const [dismissed, setDismissed] = useState(() => answered.get(key) ?? new Set<string>());
   const navigation = useNavigation();
+  useEffect(
+    () => navigation.addListener("blur", cancelSubmissionFollow),
+    [navigation, cancelSubmissionFollow],
+  );
   useEffect(() => {
     if (feed.session) setState(feed.session.state);
   }, [feed.session]);
@@ -176,15 +213,11 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
       ),
     [feed.conversation, feed.commandOutputs, debug],
   );
+  followRowsRef.current = rows;
   useEffect(() => {
-    if (submittedGeneration === null || submittedGeneration !== submissionGenerationRef.current)
-      return;
-    submissionFrameRef.current = requestAnimationFrame(() => {
-      submissionFrameRef.current = null;
-      nearEndRef.current = true;
-      timelineRef.current?.scrollToEnd({ animated: false });
-    });
-  }, [submittedGeneration]);
+    if (!feed.connected) cancelSubmissionFollow();
+    else submissionFollow.changed();
+  }, [rows, feed.connected, submissionFollow, cancelSubmissionFollow]);
   const model = nativeRecord(state.model);
   const suggestions =
     composer.draft.text.startsWith("/") &&
@@ -228,11 +261,22 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
       <FlatList
         ref={timelineRef}
         maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+        onTouchStart={cancelSubmissionFollow}
+        onLayout={({ nativeEvent }) => {
+          layoutRef.current.viewport = nativeEvent.layout.height;
+          submissionFollow.changed();
+        }}
         onScrollBeginDrag={() => {
           cancelSubmissionFollow();
           nearEndRef.current = false;
         }}
         onScroll={({ nativeEvent }) => {
+          layoutRef.current = {
+            height: nativeEvent.contentSize.height,
+            viewport: nativeEvent.layoutMeasurement.height,
+            offset: nativeEvent.contentOffset.y,
+          };
+          submissionFollow.changed();
           nearEndRef.current =
             nativeEvent.contentSize.height -
               nativeEvent.layoutMeasurement.height -
@@ -240,7 +284,9 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
             nativeEvent.layoutMeasurement.height * 0.1;
         }}
         scrollEventThrottle={16}
-        onContentSizeChange={() => {
+        onContentSizeChange={(_, height) => {
+          layoutRef.current.height = height;
+          submissionFollow.changed();
           if (nearEndRef.current) timelineRef.current?.scrollToEnd({ animated: false });
         }}
         data={rows}
@@ -257,11 +303,24 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
         }
         renderItem={({ item }) =>
           item.kind === "command" ? (
-            <View className="px-4 py-3" accessibilityLabel="Command output">
+            <View
+              className="px-4 py-3"
+              accessibilityLabel="Command output"
+              onLayout={({ nativeEvent }) => {
+                measuredRowsRef.current.set(item.id, nativeEvent.layout.height);
+                submissionFollow.changed();
+              }}
+            >
               <NativeCommandOutput text={item.text} />
             </View>
           ) : (
-            <View className="gap-2 px-4 py-3">
+            <View
+              className="gap-2 px-4 py-3"
+              onLayout={({ nativeEvent }) => {
+                measuredRowsRef.current.set(item.id, nativeEvent.layout.height);
+                submissionFollow.changed();
+              }}
+            >
               <Text className="text-xs font-t3-medium text-foreground-muted">
                 {journalEntryLabel(item.entry)}
               </Text>

@@ -2470,6 +2470,22 @@ function toHydratedThreadDraft(
   };
 }
 
+// Native acceptance notifications reuse the durable content shape, without
+// hydrating File copies or applying legacy inline-reference migrations.
+export function persistComposerDraftSnapshot(draft: ComposerThreadDraftState) {
+  return partializeComposerDraftStoreState({
+    ...composerDraftStore.getState(),
+    draftsByThreadKey: { snapshot: draft },
+    draftThreadsByThreadKey: {},
+    logicalProjectDraftThreadKeyByLogicalProjectKey: {},
+  }).draftsByThreadKey.snapshot;
+}
+const isComposerDraftSnapshot = Schema.is(PersistedComposerThreadDraftState);
+
+export function readComposerDraftSnapshot(value: unknown) {
+  return isComposerDraftSnapshot(value) ? value : null;
+}
+
 function toHydratedDraftThreadState(
   persistedDraftThread: PersistedDraftThreadState,
 ): DraftThreadState {

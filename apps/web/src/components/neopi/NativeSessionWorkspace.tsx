@@ -8,6 +8,7 @@ import {
   type NativeTranscriptRow,
 } from "@t3tools/client-runtime/neopi-native-sessions";
 import { journalEntryLabel } from "@t3tools/client-runtime/neopi-journal";
+import { createNativeSubmissionFollow } from "@t3tools/client-runtime/neopi-submission-follow";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   nativeSessionAtoms,
@@ -124,31 +125,78 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   const composerRef = useComposerHandleContext() ?? localComposerRef;
   const timelineHostRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<LegendListRef | null>(null);
-  const submissionGenerationRef = useRef(0);
-  const submissionFrameRef = useRef<number | null>(null);
-  const [submittedGeneration, setSubmittedGeneration] = useState<number | null>(null);
+  const followRevisionRef = useRef(conversation.revision);
+  followRevisionRef.current = conversation.revision;
+  const followRowsRef = useRef<readonly NativeTranscriptRow[]>([]);
+  const submissionFollow = useMemo(
+    () =>
+      createNativeSubmissionFollow({
+        scheduleFrame: (callback) => requestAnimationFrame(callback),
+        cancelFrame: (frame) => cancelAnimationFrame(frame),
+        readLayout: () => {
+          const list = timelineRef.current;
+          const viewport = list?.getScrollableNode() as HTMLElement | undefined;
+          if (!list || !viewport) return null;
+          const rows = followRowsRef.current;
+          const last = rows.at(-1);
+          const state = list.getState();
+          const measured =
+            !!last &&
+            state.indexByKey(last.id) === state.data.length - 1 &&
+            state.sizes.has(last.id);
+          return {
+            measured,
+            atEnd: viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 1,
+            revision: JSON.stringify([
+              last?.id,
+              followRevisionRef.current,
+              state.sizes.get(last?.id ?? ""),
+              viewport.scrollHeight,
+              viewport.clientHeight,
+              viewport.scrollTop,
+            ]),
+          };
+        },
+        scrollToEnd: () => {
+          void timelineRef.current?.scrollToEnd({ animated: false });
+        },
+      }),
+    [],
+  );
   const cancelSubmissionFollow = useCallback(() => {
-    submissionGenerationRef.current += 1;
-    if (submissionFrameRef.current !== null) cancelAnimationFrame(submissionFrameRef.current);
-    submissionFrameRef.current = null;
-  }, []);
+    if (!submissionFollow.cancel()) return;
+    // LegendList may still have a pending estimated-index scroll. Supersede it
+    // before applying the user's navigation, as the stock timeline does.
+    const list = timelineRef.current;
+    const viewport = list?.getScrollableNode() as HTMLElement | undefined;
+    if (viewport) void list?.scrollToOffset({ offset: viewport.scrollTop, animated: false });
+  }, [submissionFollow]);
   useEffect(() => cancelSubmissionFollow, [cancelSubmissionFollow]);
   const submit = useCallback<Request>(
     async (command, attachments) => {
-      if (command.type !== "prompt") return request(command, attachments);
+      if (command.type !== "prompt") {
+        cancelSubmissionFollow();
+        return request(command, attachments);
+      }
       cancelSubmissionFollow();
-      const generation = submissionGenerationRef.current;
-      const result = await request(command, attachments);
-      if (generation !== submissionGenerationRef.current) return result;
-      setSubmittedGeneration(generation);
-      return result;
+      const generation = submissionFollow.begin();
+      try {
+        const result = await request(command, attachments);
+        submissionFollow.accept(generation);
+        return result;
+      } catch (cause) {
+        submissionFollow.reject(generation);
+        throw cause;
+      }
     },
-    [request, cancelSubmissionFollow],
+    [request, cancelSubmissionFollow, submissionFollow],
   );
   const [composerElement, setComposerElement] = useState<HTMLDivElement | null>(null);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
   const sendingRef = useRef(false);
   const focusComposer = useCallback(() => composerRef.current?.focusAtEnd(), [composerRef]);
+  // The workspace remounts after Models Back; the draft stays in its store.
+  useEffect(() => focusComposer(), [focusComposer]);
   const pageScroll = useMemo(
     () =>
       createPageScrollController({
@@ -257,7 +305,7 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
         },
         prompt.attachments,
       );
-      consumeNativeDraft(target, snapshot);
+      consumeNativeDraft(target, snapshot, prompt.attachments);
     } catch (cause) {
       setLocalError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -270,16 +318,11 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
     () => nativeTranscriptRows({ conversation, commandOutputs: feed.commandOutputs }, debug),
     [conversation, feed.commandOutputs, debug],
   );
+  followRowsRef.current = rows;
   useEffect(() => {
-    if (submittedGeneration === null || submittedGeneration !== submissionGenerationRef.current)
-      return;
-    // Jump only after our successful submit commits. LegendList's normal
-    // near-end maintenance then follows delayed output and row measurement.
-    submissionFrameRef.current = requestAnimationFrame(() => {
-      submissionFrameRef.current = null;
-      void timelineRef.current?.scrollToEnd({ animated: false });
-    });
-  }, [submittedGeneration]);
+    if (!feed.connected) cancelSubmissionFollow();
+    else submissionFollow.changed();
+  }, [rows, feed.connected, submissionFollow, cancelSubmissionFollow]);
   const renderEntry = useCallback(
     ({ item }: { item: NativeTranscriptRow }) =>
       item.kind === "command" ? (
@@ -424,6 +467,12 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
           ref={timelineHostRef}
           className="flex min-h-0 flex-1 flex-col"
           onWheelCapture={cancelSubmissionFollow}
+          onKeyDownCapture={(event) => {
+            if (
+              ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)
+            )
+              cancelSubmissionFollow();
+          }}
           onPointerDownCapture={cancelSubmissionFollow}
         >
           <LegendList
@@ -436,6 +485,10 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
             maintainVisibleContentPosition
             maintainScrollAtEnd={{ animated: false }}
             maintainScrollAtEndThreshold={0.1}
+            onItemSizeChanged={submissionFollow.changed}
+            onLayout={submissionFollow.changed}
+            onLoad={submissionFollow.changed}
+            onScroll={submissionFollow.changed}
             ListHeaderComponent={
               conversation.cursor ? (
                 <div className="p-3">
@@ -541,10 +594,19 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
         <ExpandedImageDialog preview={expandedImage} onClose={() => setExpandedImage(null)} />
       ) : null}
       {models ? (
-        <NativeSessionModelDialog request={execute} onClose={() => setModels(false)} />
+        <NativeSessionModelDialog
+          request={execute}
+          onClose={() => setModels(false)}
+          onReturnFocus={focusComposer}
+        />
       ) : null}
       {tree ? (
-        <NativeSessionTree target={target} request={execute} onClose={() => setTree(false)} />
+        <NativeSessionTree
+          target={target}
+          request={execute}
+          onClose={() => setTree(false)}
+          onReturnFocus={focusComposer}
+        />
       ) : null}
       {dialog ? (
         <NativeSessionDialog
@@ -565,9 +627,11 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
 export function NativeSessionModelDialog({
   request,
   onClose,
+  onReturnFocus,
 }: {
   request: Request;
   onClose: () => void;
+  onReturnFocus?: () => void;
 }) {
   const [catalog, setCatalog] = useState<ReturnType<typeof nativeCatalogModels>>([]);
   const [roles, setRoles] = useState<readonly Record<string, unknown>[]>([]);
@@ -608,7 +672,16 @@ export function NativeSessionModelDialog({
         if (!open) onClose();
       }}
     >
-      <DialogPopup>
+      <DialogPopup
+        finalFocus={
+          onReturnFocus
+            ? () => {
+                onReturnFocus();
+                return false;
+              }
+            : undefined
+        }
+      >
         <DialogHeader>
           <DialogTitle>Session model</DialogTitle>
         </DialogHeader>

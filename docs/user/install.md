@@ -237,11 +237,15 @@ terminal runtime. Installing a new binary does not update an existing process.
 The conversation follows NeoPi's selected branch, including turns started from
 the terminal. While reconnecting, NeoCode retains the displayed conversation and
 requests a fresh native snapshot without resending your prompt.
+Sending a prompt brings the latest content into view. Scrolling back through
+older history stops automatic following until you send again.
 
 You can attach images and files to native messages without creating a project.
 Images reach NeoPi as image input; files remain available to the session after
 the upload draft is cleared. If a send fails, keep the draft and retry rather
 than uploading the same files again.
+After acceptance, matching drafts in other open windows are cleared too. Text,
+context and attachments added while the send is pending remain in the composer.
 
 Commands such as `/usage`, `/context`, and `/model` show NeoPi's result in the
 conversation without leaving your session. These results stay in the open

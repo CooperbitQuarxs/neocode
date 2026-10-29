@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./neopi-submission-follow": {
+      "types": "./src/neopiSubmissionFollow.ts",
+      "default": "./src/neopiSubmissionFollow.ts"
+    },
     "./neopi-command-output": {
       "types": "./src/neopiCommandOutput.ts",
       "default": "./src/neopiCommandOutput.ts"

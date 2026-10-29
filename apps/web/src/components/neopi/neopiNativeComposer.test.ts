@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ComposerContextId, EnvironmentId } from "@t3tools/contracts";
 import { formatComposerContextReference } from "@t3tools/shared/composerContextReferences";
-import type { ComposerThreadDraftState } from "../../composerDraftStore";
+import {
+  persistComposerDraftSnapshot,
+  type ComposerThreadDraftState,
+} from "../../composerDraftStore";
 import { terminalContextReference } from "../../lib/composerContextRecords";
-import { remainingNativeDraft } from "./neopiNativeComposer";
+import { remainingNativeDraft, remainingNativePersistedDraft } from "./neopiNativeComposer";
 
 const draft = (changes: Partial<ComposerThreadDraftState> = {}): ComposerThreadDraftState => ({
   prompt: "Explain the output",
@@ -108,5 +111,130 @@ describe("accepted native composer snapshots", () => {
     const remaining = remainingNativeDraft(current, submitted);
     expect(remaining.prompt).toBe(`\nNow compare ${reference}`);
     expect(remaining.terminalContexts).toEqual([selection]);
+  });
+
+  it("consumes unchanged records after persistence changes their object identity and property order", () => {
+    const submitted = draft({ terminalContexts: [selection], prompt: `Explain ${reference}` });
+    const persisted = JSON.parse(JSON.stringify(persistComposerDraftSnapshot(submitted)));
+    const restoredSelection = persisted.terminalContexts[0];
+    const current = draft({
+      prompt: `${submitted.prompt}\nNext question`,
+      terminalContexts: [{ ...restoredSelection }],
+    });
+    const remaining = remainingNativePersistedDraft(current, persisted);
+    expect(remaining.prompt).toBe("\nNext question");
+    expect(remaining.terminalContexts).toEqual([]);
+  });
+
+  it("keeps a same-ID terminal record revision when a different window accepts its old version", () => {
+    const submitted = draft({ terminalContexts: [selection], prompt: `Explain ${reference}` });
+    const persisted = persistComposerDraftSnapshot(submitted)!;
+    const current = {
+      ...submitted,
+      terminalContexts: [{ ...selection, text: "new selection captured during send" }],
+    };
+    expect(remainingNativePersistedDraft(current, persisted)).toBe(current);
+  });
+
+  it("does not consume a same-ID local file replacement during send", () => {
+    const submitted = draft({ files: [attachment] });
+    const current = {
+      ...submitted,
+      files: [{ ...attachment, file: new File(["revised"], file.name, { type: file.type }) }],
+    };
+    expect(remainingNativeDraft(current, submitted)).toBe(current);
+  });
+
+  it("consumes durable accepted media across windows but retains new media and suffix references", () => {
+    const environmentId = EnvironmentId.make("remote");
+    const acceptedFile = {
+      ...attachment,
+      uploadedAttachmentId: "accepted-file",
+      uploadEnvironmentId: environmentId,
+    };
+    const persistedImage = {
+      id: image.id,
+      name: image.name,
+      mimeType: image.mimeType,
+      sizeBytes: image.sizeBytes,
+      dataUrl: image.previewUrl,
+    };
+    const submitted = draft({
+      images: [image],
+      files: [acceptedFile],
+      persistedAttachments: [persistedImage],
+      terminalContexts: [selection],
+      prompt: `Explain ${reference}`,
+    });
+    const current = {
+      ...submitted,
+      prompt: `${submitted.prompt}\nReuse ${reference}`,
+      images: [
+        { ...image, file: new File(["image"], image.name, { type: image.mimeType }) },
+        { ...image, id: "new-image" },
+      ],
+      files: [
+        { ...acceptedFile, file: null },
+        { ...acceptedFile, id: "new-file", uploadedAttachmentId: "new-upload" },
+      ],
+    };
+    const remaining = remainingNativePersistedDraft(
+      current,
+      JSON.parse(JSON.stringify(persistComposerDraftSnapshot(submitted))),
+      new Map([[current.images[0]!.file, image.previewUrl]]),
+    );
+    expect(remaining.prompt).toBe(`\nReuse ${reference}`);
+    expect(remaining.images.map((entry) => entry.id)).toEqual(["new-image"]);
+    expect(remaining.files.map((entry) => entry.id)).toEqual(["new-file"]);
+    expect(remaining.terminalContexts).toEqual([selection]);
+    expect(remaining.persistedAttachments).toEqual([]);
+  });
+
+  it("preserves durable same-ID media replacements in the observing window", () => {
+    const environmentId = EnvironmentId.make("remote");
+    const submitted = draft({
+      images: [image],
+      persistedAttachments: [
+        {
+          id: image.id,
+          name: image.name,
+          mimeType: image.mimeType,
+          sizeBytes: image.sizeBytes,
+          dataUrl: image.previewUrl,
+        },
+      ],
+      files: [
+        {
+          ...attachment,
+          uploadedAttachmentId: "accepted-file",
+          uploadEnvironmentId: environmentId,
+        },
+      ],
+    });
+    const current = {
+      ...submitted,
+      images: [{ ...image, file: new File(["changed"], image.name, { type: image.mimeType }) }],
+      persistedAttachments: [
+        {
+          ...submitted.persistedAttachments[0]!,
+          dataUrl: "data:image/png;base64,Y2hhbmdlZA==",
+        },
+      ],
+      files: [
+        {
+          ...submitted.files[0]!,
+          uploadedAttachmentId: "replacement-file",
+        },
+      ],
+    };
+    const remaining = remainingNativePersistedDraft(
+      current,
+      persistComposerDraftSnapshot(submitted)!,
+      new Map([[current.images[0]!.file, "data:image/png;base64,Y2hhbmdlZA=="]]),
+    );
+    expect(remaining.prompt).toBe("");
+    expect(remaining.images).toEqual(current.images);
+    expect(remaining.files).toEqual(current.files);
+    expect(remaining.persistedAttachments).toEqual(current.persistedAttachments);
   });
 });
