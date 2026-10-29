@@ -1,7 +1,7 @@
+import { workspaceResourceId, type WorkspaceRef } from "@t3tools/client-runtime/environment";
 import {
   type PreviewAutomationNavigateInput,
   type PreviewAutomationRequest,
-  type ScopedThreadRef,
 } from "@t3tools/contracts";
 
 import { isCurrentPreviewRuntimeTab } from "~/browser/previewRuntimeTabId";
@@ -14,7 +14,7 @@ import {
 } from "./previewAutomationErrors";
 
 export function assertPreviewRuntimeCurrent(
-  threadRef: ScopedThreadRef,
+  threadRef: WorkspaceRef,
   tabId: string,
   runtimeTabId: string,
   request: Pick<PreviewAutomationRequest, "operation" | "requestId">,
@@ -30,14 +30,14 @@ export function assertPreviewRuntimeCurrent(
     requestId: request.requestId,
     operation: request.operation,
     environmentId: threadRef.environmentId,
-    threadId: threadRef.threadId,
+    threadId: workspaceResourceId(threadRef),
     tabId,
     bridgeAvailable: Boolean(previewBridge),
   });
 }
 
 export async function waitForNavigationReadiness(
-  threadRef: ScopedThreadRef,
+  threadRef: WorkspaceRef,
   requestId: string,
   tabId: string,
   runtimeTabId: string,
@@ -66,7 +66,7 @@ export async function waitForNavigationReadiness(
   throw new PreviewAutomationNavigationTimeoutError({
     requestId,
     environmentId: threadRef.environmentId,
-    threadId: threadRef.threadId,
+    threadId: workspaceResourceId(threadRef),
     tabId,
     readiness: targetReadiness,
     timeoutMs,

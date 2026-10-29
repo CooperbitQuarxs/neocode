@@ -1,4 +1,4 @@
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { WorkspaceRef } from "@t3tools/client-runtime/environment";
 import { type ReactNode, useState } from "react";
 
 import { useFaviconForThreadUrl } from "~/browserFaviconStore";
@@ -43,7 +43,7 @@ function FaviconImageAttempt(props: {
 }
 
 export function PreviewFaviconIcon(props: {
-  threadRef: ScopedThreadRef;
+  threadRef: WorkspaceRef;
   url: string;
   className?: string | undefined;
 }) {

@@ -2368,6 +2368,10 @@ function useChatMarkdownState({
   });
   const pullRequestLinking = usePullRequestLinking(threadRef?.environmentId);
   const environmentId = threadRef?.environmentId ?? explicitEnvironmentId ?? null;
+  const workspaceRef = useMemo(
+    () => threadRef ?? (nativeRef && environmentId ? { environmentId, ref: nativeRef } : undefined),
+    [threadRef, nativeRef, environmentId],
+  );
   const remoteOpen = useRemoteOpenResolution(environmentId);
   const canUseShellActions = canUseMarkdownFileShellActions(
     environmentId,
@@ -2390,8 +2394,8 @@ function useChatMarkdownState({
         createAssetUrl,
         onOpenFile:
           onOpenFile ??
-          (threadRef
-            ? (path) => useRightPanelStore.getState().openFile(threadRef, path)
+          (workspaceRef
+            ? (path) => useRightPanelStore.getState().openFile(workspaceRef, path)
             : undefined),
       }).then(
         (preview) => {
@@ -2425,6 +2429,7 @@ function useChatMarkdownState({
       expandMedia,
       preparedConnection,
       threadRef,
+      workspaceRef,
       nativeRef,
       explicitEnvironmentId,
       onOpenFile,
@@ -2522,7 +2527,7 @@ function useChatMarkdownState({
     );
   }, []);
   const openChangeRequestLink = useOpenChangeRequestLink(threadRef, pullRequestPanelRef);
-  const openDeferredMarkdownLink = useOpenLink(threadRef);
+  const openDeferredMarkdownLink = useOpenLink(workspaceRef);
   // Subscribed rather than read at click time: the anchor has to decide
   // synchronously whether to intercept its `_blank`, and a subscription is what
   // makes a persisted "app" apply once settings hydrate after launch.
@@ -2558,19 +2563,19 @@ function useChatMarkdownState({
   );
   const openExternalLinkInPreview = useCallback(
     (url: string) => {
-      if (!threadRef) {
+      if (!workspaceRef) {
         return Promise.resolve(
           AsyncResult.failure<void, BrowserPreviewUnavailableError>(
             Cause.fail(
               new BrowserPreviewUnavailableError({
-                message: "Thread context is unavailable.",
+                message: "Workspace context is unavailable.",
               }),
             ),
           ),
         );
       }
-      return openUrlInPreview({ threadRef, url, openPreview }).then((result) => {
-        if (result._tag === "Success") recordVisitForThread(threadRef, url);
+      return openUrlInPreview({ threadRef: workspaceRef, url, openPreview }).then((result) => {
+        if (result._tag === "Success") recordVisitForThread(workspaceRef, url);
         else if (!isAtomCommandInterrupted(result)) {
           const error = squashAtomCommandFailure(result);
           if (error instanceof BrowserSettingsReadError) {
@@ -2586,11 +2591,11 @@ function useChatMarkdownState({
         return result;
       });
     },
-    [openPreview, threadRef],
+    [openPreview, workspaceRef],
   );
   const openMarkdownFileInPreview = useCallback(
     (path: string) => {
-      if (!threadRef || preparedConnection._tag === "None") {
+      if (!workspaceRef || preparedConnection._tag === "None") {
         return Promise.resolve(
           AsyncResult.failure<void, BrowserPreviewUnavailableError>(
             Cause.fail(
@@ -2602,7 +2607,7 @@ function useChatMarkdownState({
         );
       }
       return openFileInPreview({
-        threadRef,
+        threadRef: workspaceRef,
         filePath: path,
         workspaceRoot: cwd,
         httpBaseUrl: preparedConnection.value.httpBaseUrl,
@@ -2610,7 +2615,7 @@ function useChatMarkdownState({
         openPreview,
       });
     },
-    [createAssetUrl, cwd, openPreview, preparedConnection, threadRef],
+    [createAssetUrl, cwd, openPreview, preparedConnection, workspaceRef],
   );
   const findWorkspaceBasenameMatch = useCallback(
     async (workspaceRelativePath: string) => {
@@ -2640,12 +2645,12 @@ function useChatMarkdownState({
         onOpenFile(panelPath, line);
         return;
       }
-      if (!threadRef) return;
+      if (!workspaceRef) return;
       // Claimed on every open so a synchronous one supersedes a lookup already
       // in flight.
       const isLatestLookup = claimWorkspaceBasenameLookup();
       const openAt = (path: string) =>
-        useRightPanelStore.getState().openFile(threadRef, path, line);
+        useRightPanelStore.getState().openFile(workspaceRef, path, line);
       if (!cwd || !needsWorkspaceBasenameLookup(panelPath)) {
         openAt(panelPath);
         return;
@@ -2656,7 +2661,7 @@ function useChatMarkdownState({
         openAt(match ?? panelPath);
       })();
     },
-    [cwd, findWorkspaceBasenameMatch, threadRef, onOpenFile],
+    [cwd, findWorkspaceBasenameMatch, workspaceRef, onOpenFile],
   );
   const revealMarkdownFileInFileManager = useCallback(
     async (fileLinkMeta: MarkdownFileLinkMeta) => {
@@ -2706,7 +2711,7 @@ function useChatMarkdownState({
           copyMarkdown={copyMarkdown}
           theme={resolvedTheme}
           threadRef={threadRef}
-          filePreviewAvailable={onOpenFile !== undefined}
+          filePreviewAvailable={onOpenFile !== undefined || workspaceRef !== undefined}
           {...(canUseShellActions ? { onOpen: openInPreferredEditor } : {})}
           onOpenInPanel={openFileInPanel}
           onOpenMedia={
@@ -2722,7 +2727,7 @@ function useChatMarkdownState({
           }
           revealLabel={revealInFileManagerLabel}
           onOpenInBrowser={
-            threadRef &&
+            workspaceRef &&
             isPreviewSupportedInRuntime() &&
             isBrowserPreviewFile(fileLinkMeta.filePath)
               ? () => openMarkdownFileInPreview(fileLinkMeta.filePath)
@@ -2744,6 +2749,7 @@ function useChatMarkdownState({
       revealMarkdownFileInFileManager,
       threadRef,
       nativeRef,
+      workspaceRef,
       onOpenFile,
     ],
   );
@@ -2778,6 +2784,7 @@ function useChatMarkdownState({
       skills,
       text,
       threadRef,
+      workspaceRef,
       nativeRef,
       onOpenFile,
       updateThreadPullRequestLink,
@@ -2811,6 +2818,7 @@ function useChatMarkdownState({
       skills,
       text,
       threadRef,
+      workspaceRef,
       nativeRef,
       onOpenFile,
       updateThreadPullRequestLink,
@@ -2943,7 +2951,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
       environmentId,
       imageBaseDir,
       markdownFileLinkMetaByHref,
-      threadRef,
+      workspaceRef,
       openMarkdownMedia,
       openChangeRequestLink,
       openDeferredMarkdownLink,
@@ -2998,7 +3006,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
         : null;
       const isSameDocumentLink = href?.startsWith("#") ?? false;
       const onClick = props.onClick;
-      const canOpenInPreview = Boolean(threadRef) && isPreviewSupportedInRuntime();
+      const canOpenInPreview = Boolean(workspaceRef) && isPreviewSupportedInRuntime();
       const linkChildren = <MarkdownLinkContext value>{children}</MarkdownLinkContext>;
       const link = (
         <a

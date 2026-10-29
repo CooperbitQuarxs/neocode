@@ -1,4 +1,4 @@
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { isCurrentPreviewRuntimeTab, previewRuntimeTabId } from "./previewRuntimeTabId";
@@ -53,5 +53,31 @@ describe("previewRuntimeTabId", () => {
 
     expect(isCurrentPreviewRuntimeTab(ref, "epoch-a", "tab_1", runtimeTabId)).toBe(true);
     expect(isCurrentPreviewRuntimeTab(ref, "epoch-b", "tab_1", runtimeTabId)).toBe(false);
+  });
+});
+
+describe("native preview runtime ownership", () => {
+  it("isolates identical tab ids across canonical sessions, providers and environments", () => {
+    const target = {
+      environmentId: EnvironmentId.make("native-environment"),
+      ref: {
+        providerInstanceId: ProviderInstanceId.make("profile-a"),
+        sessionFile: "/sessions/a session.jsonl",
+      },
+    };
+    const runtimeId = previewRuntimeTabId(target, "epoch", "tab_1");
+    const others = [
+      { ...target, environmentId: EnvironmentId.make("other-environment") },
+      {
+        ...target,
+        ref: { ...target.ref, providerInstanceId: ProviderInstanceId.make("profile-b") },
+      },
+      { ...target, ref: { ...target.ref, sessionFile: "/sessions/b.jsonl" } },
+    ];
+    for (const other of others) {
+      expect(isCurrentPreviewRuntimeTab(other, "epoch", "tab_1", runtimeId)).toBe(false);
+    }
+    expect(isCurrentPreviewRuntimeTab(target, "epoch", "tab_1", runtimeId)).toBe(true);
+    expect(runtimeId).not.toContain(target.ref.sessionFile);
   });
 });

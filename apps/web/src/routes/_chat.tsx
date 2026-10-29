@@ -1,5 +1,5 @@
 import { APP_BASE_NAME } from "../branding";
-import { Outlet, createFileRoute, redirect, useParams } from "@tanstack/react-router";
+import { Outlet, createFileRoute, redirect, useLocation, useParams } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
 import { useEffect } from "react";
 
@@ -21,24 +21,29 @@ import { useThreadSelectionStore } from "../threadSelectionStore";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { useCreateNativeSession } from "../components/neopi/NativeSessionSidebar";
+import { useNativeSessionSelection } from "../state/neopiNativeSessions";
 
 function ChatRouteGlobalShortcuts() {
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
   const selectedThreadKeysSize = useThreadSelectionStore((state) => state.selectedThreadKeys.size);
   const { routeThreadRef } = useHandleNewThread();
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const nativeTarget = useNativeSessionSelection((state) => state.target);
+  const routeWorkspaceRef = routeThreadRef ?? (pathname === "/" ? nativeTarget : null);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const createNativeSession = useCreateNativeSession();
   const terminalOpen = useTerminalUiStateStore((state) =>
-    routeThreadRef
-      ? selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef).terminalOpen
+    routeWorkspaceRef
+      ? selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeWorkspaceRef)
+          .terminalOpen
       : false,
   );
   // The `previewOpen` shortcut-context flag here uses the store-only value;
   // the URL-aware arbitration lives inside ChatView's `onTogglePreview`,
   // which we invoke via the action bus to avoid duplicating the rule.
   const previewOpen = useRightPanelStore((state) =>
-    routeThreadRef
-      ? selectActiveRightPanel(state.byThreadKey, routeThreadRef) === "preview"
+    routeWorkspaceRef
+      ? selectActiveRightPanel(state.byThreadKey, routeWorkspaceRef) === "preview"
       : false,
   );
   useEffect(() => {
@@ -95,7 +100,7 @@ function ChatRouteGlobalShortcuts() {
       if (command === "preview.toggle") {
         event.preventDefault();
         event.stopPropagation();
-        if (!routeThreadRef) return;
+        if (!routeWorkspaceRef) return;
         if (!isPreviewSupportedInRuntime()) {
           toastManager.add(
             stackedThreadToast({
@@ -145,7 +150,7 @@ function ChatRouteGlobalShortcuts() {
     createNativeSession,
     keybindings,
     previewOpen,
-    routeThreadRef,
+    routeWorkspaceRef,
     selectedThreadKeysSize,
     terminalOpen,
   ]);

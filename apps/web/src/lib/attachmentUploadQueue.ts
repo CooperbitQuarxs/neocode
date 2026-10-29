@@ -1,9 +1,10 @@
 import {
   PROVIDER_SEND_TURN_SUPPORTED_IMAGE_MIME_TYPES,
-  type ChatAttachment,
+  type ChatFileAttachment,
+  type ChatImageAttachment,
   type EnvironmentId,
 } from "@t3tools/contracts";
-import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
+import { parseWorkspaceKey } from "@t3tools/client-runtime/environment";
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
 import {
   deletePendingAttachmentUpload,
@@ -112,7 +113,7 @@ function resolveCurrentFileDraftTarget(job: UploadJob): ComposerThreadTarget | u
     if (typeof job.draftTarget === "string" && job.draftTarget === key) {
       return DraftId.make(key);
     }
-    const threadRef = parseScopedThreadKey(key);
+    const threadRef = parseWorkspaceKey(key);
     if (threadRef?.environmentId === job.environmentId) {
       return threadRef;
     }
@@ -585,21 +586,32 @@ export async function awaitAttachmentUploads(imageIds: ReadonlyArray<string>): P
 export function getUploadedAttachments(input: {
   readonly environmentId: EnvironmentId;
   readonly images: ReadonlyArray<ComposerImageAttachment | ComposerFileAttachment>;
-}): ChatAttachment[] | null {
-  const attachments: ChatAttachment[] = [];
+}): Array<ChatImageAttachment | ChatFileAttachment> | null {
+  const attachments: Array<ChatImageAttachment | ChatFileAttachment> = [];
   for (const image of input.images) {
     const upload = readAttachmentUpload(image.id);
     if (upload?.status !== "ready" || upload.environmentId !== input.environmentId) {
       return null;
     }
-    attachments.push({
-      type: image.type,
-      id: upload.attachmentId,
-      name: image.name,
-      mimeType: image.mimeType,
-      sizeBytes: image.sizeBytes,
-      ...(image.source ? { source: image.source } : {}),
-    });
+    if (image.type === "image") {
+      attachments.push({
+        type: "image",
+        id: upload.attachmentId,
+        name: image.name,
+        mimeType: image.mimeType,
+        sizeBytes: image.sizeBytes,
+        ...(image.source ? { source: image.source } : {}),
+      });
+    } else {
+      attachments.push({
+        type: "file",
+        id: upload.attachmentId,
+        name: image.name,
+        mimeType: image.mimeType,
+        sizeBytes: image.sizeBytes,
+        ...(image.source ? { source: image.source } : {}),
+      });
+    }
   }
   return attachments;
 }

@@ -1,4 +1,4 @@
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import { workspaceResourceId, type WorkspaceRef } from "@t3tools/client-runtime/environment";
 import { randomUUID } from "../lib/utils";
 
 const rendererId = randomUUID();
@@ -9,21 +9,21 @@ const rendererId = randomUUID();
  * and thread. A reload gets a new identity rather than adopting dead guests.
  */
 export function previewRuntimeTabId(
-  threadRef: ScopedThreadRef,
+  threadRef: WorkspaceRef,
   serverEpoch: string | null,
   tabId: string,
 ): string {
   return JSON.stringify([
     rendererId,
     threadRef.environmentId,
-    threadRef.threadId,
+    workspaceResourceId(threadRef),
     serverEpoch,
     tabId,
   ]);
 }
 
 export function isCurrentPreviewRuntimeTab(
-  threadRef: ScopedThreadRef,
+  threadRef: WorkspaceRef,
   serverEpoch: string | null,
   tabId: string,
   runtimeTabId: string,

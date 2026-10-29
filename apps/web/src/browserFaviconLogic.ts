@@ -43,7 +43,7 @@ export function isValidFaviconCapturedAt(value: unknown): value is number {
 
 function migratePersistedFaviconKey(key: string): string | null {
   if (key.length === 0 || key.length > BROWSER_FAVICON_MAX_KEY_LENGTH) return null;
-  const separator = key.indexOf(" ");
+  const separator = key.lastIndexOf(" ");
   if (separator <= 0) return null;
   const scope = key.slice(0, separator);
   const origin = key.slice(separator + 1);

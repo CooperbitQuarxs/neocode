@@ -1,4 +1,4 @@
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { WorkspaceRef } from "@t3tools/client-runtime/environment";
 import { X } from "lucide-react";
 
 import { isValidHistoryTimestamp, type BrowserHistoryEntry } from "~/browserHistoryStore";
@@ -8,7 +8,7 @@ import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { PreviewFaviconIcon } from "./PreviewFaviconIcon";
 
 interface Props {
-  threadRef: ScopedThreadRef;
+  threadRef: WorkspaceRef;
   entry: BrowserHistoryEntry;
   onOpen: () => void;
   onRemove: () => void;

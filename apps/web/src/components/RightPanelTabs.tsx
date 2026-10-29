@@ -121,8 +121,8 @@ interface RightPanelTabsProps {
   onAddTerminal: () => void;
   onAddDiff: () => void;
   onAddFiles: () => void;
-  onAddPullRequest: () => void;
-  onAddPullRequests: () => void;
+  onAddPullRequest?: (() => void) | undefined;
+  onAddPullRequests?: (() => void) | undefined;
   onAddAgents: () => void;
   onAddDevice: () => void;
   browserAvailable: boolean;
@@ -293,7 +293,7 @@ function SurfaceMenuItem(props: {
   available: boolean;
   disabledReason?: string;
   shortcut: string;
-  onClick: () => void;
+  onClick?: (() => void) | undefined;
   children: ReactNode;
 }) {
   const item = (
@@ -325,8 +325,8 @@ function RightPanelEmptyState(props: {
   onAddTerminal: () => void;
   onAddDiff: () => void;
   onAddFiles: () => void;
-  onAddPullRequest: () => void;
-  onAddPullRequests: () => void;
+  onAddPullRequest?: (() => void) | undefined;
+  onAddPullRequests?: (() => void) | undefined;
   onAddAgents: () => void;
   onAddDevice: () => void;
   browserAvailable: boolean;
@@ -384,7 +384,7 @@ function RightPanelEmptyState(props: {
       label: "Pull request",
       icon: PullRequestGlyph.pullRequest,
       shortcut: "P",
-      available: props.pullRequestAvailable,
+      available: props.pullRequestAvailable && props.onAddPullRequest !== undefined,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.pullRequest,
       onClick: props.onAddPullRequest,
       badgeCount: 0,
@@ -393,7 +393,7 @@ function RightPanelEmptyState(props: {
       label: "Linked pull requests",
       icon: PullRequestGlyph.link,
       shortcut: "L",
-      available: props.pullRequestsAvailable,
+      available: props.pullRequestsAvailable && props.onAddPullRequests !== undefined,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.pullRequests,
       onClick: props.onAddPullRequests,
       badgeCount: 0,
@@ -417,15 +417,19 @@ function RightPanelEmptyState(props: {
       onClick: props.onAddDevice,
       badgeCount: 0,
     },
-    ...(props.nativeHistory ? [{
-      label: "Native history",
-      icon: GitBranch,
-      shortcut: "H",
-      available: true,
-      disabledReason: "",
-      onClick: props.nativeHistory.onOpen,
-      badgeCount: 0,
-    }] : []),
+    ...(props.nativeHistory
+      ? [
+          {
+            label: "Native history",
+            icon: GitBranch,
+            shortcut: "H",
+            available: true,
+            disabledReason: "",
+            onClick: props.nativeHistory.onOpen,
+            badgeCount: 0,
+          },
+        ]
+      : []),
   ] as const;
 
   type SurfaceAction = (typeof actions)[number];
@@ -451,7 +455,7 @@ function RightPanelEmptyState(props: {
       if (target instanceof Element && surfaceShortcutTargetsTypingContext(target)) return;
       event.preventDefault();
       event.stopPropagation();
-      action.onClick();
+      action.onClick?.();
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
@@ -480,7 +484,7 @@ function RightPanelEmptyState(props: {
       const action = availableActions[highlightIndex];
       if (!action) return;
       event.preventDefault();
-      action.onClick();
+      action.onClick?.();
     }
   };
 
@@ -922,7 +926,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       label: "Pull request",
       icon: PullRequestGlyph.pullRequest,
       shortcut: "P",
-      available: props.pullRequestAvailable,
+      available: props.pullRequestAvailable && props.onAddPullRequest !== undefined,
       disabledReason: SURFACE_DISABLED_REASONS.pullRequest,
       onClick: props.onAddPullRequest,
     },
@@ -930,7 +934,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       label: "Linked pull requests",
       icon: PullRequestGlyph.link,
       shortcut: "L",
-      available: props.pullRequestsAvailable,
+      available: props.pullRequestsAvailable && props.onAddPullRequests !== undefined,
       disabledReason: SURFACE_DISABLED_REASONS.pullRequests,
       onClick: props.onAddPullRequests,
     },
@@ -950,14 +954,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       disabledReason: SURFACE_DISABLED_REASONS.device,
       onClick: props.onAddDevice,
     },
-    ...(props.nativeHistory ? [{
-      label: "Native history",
-      icon: GitBranch,
-      shortcut: "H",
-      available: true,
-      disabledReason: "",
-      onClick: props.nativeHistory.onOpen,
-    }] : []),
+    ...(props.nativeHistory
+      ? [
+          {
+            label: "Native history",
+            icon: GitBranch,
+            shortcut: "H",
+            available: true,
+            disabledReason: "",
+            onClick: props.nativeHistory.onOpen,
+          },
+        ]
+      : []),
   ] as const;
 
   const handleAddSurfaceMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -966,7 +974,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     event.preventDefault();
     event.stopPropagation();
     setAddSurfaceMenuOpen(false);
-    action.onClick();
+    action.onClick?.();
   };
 
   const handleTabContextMenu = useCallback(

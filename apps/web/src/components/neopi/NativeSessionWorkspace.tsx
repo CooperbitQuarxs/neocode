@@ -8,9 +8,8 @@ import {
   type NativeTranscriptRow,
 } from "@t3tools/client-runtime/neopi-native-sessions";
 import { journalEntryLabel } from "@t3tools/client-runtime/neopi-journal";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  nativeDraft,
   nativeSessionAtoms,
   selectNativeSession,
   useNativeSession,
@@ -29,6 +28,28 @@ import { useCreateNativeSession } from "./NativeSessionSidebar";
 import { NativeSessionTree } from "./NativeSessionTree";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { useAtomValue } from "@effect/atom-react";
+import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
+import {
+  composerDraftHasUserContent,
+  useComposerDraftStore,
+  useComposerThreadDraft,
+  type ComposerImageAttachment,
+  type ComposerFileAttachment,
+} from "../../composerDraftStore";
+import { useComposerHandleContext } from "../../composerHandleContext";
+import { useEnvironmentSettings } from "../../hooks/useSettings";
+import { useTheme } from "../../hooks/useTheme";
+import { primaryServerKeybindingsAtom, serverEnvironment } from "../../state/server";
+import { useRightPanelStore } from "../../rightPanelStore";
+import type { TerminalContextDraft } from "../../lib/terminalContext";
+import { ChatComposer, type ChatComposerHandle } from "../chat/ChatComposer";
+import { ExpandedImageDialog } from "../chat/ExpandedImageDialog";
+import type { ExpandedImagePreview } from "../chat/ExpandedImagePreview";
+import { createPageScrollController } from "../chat/pageScrollController";
+import { NativeSessionWorkspacePanels } from "./NativeSessionWorkspacePanels";
+import { consumeNativeDraft, prepareNativePrompt } from "./neopiNativeComposer";
+import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../../terminalUiStateStore";
 
 type Request = ReturnType<typeof useNativeSession>["request"];
 const answeredDialogs = new Map<string, Set<string>>();
@@ -83,7 +104,38 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   const { feed, session, conversation, request, loading, error } = useNativeSession(target);
   const close = useAtomCommand(nativeSessionAtoms.close, { reportFailure: false });
   const key = nativeSessionKey(target);
-  const draft = useSyncExternalStore(nativeDraft.subscribe, () => nativeDraft.get(target));
+  const draft = useComposerThreadDraft(target);
+  const draftStore = useComposerDraftStore;
+  const settings = useEnvironmentSettings(target.environmentId);
+  const { resolvedTheme } = useTheme();
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const serverConfig = useAtomValue(serverEnvironment.configValueAtom(target.environmentId));
+  const fileAttachmentBytes =
+    serverConfig?.environment.capabilities.fileAttachments?.maxUploadBytes ?? null;
+  const terminalOpen = useTerminalUiStateStore(
+    (value) => selectThreadTerminalUiState(value.terminalUiStateByThreadKey, target).terminalOpen,
+  );
+  const promptRef = useRef(draft.prompt);
+  const imagesRef = useRef<ComposerImageAttachment[]>([]);
+  const filesRef = useRef<ComposerFileAttachment[]>([]);
+  const terminalContextsRef = useRef<TerminalContextDraft[]>([]);
+  const localComposerRef = useRef<ChatComposerHandle | null>(null);
+  const composerRef = useComposerHandleContext() ?? localComposerRef;
+  const timelineHostRef = useRef<HTMLDivElement>(null);
+  const [composerElement, setComposerElement] = useState<HTMLDivElement | null>(null);
+  const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
+  const sendingRef = useRef(false);
+  const focusComposer = useCallback(() => composerRef.current?.focusAtEnd(), [composerRef]);
+  const pageScroll = useMemo(
+    () =>
+      createPageScrollController({
+        getContainer: () =>
+          timelineHostRef.current?.querySelector<HTMLElement>(".overflow-auto") ?? null,
+        getScrollPaddingBottomPx: () => 0,
+      }),
+    [],
+  );
+  useEffect(() => () => pageScroll.dispose(), [pageScroll]);
   const [debug, setDebug] = useState(false);
   const [tree, setTree] = useState(false);
   const [models, setModels] = useState(false);
@@ -93,7 +145,6 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   const [state, setState] = useState<Record<string, unknown>>({});
   const [commands, setCommands] = useState<readonly Record<string, unknown>[]>([]);
   const [dismissed, setDismissed] = useState(() => answeredDialogs.get(key) ?? new Set<string>());
-  const editorRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (session) setState(session.state);
   }, [session]);
@@ -137,7 +188,9 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
     if (!feed.editor || consumedEditors.get(key) === feed.editor.id) return;
     consumedEditors.set(key, feed.editor.id);
     // A native menu's editor text must not destroy a prompt the user is still composing.
-    if (!nativeDraft.get(target)) nativeDraft.set(target, feed.editor.text);
+    if (!composerDraftHasUserContent(draftStore.getState().getComposerDraft(target))) {
+      draftStore.getState().setPrompt(target, feed.editor.text);
+    }
   }, [feed.editor, key, target]);
   const execute = useCallback(
     async (command: Record<string, unknown> & { type: string }) => {
@@ -151,25 +204,43 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
     },
     [request],
   );
-  const send = async () => {
-    const message = nativeDraft.get(target);
-    if (!message.trim() || sending || !feed.connected) return;
+  const send = useCallback(async () => {
+    const snapshot = draftStore.getState().getComposerDraft(target);
+    if (
+      !composerDraftHasUserContent(snapshot) ||
+      !snapshot ||
+      sendingRef.current ||
+      !feed.connected
+    )
+      return;
+    if (composerRef.current?.hasPendingAttachments()) {
+      setLocalError("Wait for the attachment to finish preparing before sending.");
+      return;
+    }
+    sendingRef.current = true;
     setSending(true);
     setLocalError(null);
     try {
-      await request({
-        type: "prompt",
-        message,
-        ...(feed.busy ? { streamingBehavior: "followUp" } : {}),
-      });
-      if (nativeDraft.get(target) === message) nativeDraft.set(target, "");
+      const prompt = await prepareNativePrompt(target, snapshot);
+      await request(
+        {
+          type: "prompt",
+          message: prompt.message,
+          ...((nativeSessionAtoms.cached(target)?.busy ?? feed.busy)
+            ? { streamingBehavior: "followUp" }
+            : {}),
+        },
+        prompt.attachments,
+      );
+      consumeNativeDraft(target, snapshot);
     } catch (cause) {
       setLocalError(cause instanceof Error ? cause.message : String(cause));
     } finally {
+      sendingRef.current = false;
       setSending(false);
-      editorRef.current?.focus();
+      focusComposer();
     }
-  };
+  }, [target, feed.connected, feed.busy, request, composerRef, focusComposer]);
   const rows = useMemo(
     () => nativeTranscriptRows({ conversation, commandOutputs: feed.commandOutputs }, debug),
     [conversation, feed.commandOutputs, debug],
@@ -201,17 +272,46 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
       ),
     [target.environmentId, target.ref, session?.ref, session?.cwd],
   );
+  const promptHistory = useMemo(
+    () =>
+      conversation.entries.flatMap((entry) => {
+        const message = nativeRecord(entry.message);
+        if (entry.type !== "message" || message.role !== "user") return [];
+        const text =
+          typeof message.content === "string"
+            ? message.content
+            : Array.isArray(message.content)
+              ? message.content
+                  .map((part) => nativeRecord(part))
+                  .flatMap((part) =>
+                    part.type === "text" && typeof part.text === "string" ? [part.text] : [],
+                  )
+                  .join("\n")
+              : "";
+        return [{ id: entry.id, role: "user", text }];
+      }),
+    [conversation.entries],
+  );
   const model = nativeRecord(state.model);
-  const suggestions =
-    draft.startsWith("/") && !draft.includes("\n") && !draft.includes(" ")
-      ? commands
-          .filter(
-            (command) =>
-              typeof command.name === "string" &&
-              `/${command.name}`.toLowerCase().startsWith(draft.toLowerCase()),
-          )
-          .slice(0, 12)
-      : [];
+  const nativeCommands = useMemo(
+    () =>
+      commands.flatMap((command) =>
+        typeof command.name === "string"
+          ? [
+              {
+                name: command.name,
+                ...(typeof command.description === "string"
+                  ? { description: command.description }
+                  : {}),
+              },
+            ]
+          : [],
+      ),
+    [commands],
+  );
+  const interrupt = useCallback(() => {
+    void execute({ type: "abort" }).catch((cause) => setLocalError(String(cause)));
+  }, [execute]);
   const dialog = feed.dialogs.find(
     (item) => typeof item.id === "string" && !dismissed.has(item.id),
   );
@@ -251,114 +351,151 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
           Disconnect session
         </Button>
       </WorkspacePageHeader>
-      <div role="status" className="shrink-0 px-5 py-1 text-xs text-muted-foreground">
-        {feed.connected
-          ? feed.busy
-            ? "Working"
-            : session?.attachment === "terminal"
-              ? "Attached to terminal"
-              : "Ready"
-          : loading
-            ? "Connecting…"
-            : "Reconnecting · showing cached conversation"}
-      </div>
-      {error || localError ? (
-        <p role="alert" className="shrink-0 px-5 py-1 text-xs text-destructive">
-          {localError ?? error}
-        </p>
-      ) : null}
-      <LegendList
-        data={rows}
-        keyExtractor={(entry) => entry.id}
-        renderItem={renderEntry}
-        estimatedItemSize={160}
-        recycleItems
-        maintainVisibleContentPosition
-        maintainScrollAtEnd={{ animated: false }}
-        maintainScrollAtEndThreshold={0.1}
-        ListHeaderComponent={
-          conversation.cursor ? (
-            <div className="p-3">
-              <Button size="sm" variant="ghost" disabled={paging} onClick={() => void loadOlder()}>
-                Load earlier messages
-              </Button>
-            </div>
-          ) : null
-        }
-        className="min-h-0 flex-1 overflow-auto"
-      />
-      <div className="shrink-0 border-t p-4">
-        {Object.values(feed.notices)
-          .filter(Boolean)
-          .map((notice, index) => (
-            <p key={index} className="mb-1 whitespace-pre-wrap text-xs text-muted-foreground">
-              {notice}
-            </p>
-          ))}
-        {suggestions.length ? (
-          <div className="mb-2 max-h-48 overflow-y-auto" aria-label="Native slash commands">
-            {suggestions.map((command) => (
-              <div key={String(command.name)}>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    nativeDraft.set(target, `/${command.name} `);
-                    editorRef.current?.focus();
-                  }}
-                >
-                  /{String(command.name)}
-                  {typeof command.description === "string" ? ` · ${command.description}` : ""}
-                </Button>
-              </div>
-            ))}
-          </div>
-        ) : null}
-        <Textarea
-          ref={editorRef}
-          aria-label="Message NeoPi"
-          placeholder="Ask anything, or type / for native commands"
-          value={draft}
-          onChange={(event) => nativeDraft.set(target, event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault();
-              void send();
-            }
-          }}
-        />
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="ghost" onClick={() => setModels(true)}>
-            {String(model.name ?? model.id ?? "Choose native model")}
-          </Button>
-          {typeof state.thinkingLevel === "string" ? (
-            <span className="text-xs text-muted-foreground">{state.thinkingLevel}</span>
-          ) : null}
-          {typeof state.chatMode === "string" ? (
-            <span className="text-xs text-muted-foreground">Chat: {state.chatMode}</span>
-          ) : null}
-          <div className="ml-auto flex gap-2">
-            {feed.busy ? (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  void execute({ type: "abort" }).catch((cause) => setLocalError(String(cause)))
-                }
-              >
-                Stop
-              </Button>
-            ) : null}
-            <Button
-              size="sm"
-              disabled={!draft.trim() || !feed.connected || sending}
-              onClick={() => void send()}
-            >
-              {sending ? "Sending…" : feed.busy ? "Queue" : "Send"}
-            </Button>
-          </div>
+      <NativeSessionWorkspacePanels
+        target={target}
+        cwd={session?.cwd ?? null}
+        agents={feed.agents}
+        keybindings={keybindings}
+        composerRef={composerRef}
+        composerOverlayElement={composerElement}
+        workspaceMutationId={conversation.entries.at(-1)?.id ?? null}
+        onAddTerminalContext={(selection) => composerRef.current?.addTerminalContext(selection)}
+        onSendAnnotation={() => void send()}
+        onOpenTree={() => setTree(true)}
+        onOpenModels={() => setModels((value) => !value)}
+        onInterrupt={interrupt}
+        busy={feed.busy}
+      >
+        <div role="status" className="shrink-0 px-5 py-1 text-xs text-muted-foreground">
+          {feed.connected
+            ? feed.busy
+              ? "Working"
+              : session?.attachment === "terminal"
+                ? "Attached to terminal"
+                : "Ready"
+            : loading
+              ? "Connecting…"
+              : "Reconnecting · showing cached conversation"}
         </div>
-      </div>
+        {error || localError ? (
+          <p role="alert" className="shrink-0 px-5 py-1 text-xs text-destructive">
+            {localError ?? error}
+          </p>
+        ) : null}
+        <div ref={timelineHostRef} className="flex min-h-0 flex-1 flex-col">
+          <LegendList
+            data={rows}
+            keyExtractor={(entry) => entry.id}
+            renderItem={renderEntry}
+            estimatedItemSize={160}
+            recycleItems
+            maintainVisibleContentPosition
+            maintainScrollAtEnd={{ animated: false }}
+            maintainScrollAtEndThreshold={0.1}
+            ListHeaderComponent={
+              conversation.cursor ? (
+                <div className="p-3">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={paging}
+                    onClick={() => void loadOlder()}
+                  >
+                    Load earlier messages
+                  </Button>
+                </div>
+              ) : null
+            }
+            className="min-h-0 flex-1 overflow-auto"
+          />
+        </div>
+        <div
+          ref={setComposerElement}
+          className="shrink-0 border-t px-4 pb-4 pt-2"
+          data-slot="composer-shell"
+        >
+          {Object.values(feed.notices)
+            .filter(Boolean)
+            .map((notice, index) => (
+              <p key={index} className="mb-1 whitespace-pre-wrap text-xs text-muted-foreground">
+                {notice}
+              </p>
+            ))}
+          <ChatComposer
+            routeKind="native"
+            routeThreadRef={target}
+            composerDraftTarget={target}
+            environmentId={target.environmentId}
+            attachmentUploadsCapabilityKnown={serverConfig !== null}
+            supportsAttachmentUploads={
+              serverConfig?.environment.capabilities.attachmentUploads === true
+            }
+            maxFileAttachmentBytes={
+              fileAttachmentBytes === null
+                ? null
+                : clampFileAttachmentUploadBytes(fileAttachmentBytes)
+            }
+            phase={feed.connected ? (feed.busy ? "running" : "ready") : "disconnected"}
+            isConnecting={loading}
+            isSendBusy={sending}
+            sendDisabledReason={feed.connected ? null : "Reconnect NeoPi before sending."}
+            settings={settings}
+            resolvedTheme={resolvedTheme}
+            keybindings={keybindings}
+            terminalOpen={terminalOpen}
+            gitCwd={session?.cwd ?? null}
+            promptRef={promptRef}
+            composerImagesRef={imagesRef}
+            composerFilesRef={filesRef}
+            composerTerminalContextsRef={terminalContextsRef}
+            composerRef={composerRef}
+            onPageScrollKeyDown={pageScroll.handleKeyDown}
+            onPageScrollKeyUp={pageScroll.handleKeyUp}
+            onPageScrollRelease={pageScroll.releaseActiveKey}
+            onSend={(event) => {
+              event?.preventDefault();
+              void send();
+            }}
+            onInterrupt={interrupt}
+            focusComposer={focusComposer}
+            scheduleComposerFocus={focusComposer}
+            setThreadError={(_, message) => setLocalError(message)}
+            onExpandImage={setExpandedImage}
+            onFileOpen={(attachment) =>
+              useRightPanelStore.getState().openAttachment(target, attachment)
+            }
+            nativeSession={{
+              modelLabel: String(model.name ?? model.id ?? "Choose native model"),
+              displayState:
+                [
+                  state.thinkingLevel,
+                  typeof state.chatMode === "string" ? `Chat: ${state.chatMode}` : null,
+                ]
+                  .filter((value) => typeof value === "string")
+                  .join(" · ") || null,
+              commands: nativeCommands,
+              promptHistory,
+              modelPickerOpen: models,
+              onOpenModelPicker: () => setModels(true),
+              onOpenSessionTree: () => setTree(true),
+              onOpenModeControl: () => {
+                void execute({ type: "prompt", message: "/chat" }).catch((cause) =>
+                  setLocalError(String(cause)),
+                );
+              },
+              onToggleModelPicker: () => setModels((value) => !value),
+              onCompactContext: () => {
+                void execute({ type: "prompt", message: "/compact" }).catch((cause) =>
+                  setLocalError(String(cause)),
+                );
+              },
+            }}
+          />
+        </div>
+      </NativeSessionWorkspacePanels>
+      {expandedImage ? (
+        <ExpandedImageDialog preview={expandedImage} onClose={() => setExpandedImage(null)} />
+      ) : null}
       {models ? (
         <NativeSessionModelDialog request={execute} onClose={() => setModels(false)} />
       ) : null}

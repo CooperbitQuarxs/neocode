@@ -39,7 +39,6 @@ import {
   OrchestrationThreadActivity,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   ProviderInteractionMode,
-  ProviderDriverKind,
   resolveEnvironmentMachineKind,
   RuntimeMode,
   TerminalOpenInput,
@@ -1137,7 +1136,6 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
       <div className="min-h-0 overflow-clip">
         <ThreadTerminalDrawer
           threadRef={threadRef}
-          threadId={threadId}
           cwd={cwd}
           worktreePath={effectiveWorktreePath}
           runtimeEnv={runtimeEnv}
@@ -1307,7 +1305,6 @@ const PersistentThreadTerminalPanel = memo(function PersistentThreadTerminalPane
       mode="panel"
       visible={visible}
       threadRef={threadRef}
-      threadId={threadRef.threadId}
       cwd={cwd}
       worktreePath={worktreePath}
       runtimeEnv={runtimeEnv}

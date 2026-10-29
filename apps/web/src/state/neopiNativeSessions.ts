@@ -2,10 +2,10 @@ import { useAtomValue } from "@effect/atom-react";
 import { createNativeSessionAtoms } from "@t3tools/client-runtime/state/neopi-native-sessions";
 import {
   emptyNativeSessionFeed,
-  nativeSessionKey,
   type NativeSessionTarget,
 } from "@t3tools/client-runtime/neopi-native-sessions";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import type { NeoPiNativeSessionsRequestInput } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { useCallback } from "react";
@@ -22,21 +22,6 @@ export const useNativeSessionSelection = create(
 );
 export const selectNativeSession = (target: NativeSessionTarget | null) =>
   useNativeSessionSelection.setState({ target });
-const drafts = new Map<string, string>();
-const listeners = new Set<() => void>();
-export const nativeDraft = {
-  get: (target: NativeSessionTarget) => drafts.get(nativeSessionKey(target)) ?? "",
-  set: (target: NativeSessionTarget, text: string) => {
-    drafts.set(nativeSessionKey(target), text);
-    for (const listener of listeners) listener();
-  },
-  subscribe: (listener: () => void) => {
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-    };
-  },
-};
 
 export function useNativeSession(target: NativeSessionTarget) {
   const result = useAtomValue(
@@ -44,10 +29,13 @@ export function useNativeSession(target: NativeSessionTarget) {
   );
   const send = useAtomCommand(nativeSessionAtoms.request, { reportFailure: false });
   const request = useCallback(
-    async (command: Record<string, unknown> & { type: string }) => {
+    async (
+      command: Record<string, unknown> & { type: string },
+      attachments?: NeoPiNativeSessionsRequestInput["attachments"],
+    ) => {
       const response = await send({
         environmentId: target.environmentId,
-        input: { ref: target.ref, command },
+        input: { ref: target.ref, command, ...(attachments?.length ? { attachments } : {}) },
       });
       if (response._tag === "Failure") throw squashAtomCommandFailure(response);
       return response.value;

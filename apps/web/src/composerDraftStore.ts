@@ -2605,7 +2605,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
           if (typeof threadRef === "string") {
             return get().getDraftSession(DraftId.make(threadRef));
           }
-          return get().getDraftSessionByRef(threadRef);
+          return "threadId" in threadRef ? get().getDraftSessionByRef(threadRef) : null;
         },
         getDraftThreadByRef: (threadRef) => {
           return get().getDraftSessionByRef(threadRef);

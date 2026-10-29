@@ -1,6 +1,10 @@
 "use client";
 
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import {
+  workspaceKey,
+  workspaceResourceId,
+  type WorkspaceRef,
+} from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -10,7 +14,6 @@ import {
   FILL_PREVIEW_VIEWPORT,
   type PreviewAnnotationPayload,
   type PreviewViewportSetting,
-  type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { normalizePreviewUrl } from "@t3tools/shared/preview";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -74,7 +77,7 @@ import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 
 interface Props {
-  threadRef: ScopedThreadRef;
+  threadRef: WorkspaceRef;
   tabId?: string | null;
   configuredUrls?: ReadonlyArray<string> | undefined;
   visible: boolean;
@@ -177,7 +180,7 @@ export function PreviewView({
   const navUrl = navStatus._tag === "Success" ? navStatus.url : null;
   const navTitle = navStatus._tag === "Success" ? navStatus.title : null;
   const latestHistoryUrl = recentHistoryEntries[0]?.url;
-  const threadKey = scopedThreadKey(threadRef);
+  const threadKey = workspaceKey(threadRef);
   useEffect(() => {
     if (!navUrl || !navTitle || !latestHistoryUrl) return;
     // Agent-driven pages only enrich an existing requested URL.
@@ -259,7 +262,7 @@ export function PreviewView({
       const result = await resize({
         environmentId: threadRef.environmentId,
         input: {
-          threadId: threadRef.threadId,
+          threadId: workspaceResourceId(threadRef),
           tabId,
           viewport: nextViewport,
         },
@@ -708,7 +711,7 @@ export function PreviewView({
   return (
     <div
       className="flex min-h-0 flex-1 flex-col bg-background"
-      data-thread-key={scopedThreadKey(threadRef)}
+      data-thread-key={workspaceKey(threadRef)}
     >
       <PreviewChromeRow
         url={url}

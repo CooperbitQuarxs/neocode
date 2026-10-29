@@ -57,6 +57,11 @@ import {
   SquarePenIcon,
   SunIcon,
   TextSearchIcon,
+  Bot,
+  FileDiff,
+  Globe2,
+  Smartphone,
+  TerminalSquare,
 } from "lucide-react";
 import {
   useCallback,
@@ -90,7 +95,7 @@ import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { useProjects, useServerConfigs, useThreadShells, waitForProject } from "../state/entities";
 import { useThreadSearch } from "../state/queries";
-import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
+import { resolveThreadActionProjectRef } from "../lib/chatThreadActions";
 import {
   appendBrowsePathSegment,
   ensureBrowseDirectoryPath,
@@ -175,6 +180,7 @@ import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/com
 import { NeoPiSessionPickerHost, useNeoPiSessionPickerAction } from "./neopi/NeoPiSessionEntry";
 import { useOpenModels } from "./neopi/modelsPageState";
 import { useCreateNativeSession } from "./neopi/NativeSessionSidebar";
+import { useNativeSessionSelection } from "../state/neopiNativeSessions";
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -487,14 +493,18 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     select: (params) => resolveThreadRouteTarget(params),
   });
   const routeThreadRef = routeTarget?.kind === "server" ? routeTarget.threadRef : null;
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const nativeTarget = useNativeSessionSelection((value) => value.target);
+  const routeWorkspaceRef = routeThreadRef ?? (pathname === "/" ? nativeTarget : null);
   const terminalOpen = useTerminalUiStateStore((state) =>
-    routeThreadRef
-      ? selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeThreadRef).terminalOpen
+    routeWorkspaceRef
+      ? selectThreadTerminalUiState(state.terminalUiStateByThreadKey, routeWorkspaceRef)
+          .terminalOpen
       : false,
   );
   const previewOpen = useRightPanelStore((state) =>
-    routeThreadRef
-      ? selectActiveRightPanel(state.byThreadKey, routeThreadRef) === "preview"
+    routeWorkspaceRef
+      ? selectActiveRightPanel(state.byThreadKey, routeWorkspaceRef) === "preview"
       : false,
   );
 
@@ -707,6 +717,10 @@ function OpenCommandPaletteDialog(props: {
   const navigate = useNavigate();
   const openModels = useOpenModels();
   const pathname = useLocation({ select: (location) => location.pathname });
+  const composerHandleRef = useComposerHandleContext();
+  const nativeTarget = useNativeSessionSelection((value) =>
+    pathname === "/" ? value.target : null,
+  );
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
   const [query, setQuery] = useState(openIntent?.kind === "search" ? openIntent.query : "");
   const [linkedThreadSearch, setLinkedThreadSearch] = useState(
@@ -1768,6 +1782,62 @@ function OpenCommandPaletteDialog(props: {
       await createNativeSession();
     },
   });
+  if (nativeTarget) {
+    const surfaces = [
+      ["files", "Show files", FileSearchIcon],
+      ["diff", "Show diff", FileDiff],
+      ["preview", "Show browser", Globe2],
+      ["agents", "Show agents", Bot],
+      ["device", "Show devices", Smartphone],
+    ] as const;
+    actionItems.push(
+      ...surfaces.map(([kind, title, Icon]) => ({
+        kind: "action" as const,
+        value: `action:native-workspace-${kind}`,
+        title,
+        searchTerms: ["workspace", kind, title],
+        icon: <Icon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          useRightPanelStore.getState().open(nativeTarget, kind);
+        },
+      })),
+    );
+    actionItems.push(
+      {
+        kind: "action",
+        value: "action:native-terminal",
+        title: "Toggle terminal",
+        searchTerms: ["terminal", "shell", "workspace"],
+        shortcutCommand: "terminal.toggle",
+        icon: <TerminalSquare className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          const store = useTerminalUiStateStore.getState();
+          const ui = selectThreadTerminalUiState(store.terminalUiStateByThreadKey, nativeTarget);
+          store.setTerminalOpen(nativeTarget, !ui.terminalOpen);
+        },
+      },
+      {
+        kind: "action",
+        value: "action:native-model",
+        title: "Choose session model",
+        searchTerms: ["native", "model", "session"],
+        icon: <SettingsIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          composerHandleRef?.current?.openModelPicker();
+        },
+      },
+      {
+        kind: "action",
+        value: "action:native-tree",
+        title: "Session tree",
+        searchTerms: ["native", "history", "tree", "branch"],
+        icon: <FolderIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          composerHandleRef?.current?.openSessionTree?.();
+        },
+      },
+    );
+  }
 
   if (projects.length > 0) {
     actionItems.push({
