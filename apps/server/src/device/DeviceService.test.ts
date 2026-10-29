@@ -5,8 +5,10 @@ import {
   DeviceOperationError,
   LOCAL_DEVICE_HOST_ID,
   ThreadId,
+  ProviderInstanceId,
   type DeviceServiceState,
 } from "@t3tools/contracts";
+import { nativeWorkspaceResourceId } from "@t3tools/shared/neopiWorkspace";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Deferred from "effect/Deferred";
@@ -284,6 +286,39 @@ describe("device setup consent", () => {
         expect((yield* Ref.get(settings)).enableDeviceSupport).toBe(false);
         expect(yield* service.readinessIfSupported()).toBeNull();
         expect(starts).toEqual(["start", "stop"]);
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect(
+    "closes only the selected native device namespace while preserving other profiles and legacy threads",
+    () =>
+      Effect.gen(function* () {
+        const { service } = yield* fixture();
+        yield* service.configure({ enabled: true });
+        const sessionRef = {
+          providerInstanceId: ProviderInstanceId.make("native"),
+          sessionFile: "/native/session.jsonl",
+        };
+        const first = nativeWorkspaceResourceId(sessionRef);
+        const second = nativeWorkspaceResourceId({
+          ...sessionRef,
+          providerInstanceId: ProviderInstanceId.make("other-native"),
+        });
+        const legacy = ThreadId.make("legacy-device-thread");
+        const device = { deviceId: "Pixel_API_35", platform: "android" as const };
+        const opened = yield* service.open({ ...device, threadId: first });
+        yield* service.open({ deviceId: opened.deviceId, platform: "android", threadId: second });
+        yield* service.open({ deviceId: opened.deviceId, platform: "android", threadId: legacy });
+        yield* service.close({ threadId: first });
+        expect(yield* service.sessionsForThread(first)).toEqual([]);
+        expect((yield* service.sessionsForThread(second)).map(({ deviceId }) => deviceId)).toEqual([
+          opened.deviceId,
+        ]);
+        expect((yield* service.sessionsForThread(legacy)).map(({ deviceId }) => deviceId)).toEqual([
+          opened.deviceId,
+        ]);
+        yield* service.close({ threadId: second });
+        expect((yield* service.state).sessions.map(({ threadId }) => threadId)).toEqual([legacy]);
       }).pipe(Effect.scoped),
   );
 

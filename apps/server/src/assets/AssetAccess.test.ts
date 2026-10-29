@@ -85,6 +85,10 @@ const assetNativeSessions = (ref: NeoPiNativeSessionRef, cwd: string) =>
           .pipe(
             Effect.mapError((cause) => new NeoPiNativeSessionsError({ message: cause.message })),
           ),
+      preparePrompt: () =>
+        Effect.fail(
+          new NeoPiNativeSessionsError({ message: "Asset reads must not prepare native prompts." }),
+        ),
       catalog: () =>
         Effect.succeed([
           {

@@ -1,5 +1,10 @@
 import * as Schema from "effect/Schema";
 import { ProviderInstanceId } from "./providerInstance.ts";
+import {
+  ChatFileAttachment,
+  ChatImageAttachment,
+  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+} from "./orchestration.ts";
 
 export const NeoPiNativeSessionRef = Schema.Struct({
   providerInstanceId: ProviderInstanceId,
@@ -61,6 +66,12 @@ export type NeoPiNativeSessionsOpenResult = typeof NeoPiNativeSessionsOpenResult
 export const NeoPiNativeSessionsRequestInput = Schema.Struct({
   ref: NeoPiNativeSessionRef,
   command: NeoPiNativeSessionCommand,
+  /** Uploaded client media, resolved by the server before the native prompt is dispatched. */
+  attachments: Schema.optional(
+    Schema.Array(Schema.Union([ChatImageAttachment, ChatFileAttachment])).check(
+      Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_ATTACHMENTS),
+    ),
+  ),
 });
 export type NeoPiNativeSessionsRequestInput = typeof NeoPiNativeSessionsRequestInput.Type;
 export const NeoPiNativeSessionsWatchInput = Schema.Struct({ ref: NeoPiNativeSessionRef });

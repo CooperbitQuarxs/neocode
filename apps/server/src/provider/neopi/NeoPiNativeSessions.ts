@@ -38,9 +38,13 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { ServerConfig } from "../../config.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
+import type { McpCapability } from "../../mcp/McpInvocationContext.ts";
+import { makeNeoPiNativeHostToolPump } from "./NeoPiHostToolBridge.ts";
 import { collectUint8StreamText } from "../../stream/collectUint8StreamText.ts";
 import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
 import { parseNeoPiLaunchArguments } from "./NeoPiLaunchArgs.ts";
+import { prepareNeoPiNativePrompt } from "./NeoPiNativeAttachments.ts";
 import { makeNeoPiNativeEventHub } from "./NeoPiNativeEventHub.ts";
 import type { NeoPiModelsConnection } from "./NeoPiModelsConnection.ts";
 import {
@@ -106,13 +110,21 @@ export interface NeoPiNativeConnection {
   readonly cwd: string;
   /** A startup dialog can block stdio commands; the native control reader remains available. */
   readonly readState?: Effect.Effect<unknown, NeoPiNativeSessionsError>;
+  readonly hostTools?: {
+    readonly bind: (ref: NeoPiNativeSessionRef) => Effect.Effect<void, NeoPiNativeSessionsError>;
+    readonly revoke: Effect.Effect<void>;
+  };
 }
 export interface NeoPiNativeSessionsDependencies {
   readonly profileIds: Effect.Effect<ReadonlyArray<ProviderInstanceId>>;
+  readonly profileChanges?: Stream.Stream<void>;
   readonly profile: (
     id: ProviderInstanceId,
   ) => Effect.Effect<NeoPiNativeProfile, NeoPiNativeSessionsError>;
   readonly canonicalize: (file: string) => Effect.Effect<string, NeoPiNativeSessionsError>;
+  readonly preparePrompt: (
+    input: NeoPiNativeSessionsRequestInput,
+  ) => Effect.Effect<NeoPiNativeSessionCommand, NeoPiNativeSessionsError>;
   readonly catalog: (
     profile: NeoPiNativeProfile,
     cwd?: string,
@@ -163,6 +175,7 @@ export const makeNeoPiNativeSessionsWith = Effect.fn("NeoPiNativeSessions.makeWi
       session.closed = true;
       if (sessions.get(session.ref.sessionFile) === session)
         sessions.delete(session.ref.sessionFile);
+      yield* session.native.hostTools?.revoke ?? Effect.void;
       yield* session.hub.publish({ type: closedType, reason });
       yield* PubSub.publish(session.modelChanges, undefined);
     });
@@ -173,6 +186,7 @@ export const makeNeoPiNativeSessionsWith = Effect.fn("NeoPiNativeSessions.makeWi
   ) {
     const sessionFile = yield* dependencies.canonicalize(file);
     if (sessionId === session.sessionId && sessionFile === session.ref.sessionFile) return;
+    yield* session.native.hostTools?.revoke ?? Effect.void;
     const other = sessions.get(sessionFile);
     if (other && other !== session)
       return yield* fail(
@@ -184,6 +198,7 @@ export const makeNeoPiNativeSessionsWith = Effect.fn("NeoPiNativeSessions.makeWi
     session.state = { ...session.state, sessionId, sessionFile };
     session.sessionId = sessionId;
     sessions.set(sessionFile, session);
+    yield* session.native.hostTools?.bind(session.ref) ?? Effect.void;
     yield* PubSub.publish(session.modelChanges, undefined);
   });
   const describe = (session: NativeSession): NeoPiNativeSessionsOpenResult => ({
@@ -373,6 +388,7 @@ export const makeNeoPiNativeSessionsWith = Effect.fn("NeoPiNativeSessions.makeWi
       yield* Effect.addFinalizer(() => finish(current, "The native connection was closed.")).pipe(
         Effect.provideService(Scope.Scope, scope),
       );
+      yield* native.hostTools?.bind(current.ref) ?? Effect.void;
       yield* Deferred.await(native.client.exit).pipe(
         Effect.flatMap((exit) =>
           finish(
@@ -543,7 +559,19 @@ export const makeNeoPiNativeSessionsWith = Effect.fn("NeoPiNativeSessions.makeWi
       const session = yield* requireSession(input.ref);
       const client = session.native.client;
       const command = input.command;
+      if (
+        command.type === "set_host_tools" ||
+        command.type === "serve" ||
+        command.type === "unserve" ||
+        command.type === "host_tool_result" ||
+        command.type === "host_tool_update"
+      )
+        return yield* fail(
+          "Native host tools are server-owned; clients cannot replace registrations or supply results.",
+          "host_tools_server_owned",
+        );
       yield* verifyRef(session, input.ref);
+      const preparedCommand = yield* dependencies.preparePrompt(input);
       // UI and approval answers are one-way side channels, never correlated RPC requests.
       if (command.type === "extension_ui_response") {
         const response = yield* Schema.decodeUnknownEffect(UiResponse)(command);
@@ -555,8 +583,6 @@ export const makeNeoPiNativeSessionsWith = Effect.fn("NeoPiNativeSessions.makeWi
       if (
         command.type === "tool_approval_response" ||
         command.type === "plan_proposal_response" ||
-        command.type === "host_tool_result" ||
-        command.type === "host_tool_update" ||
         command.type === "host_uri_result"
       ) {
         yield* client.writeFrame(command);
@@ -571,7 +597,7 @@ export const makeNeoPiNativeSessionsWith = Effect.fn("NeoPiNativeSessions.makeWi
         return { accepted: true };
       }
       // Window-local ids must not collide; native Models login uses a server-generated UUID.
-      const { id, requestId: _requestId, ...payload } = command;
+      const { id, requestId: _requestId, ...payload } = preparedCommand;
       const nativeCommand = preserveId && typeof id === "string" ? { ...payload, id } : payload;
       let guardedCommand = nativeCommand;
       if (session.native.attachment === "terminal") {
@@ -781,6 +807,18 @@ export const makeNeoPiNativeSessionsWith = Effect.fn("NeoPiNativeSessions.makeWi
         ),
       } satisfies NeoPiModelsConnection;
     }).pipe(Effect.mapError(nativeError));
+  if (dependencies.profileChanges)
+    yield* Stream.runForEach(dependencies.profileChanges, () =>
+      Effect.forEach(Array.from(sessions.values()), (session) =>
+        session.profile.validate.pipe(
+          Effect.catch((cause) =>
+            finish(session, nativeError(cause).message).pipe(
+              Effect.andThen(Scope.close(session.scope, Exit.void)),
+            ),
+          ),
+        ),
+      ),
+    ).pipe(Effect.forkIn(lifetime));
   return { list, open, request, watch, close, modelsConnection, resolveWorkspace };
 });
 
@@ -790,6 +828,7 @@ export const makeNeoPiNativeSessions = Effect.fn("NeoPiNativeSessions.make")(fun
   const fs = yield* FileSystem.FileSystem;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const config = yield* ServerConfig;
+  const serverSettings = yield* ServerSettingsService;
   const canonicalize = Effect.fnUntraced(function* (file: string) {
     if (!NodePath.isAbsolute(file))
       return yield* fail("A native session file must be an absolute path.", "invalid_path");
@@ -882,7 +921,9 @@ export const makeNeoPiNativeSessions = Effect.fn("NeoPiNativeSessions.make")(fun
       let ownedPid: number | undefined;
       const spawn = Effect.fnUntraced(function* (args: string[], capturePid = false) {
         const transportScope = yield* Effect.scope;
-        return yield* makeClient({
+        let hostPump: Effect.Success<ReturnType<typeof makeNeoPiNativeHostToolPump>> | undefined;
+        let activeClient: NeoPiRpcClient | undefined;
+        const client = yield* makeClient({
           spawn: (command) =>
             spawner.spawn(command).pipe(
               Effect.tap((handle) =>
@@ -913,14 +954,67 @@ export const makeNeoPiNativeSessions = Effect.fn("NeoPiNativeSessions.make")(fun
                   yield* publish(frame);
                 }),
               ).pipe(Effect.forkIn(transportScope));
-              yield* Stream.runForEach(transport.hostToolCalls, publishFrame).pipe(
-                Effect.forkIn(transportScope),
-              );
+              hostPump = yield* makeNeoPiNativeHostToolPump(
+                {
+                  hostToolCalls: transport.hostToolCalls.pipe(Stream.tap(publishFrame)),
+                  hostToolResult: transport.hostToolResult,
+                },
+                (ref) =>
+                  Effect.gen(function* () {
+                    yield* profile.validate;
+                    if (!activeClient)
+                      return yield* fail(
+                        "Native host tools are not ready.",
+                        "host_tools_unavailable",
+                      );
+                    const identity = yield* Schema.decodeUnknownEffect(StateIdentity)(
+                      yield* activeClient.request({ type: "get_state", includeDump: false }),
+                    );
+                    if ((yield* canonicalize(identity.sessionFile)) !== ref.sessionFile)
+                      return yield* fail("The native owner changed session.", "session_changed");
+                  }).pipe(Effect.mapError(nativeError)),
+              ).pipe(Effect.provideService(Scope.Scope, transportScope));
               yield* Stream.runForEach(transport.hostUriRequests, publishFrame).pipe(
                 Effect.forkIn(transportScope),
               );
             }),
         });
+        activeClient = client;
+        // An already-running terminal may predate the installed binary. Old control
+        // owners replace session-global tools, so only the owner's capability is safe.
+        if (!capturePid && !client.capabilities.has("connection_owned_host_tools"))
+          return { client, hostTools: undefined };
+        if (!hostPump)
+          return yield* fail(
+            "Native host-tool transport is unavailable.",
+            "host_tools_unavailable",
+          );
+        const pump = hostPump;
+        const hostTools: NonNullable<NeoPiNativeConnection["hostTools"]> = {
+          revoke: pump.revoke,
+          bind: (ref) =>
+            Effect.gen(function* () {
+              yield* profile.validate;
+              const settings = yield* serverSettings.getSettings;
+              const overrides = Object.values(settings.projectSettingsOverrides);
+              // Without a SQL thread there is no authoritative project binding. An
+              // unresolved project override must not become an environment-level bypass.
+              const capabilities = new Set<McpCapability>();
+              if (
+                settings.enableAgentBrowserAccess &&
+                !overrides.some((entry) => entry.enableAgentBrowserAccess !== undefined)
+              )
+                capabilities.add("preview");
+              if (
+                settings.enableAgentDeviceAccess &&
+                !overrides.some((entry) => entry.enableAgentDeviceAccess !== undefined)
+              )
+                capabilities.add("device");
+              const tools = yield* pump.bind(ref, capabilities);
+              yield* client.request({ type: "set_host_tools", tools });
+            }).pipe(Effect.mapError(nativeError)),
+        };
+        return { client, hostTools };
       });
       const attach = (owner: CatalogRow | undefined) =>
         Effect.gen(function* () {
@@ -929,7 +1023,7 @@ export const makeNeoPiNativeSessions = Effect.fn("NeoPiNativeSessions.make")(fun
               "The native session is in use without an attachable control endpoint.",
               "session_in_use",
             );
-          const client = yield* spawn([
+          const { client, hostTools } = yield* spawn([
             "ctl",
             "pipe",
             owner.control.instanceId,
@@ -941,7 +1035,12 @@ export const makeNeoPiNativeSessions = Effect.fn("NeoPiNativeSessions.make")(fun
               "The native endpoint did not establish a control attachment.",
               "unsupported",
             );
-          return { client, attachment: "terminal" as const, cwd: canonicalCwd };
+          return {
+            client,
+            attachment: "terminal" as const,
+            cwd: canonicalCwd,
+            ...(hostTools ? { hostTools } : {}),
+          };
         });
       if (row?.inUse) return yield* attach(row);
       const args = [
@@ -960,7 +1059,7 @@ export const makeNeoPiNativeSessions = Effect.fn("NeoPiNativeSessions.make")(fun
         Effect.result,
       );
       if (attempt._tag === "Success") {
-        const client = attempt.success;
+        const { client, hostTools } = attempt.success;
         let booting = true;
         const readState = Effect.suspend(() => {
           const ordinary = client.request({ type: "get_state", includeDump: false }).pipe(
@@ -1002,7 +1101,13 @@ export const makeNeoPiNativeSessions = Effect.fn("NeoPiNativeSessions.make")(fun
           );
           return Effect.raceFirst(ordinary, duringDialog);
         }).pipe(Effect.mapError(nativeError));
-        return { client, attachment: "owned" as const, cwd: canonicalCwd, readState };
+        return {
+          client,
+          attachment: "owned" as const,
+          cwd: canonicalCwd,
+          readState,
+          ...(hostTools ? { hostTools } : {}),
+        };
       }
       yield* Scope.close(attemptScope, Exit.void);
       if (
@@ -1013,7 +1118,9 @@ export const makeNeoPiNativeSessions = Effect.fn("NeoPiNativeSessions.make")(fun
         return yield* Effect.fail(attempt.failure);
       return yield* attach(yield* catalogRow(profile, input.sessionFile));
     }).pipe(Effect.mapError(nativeError));
+  const profileChanges = yield* instances.subscribeChanges;
   return yield* makeNeoPiNativeSessionsWith({
+    profileChanges: Stream.fromSubscription(profileChanges),
     profileIds: Effect.gen(function* () {
       const all = yield* instances.listInstances;
       const unavailable = yield* instances.listUnavailable;
@@ -1030,6 +1137,10 @@ export const makeNeoPiNativeSessions = Effect.fn("NeoPiNativeSessions.make")(fun
     }),
     profile,
     canonicalize,
+    preparePrompt: (input) =>
+      prepareNeoPiNativePrompt(input, config.attachmentsDir).pipe(
+        Effect.provideService(FileSystem.FileSystem, fs),
+      ),
     catalog,
     connect,
   });

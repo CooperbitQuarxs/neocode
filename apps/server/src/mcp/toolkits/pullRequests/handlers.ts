@@ -161,6 +161,12 @@ const make = Effect.gen(function* () {
       | typeof PullRequestListFailedError,
   ) {
     const scope = yield* McpInvocationContext.requireMcpCapability("pull-requests");
+    if (scope.kind === "native")
+      return yield* new Failure({
+        cause: new Error(
+          "Pull-request links belong to legacy SQL threads, not native conversations.",
+        ),
+      });
     const thread = yield* snapshots
       .getThreadShellById(scope.threadId)
       .pipe(Effect.mapError((cause) => new Failure({ cause })));

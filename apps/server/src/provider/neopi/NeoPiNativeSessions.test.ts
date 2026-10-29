@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
+import { NodeFileSystem } from "@effect/platform-node";
 import {
   NeoPiNativeSessionsError,
   ProviderInstanceId,
@@ -11,12 +12,14 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
+import * as Queue from "effect/Queue";
 import {
   makeNeoPiNativeSessionsWith,
   type NeoPiNativeConnection,
   type NeoPiNativeProfile,
   type NeoPiNativeSessionsDependencies,
 } from "./NeoPiNativeSessions.ts";
+import { prepareNeoPiNativePrompt } from "./NeoPiNativeAttachments.ts";
 
 const instanceId = ProviderInstanceId.make("native-profile");
 const otherId = ProviderInstanceId.make("other-profile");
@@ -33,6 +36,8 @@ const entry = (id: string, parentId: string | null = null): NeoPiJournalEntry =>
 const fixture = (attachment: "owned" | "terminal" = "owned") =>
   Effect.gen(function* () {
     const snapshotReleased = yield* Deferred.make<void>();
+    const profileChanges = yield* Queue.unbounded<void>();
+    const disconnected = yield* Deferred.make<void>();
     const native = {
       sessionId: "native-id",
       sessionFile: originalRef.sessionFile,
@@ -87,8 +92,11 @@ const fixture = (attachment: "owned" | "terminal" = "owned") =>
     });
     const dependencies: NeoPiNativeSessionsDependencies = {
       profileIds: Effect.succeed([instanceId, otherId]),
+      profileChanges: Stream.fromQueue(profileChanges),
       profile: (id) => Effect.succeed(profile(id)),
       canonicalize: (file) => Effect.succeed(file.replace("/alias/", "/native/")),
+      preparePrompt: (input) =>
+        prepareNeoPiNativePrompt(input, "/unused").pipe(Effect.provide(NodeFileSystem.layer)),
       catalog: () => Effect.succeed([]),
       connect: (_profile, input, publish) =>
         Effect.gen(function* () {
@@ -111,6 +119,7 @@ const fixture = (attachment: "owned" | "terminal" = "owned") =>
                 native.running = false;
               } else native.detaches++;
               yield* Deferred.succeed(exit, { code: 0, signal: null, stderrTail: "" });
+              yield* Deferred.succeed(disconnected, undefined);
             }),
           );
           const client: NeoPiNativeConnection["client"] = {
@@ -183,7 +192,7 @@ const fixture = (attachment: "owned" | "terminal" = "owned") =>
         }),
     };
     const service = yield* makeNeoPiNativeSessionsWith(dependencies);
-    return { native, service, dependencies };
+    return { native, service, dependencies, profileChanges, disconnected };
   });
 
 const snapshot = (
@@ -198,6 +207,59 @@ const snapshot = (
   );
 
 describe("canonical native session lifecycle", () => {
+  it.effect(
+    "eagerly closes invalidated native profiles while detaching terminal owners without abort",
+    () =>
+      Effect.gen(function* () {
+        for (const attachment of ["owned", "terminal"] as const) {
+          const { native, service, profileChanges, disconnected } = yield* fixture(attachment);
+          yield* service.open(originalRef);
+          native.profileValid = false;
+          yield* Queue.offer(profileChanges, undefined);
+          yield* Deferred.await(disconnected);
+          assert.equal(native.connections, 0);
+          assert.equal(native.aborts, 0);
+          assert.equal(native.disposals, attachment === "owned" ? 1 : 0);
+          assert.equal(native.detaches, attachment === "terminal" ? 1 : 0);
+          assert.deepEqual(yield* service.close({ ref: originalRef }), { closed: false });
+        }
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect(
+    "rejects client tool registration/result injection on owned and terminal connections",
+    () =>
+      Effect.gen(function* () {
+        for (const attachment of ["owned", "terminal"] as const) {
+          const { native, service } = yield* fixture(attachment);
+          yield* service.open(originalRef);
+          for (const type of [
+            "set_host_tools",
+            "serve",
+            "unserve",
+            "host_tool_result",
+            "host_tool_update",
+          ]) {
+            const result = yield* service
+              .request({
+                ref: originalRef,
+                command: { type, id: "spoofed", tools: [], result: { content: [] } },
+              })
+              .pipe(Effect.result);
+            assert.equal(result._tag, "Failure");
+            if (result._tag === "Failure")
+              assert.equal(result.failure.code, "host_tools_server_owned");
+          }
+          assert.equal(native.acceptedPrompts, 0);
+          yield* service.request({
+            ref: originalRef,
+            command: { type: "prompt", message: "real input" },
+          });
+          assert.equal(native.acceptedPrompts, 1);
+        }
+      }).pipe(Effect.scoped),
+  );
+
   it.effect("single-flights concurrent opens of canonical aliases and outlives caller scopes", () =>
     Effect.gen(function* () {
       const { native, service } = yield* fixture();
