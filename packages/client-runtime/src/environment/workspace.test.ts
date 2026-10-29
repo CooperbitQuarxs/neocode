@@ -41,6 +41,15 @@ describe("workspace identity", () => {
     expect(parseWorkspaceKey(workspaceKey(otherHost))).toEqual(otherHost);
   });
 
+  it.each(["remote:server", "a:vcs-status:b"])(
+    "preserves the complete native environment identity %s",
+    (environmentId) => {
+      const target = { ...native, environmentId: EnvironmentId.make(environmentId) };
+      expect(parseWorkspaceKey(workspaceKey(target))).toEqual(target);
+      expect(parseWorkspaceKey(`${environmentId}:native:{broken`)).toBeNull();
+    },
+  );
+
   it("preserves saved legacy keys without treating malformed native keys as SQL threads", () => {
     const legacy = {
       environmentId: native.environmentId,

@@ -36,11 +36,11 @@ export function workspaceKey(target: WorkspaceRef): string {
 }
 
 export function parseWorkspaceKey(key: string): WorkspaceRef | null {
-  const separator = key.indexOf(":");
-  if (separator <= 0 || separator === key.length - 1) return null;
-  const resourceId = key.slice(separator + 1);
-  if (!resourceId.startsWith(nativePrefix)) return parseScopedThreadKey(key);
-  const decoded = decodeNativeResource(resourceId.slice(nativePrefix.length));
+  const marker = `:${nativePrefix}`;
+  const separator = key.indexOf(marker);
+  if (separator < 0) return parseScopedThreadKey(key);
+  if (separator === 0) return null;
+  const decoded = decodeNativeResource(key.slice(separator + marker.length));
   if (Option.isNone(decoded)) return null;
   return { environmentId: EnvironmentId.make(key.slice(0, separator)), ref: decoded.value };
 }
