@@ -72,7 +72,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         document.querySelector<HTMLElement>('[data-chat-composer-form="true"]') ??
         triggerElement.closest<HTMLElement>("main"))
       : triggerElement.closest<HTMLElement>("main");
-    setPickerAnchor(anchor);
+    setPickerAnchor(props.isComposerOwned ? anchor : null);
     const update = () =>
       setPickerWidth(
         anchor?.getBoundingClientRect().width ?? Math.min(1000, window.innerWidth - 16),

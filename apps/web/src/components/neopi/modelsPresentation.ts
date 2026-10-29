@@ -47,6 +47,15 @@ export function modelContextLabel(tokens: number | null): string {
   return tokens.toLocaleString();
 }
 
+const modelPriceFormatter = new Intl.NumberFormat("en-US", { maximumSignificantDigits: 3 });
+
+export function modelPriceLabel(cost: Pick<NeoPiNativeModel["cost"], "input" | "output">): string {
+  if (cost.input === 0 && cost.output === 0) return "—";
+  const input = cost.input < 0 ? "-" : `$${modelPriceFormatter.format(cost.input)}`;
+  const output = cost.output < 0 ? "-" : `$${modelPriceFormatter.format(cost.output)}`;
+  return `${input} / ${output}`;
+}
+
 export function isModelRulePattern(selector: string): boolean {
   return selector.startsWith("re:") || /[*?[\]{}]/.test(selector);
 }

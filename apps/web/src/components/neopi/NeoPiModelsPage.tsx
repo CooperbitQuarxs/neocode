@@ -92,6 +92,7 @@ import {
   modelContextLabel,
   modelDisplayName,
   modelEffortLabel,
+  modelPriceLabel,
   modelProviderGroups,
   modelRoleForScope,
   modelsForView,
@@ -285,24 +286,26 @@ function ModelsRail({
         ? [
             { label: "Ready", providers: groups.ready },
             { label: "Not set up", providers: groups.notSetUp },
-          ].map((group) => (
-            <SidebarGroup key={group.label}>
-              <p className="mb-2 text-xs text-muted-foreground">{group.label}</p>
-              <SidebarMenu>
-                {group.providers.map((provider) => (
-                  <ProviderRailRow
-                    key={provider.id}
-                    provider={provider}
-                    modelCount={counts.get(provider.id) ?? 0}
-                    environmentId={environmentId}
-                    target={target}
-                    active={section === `provider:${provider.id}`}
-                    select={() => select(`provider:${provider.id}`)}
-                  />
-                ))}
-              </SidebarMenu>
-            </SidebarGroup>
-          ))
+          ]
+            .filter((group) => group.providers.length > 0)
+            .map((group) => (
+              <SidebarGroup key={group.label}>
+                <p className="mb-2 text-xs text-muted-foreground">{group.label}</p>
+                <SidebarMenu>
+                  {group.providers.map((provider) => (
+                    <ProviderRailRow
+                      key={provider.id}
+                      provider={provider}
+                      modelCount={counts.get(provider.id) ?? 0}
+                      environmentId={environmentId}
+                      target={target}
+                      active={section === `provider:${provider.id}`}
+                      select={() => select(`provider:${provider.id}`)}
+                    />
+                  ))}
+                </SidebarMenu>
+              </SidebarGroup>
+            ))
         : null}
     </>
   );
@@ -636,9 +639,12 @@ function ModelsContent({
               />
             }
           >
-            <Table aria-label={provider ? `${provider.id} models` : "All models"}>
+            <Table
+              className="table-fixed"
+              aria-label={provider ? `${provider.id} models` : "All models"}
+            >
               <colgroup>
-                <col style={{ minWidth: "16rem" }} />
+                <col />
                 <col style={{ width: "6rem" }} />
                 <col style={{ width: "8rem" }} />
                 <col style={{ width: "9rem" }} />
@@ -766,7 +772,12 @@ function ModelRow({
                   <TooltipPopup>No per-token price reported</TooltipPopup>
                 </Tooltip>
               ) : (
-                `$${model.cost.input} / $${model.cost.output}`
+                <Tooltip>
+                  <TooltipTrigger render={<span />}>{modelPriceLabel(model.cost)}</TooltipTrigger>
+                  <TooltipPopup>
+                    {`$${model.cost.input} input / $${model.cost.output} output`}
+                  </TooltipPopup>
+                </Tooltip>
               )}
             </span>
           </TableCell>
@@ -969,35 +980,32 @@ function RoleRow({
     : undefined;
   const traitsModel = resolved ? `${resolved.provider}/${resolved.id}` : selector;
   const traits: ReadonlyArray<ServerProviderModel> = useMemo(
-    () =>
-      resolved
-        ? [
+    () => [
+      {
+        slug: traitsModel,
+        name: resolved ? modelDisplayName(resolved) : selector,
+        isCustom: false,
+        capabilities: createModelCapabilities({
+          reasoning: resolved?.reasoning,
+          optionDescriptors: [
             {
-              slug: traitsModel,
-              name: modelDisplayName(resolved),
-              isCustom: false,
-              capabilities: createModelCapabilities({
-                reasoning: resolved.reasoning,
-                optionDescriptors: [
-                  {
-                    id: "reasoningEffort",
-                    label: "Effort",
-                    type: "select",
-                    options: [
-                      { id: "automatic", label: "Automatic" },
-                      ...resolved.supportedThinkingLevels.map((level) => ({
-                        id: level,
-                        label: level,
-                      })),
-                    ],
-                    currentValue: effort?.mode === "fixed" ? effort.level : "automatic",
-                  },
-                ],
-              }),
+              id: "reasoningEffort",
+              label: "Effort",
+              type: "select",
+              options: [
+                { id: "automatic", label: "Automatic" },
+                ...(resolved?.supportedThinkingLevels ?? MODEL_EFFORTS).map((level) => ({
+                  id: level,
+                  label: level,
+                })),
+              ],
+              currentValue: effort?.mode === "fixed" ? effort.level : "automatic",
             },
-          ]
-        : [],
-    [resolved, traitsModel, effort],
+          ],
+        }),
+      },
+    ],
+    [resolved, traitsModel, selector, effort],
   );
   const setRole = (
     nextSelector: string | null,
@@ -1122,7 +1130,7 @@ function RoleRow({
                 }}
               >
                 <SelectTrigger size="sm" aria-label="Effort options">
-                  <SelectValue />
+                  <SelectValue>{effort?.mode === "fixed" ? "Fixed" : "Automatic"}</SelectValue>
                 </SelectTrigger>
                 <SelectPopup>
                   <SelectItem value="auto">Automatic</SelectItem>

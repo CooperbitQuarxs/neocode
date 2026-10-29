@@ -5,6 +5,7 @@ import {
   modelContextLabel,
   modelDisplayName,
   modelEffortLabel,
+  modelPriceLabel,
   modelProviderGroups,
   modelRoleForScope,
   modelsForView,
@@ -24,6 +25,30 @@ describe("Models catalog presentation", () => {
     expect(modelContextLabel(272_000)).toBe("272K");
     expect(modelContextLabel(null)).toBe("—");
     expect(modelContextLabel(0)).toBe("0");
+  });
+
+  it("removes floating tails while preserving small nonzero prices and rounding boundaries", () => {
+    expect(modelPriceLabel({ input: 0.020999999999999998, output: 0.061599999999999995 })).toBe(
+      "$0.021 / $0.0616",
+    );
+    expect(modelPriceLabel({ input: 0.049999999999999996, output: 0.000001 })).toBe(
+      "$0.05 / $0.000001",
+    );
+    expect(modelPriceLabel({ input: 0.9999, output: 9.999 })).toBe("$1 / $10");
+  });
+
+  it("distinguishes both-zero prices from a single zero component", () => {
+    expect(modelPriceLabel({ input: 0, output: 0 })).toBe("—");
+    expect(modelPriceLabel({ input: 0, output: 2 })).toBe("$0 / $2");
+    expect(modelPriceLabel({ input: 2, output: 0 })).toBe("$2 / $0");
+  });
+
+  it("replaces every negative component without hiding the known counterpart", () => {
+    expect(modelPriceLabel({ input: -1_000_000, output: -0.001 })).toBe("- / -");
+    expect(modelPriceLabel({ input: -0.001, output: 0.049999999999999996 })).toBe("- / $0.05");
+    expect(modelPriceLabel({ input: 12, output: -1_000_000 })).toBe("$12 / -");
+    expect(modelPriceLabel({ input: -1, output: 0 })).toBe("- / $0");
+    expect(modelPriceLabel({ input: 0, output: -1 })).toBe("$0 / -");
   });
 
   it("collapses only contiguous canonical effort runs, regardless of input order", () => {
