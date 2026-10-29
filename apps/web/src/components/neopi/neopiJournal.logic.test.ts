@@ -94,12 +94,33 @@ describe("native journal inspection", () => {
     const rows = journalTreeRows(records);
     expect(rows.map(({ entry: item, depth }) => [item.id, depth])).toEqual([
       ["root", 0],
-      ["left", 1],
+      ["left", 0],
       ["right", 1],
     ]);
     expect(rows[0]?.missingParent).toBe(true);
     expect(rows[0]?.childCount).toBe(2);
     expect(rows[2]?.entry).toBe(records[2]);
+  });
+
+  it("keeps linear continuations aligned and indents only alternate branches", () => {
+    const records = [
+      entry("root", null),
+      entry("main", "root"),
+      entry("main-next", "main"),
+      entry("alternate", "root"),
+      entry("alternate-next", "alternate"),
+      entry("nested-fork", "alternate"),
+      entry("nested-next", "nested-fork"),
+    ];
+    expect(journalTreeRows(records).map(({ entry: item, depth }) => [item.id, depth])).toEqual([
+      ["root", 0],
+      ["main", 0],
+      ["main-next", 0],
+      ["alternate", 1],
+      ["alternate-next", 1],
+      ["nested-fork", 2],
+      ["nested-next", 2],
+    ]);
   });
 
   it("filters display categories without changing the canonical journal", () => {

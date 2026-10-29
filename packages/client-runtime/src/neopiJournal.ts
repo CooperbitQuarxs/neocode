@@ -102,8 +102,10 @@ export function journalTreeRows(entries: ReadonlyArray<NeoPiJournalEntry>) {
       missingParent: next.entry.parentId !== null && !byId.has(next.entry.parentId),
       childCount: descendants.length,
     });
+    // A linear continuation stays in its parent's column. Only an alternate
+    // branch needs another level, matching the native tree's compact outline.
     for (let index = descendants.length - 1; index >= 0; index--)
-      pending.push({ entry: descendants[index]!, depth: next.depth + 1 });
+      pending.push({ entry: descendants[index]!, depth: next.depth + (index > 0 ? 1 : 0) });
   }
   // Even malformed or future cyclic records remain inspectable rather than disappearing.
   for (const entry of entries)
