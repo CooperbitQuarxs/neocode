@@ -234,7 +234,8 @@ requests a fresh native snapshot without resending your prompt.
 
 Commands such as `/usage`, `/context`, and `/model` show NeoPi's result in the
 conversation without leaving your session. These results stay in the open
-client's conversation view; they are not added to the session's saved journal.
+client's conversation view through reconnects; they are not added to the
+session's saved journal.
 
 The status beside the composer follows the connected native model and effort,
 output throughput, journal-wide cache hit rate, context utilization and recorded

@@ -244,7 +244,9 @@ export function reduceNativeSessionFeed(
         {
           id: `command:${next.commandOutputs.length}`,
           text: frame.text,
-          afterEntryId: next.conversation.identity?.leafId ?? null,
+          // The announced leaf may precede its page. Anchor to loaded history so
+          // the result is visible now and keeps its position through reconnects.
+          afterEntryId: next.conversation.entries.at(-1)?.id ?? null,
           afterMessageId: next.conversation.pending.at(-1)?.messageId ?? null,
         },
       ],

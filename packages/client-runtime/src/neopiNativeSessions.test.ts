@@ -87,6 +87,102 @@ describe("canonical native client projection", () => {
     ).toEqual([user.id, bookkeeping.id, "Context\n42% used", nextUser.id]);
   });
 
+  it("keeps command output visible when the announced journal leaf is not loaded", () => {
+    const bookkeeping = { ...user, id: "unloaded-config", parentId: user.id, type: "chat_mode" };
+    const identity = {
+      sessionId: session.sessionId,
+      sessionFile: ref.sessionFile,
+      leafId: bookkeeping.id,
+    };
+    let feed = reduceNativeSessionFeed(initial(), {
+      type: "event",
+      frame: { type: "journal_state", reason: "append", ...identity },
+    });
+    feed = reduceNativeSessionFeed(feed, {
+      type: "event",
+      frame: { type: "command_output", text: "Chat mode: chat" },
+    });
+    expect(feed.commandOutputs.map((output) => output.text)).toEqual(["Chat mode: chat"]);
+    for (const debug of [false, true])
+      expect(
+        nativeTranscriptRows(feed, debug).map((row) =>
+          row.kind === "command" ? row.text : row.entry.id,
+        ),
+      ).toEqual([user.id, "Chat mode: chat"]);
+
+    const nextUser = { ...user, id: "user-b", parentId: bookkeeping.id };
+    feed = reduceNativeSessionFeed(feed, { type: "disconnected" });
+    feed = reduceNativeSessionFeed(feed, {
+      type: "snapshot",
+      session,
+      journal: {
+        ...identity,
+        leafId: nextUser.id,
+        entries: [user, bookkeeping, nextUser],
+        totalEntries: 3,
+      },
+    });
+    expect(
+      nativeTranscriptRows(feed, false).map((row) =>
+        row.kind === "command" ? row.text : row.entry.id,
+      ),
+    ).toEqual([user.id, "Chat mode: chat", nextUser.id]);
+    const otherBranch = { ...user, id: "other-branch" };
+    feed = reduceNativeSessionFeed(feed, {
+      type: "snapshot",
+      session,
+      journal: { ...identity, leafId: otherBranch.id, entries: [otherBranch], totalEntries: 1 },
+    });
+    expect(nativeTranscriptRows(feed, false).map((row) => row.id)).toEqual(["entry:other-branch"]);
+  });
+
+  it("shows command output after a streamed turn is durable and idle", () => {
+    const message = { role: "assistant", content: "Finished reply" };
+    const reply = { ...user, id: "durable-reply", parentId: user.id, message };
+    const identity = {
+      sessionId: session.sessionId,
+      sessionFile: ref.sessionFile,
+      leafId: reply.id,
+    };
+    let feed = initial();
+    for (const frame of [
+      { type: "agent_start" },
+      { type: "message_start", messageId: "reply-live", message },
+      { type: "message_update", messageId: "reply-live", message },
+      { type: "message_end", messageId: "reply-live", message },
+      { type: "journal_entry", ...identity, entry: reply },
+      { type: "message_persisted", ...identity, messageId: "reply-live", entryId: reply.id },
+      { type: "agent_end" },
+    ])
+      feed = reduceNativeSessionFeed(feed, { type: "event", frame });
+    const snapshot = {
+      type: "snapshot" as const,
+      session: { ...session, state: { isStreaming: false } },
+      journal: { ...identity, entries: [user, reply], totalEntries: 2 },
+    };
+    feed = reduceNativeSessionFeed(feed, snapshot);
+    const results = ["Current model: provider/model", "Context\n42% used"];
+    for (const text of results)
+      feed = reduceNativeSessionFeed(feed, {
+        type: "event",
+        frame: { type: "command_output", text },
+      });
+    const visibleRows = () =>
+      nativeTranscriptRows(feed, false).map((row) =>
+        row.kind === "command" ? row.text : row.entry.id,
+      );
+    expect(feed.busy).toBe(false);
+    expect(feed.conversation.pending).toEqual([]);
+    expect(visibleRows()).toEqual([user.id, reply.id, ...results]);
+    feed = reduceNativeSessionFeed(feed, {
+      type: "event",
+      frame: { type: "journal_state", reason: "snapshot", ...identity },
+    });
+    feed = reduceNativeSessionFeed(feed, { type: "disconnected" });
+    feed = reduceNativeSessionFeed(feed, snapshot);
+    expect(visibleRows()).toEqual([user.id, reply.id, ...results]);
+  });
+
   it("keeps repeated command results after their live message becomes durable", () => {
     let feed = initial();
     const message = { role: "assistant", content: "Answer" };
