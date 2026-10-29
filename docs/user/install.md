@@ -232,6 +232,10 @@ The conversation follows NeoPi's selected branch, including turns started from
 the terminal. While reconnecting, NeoCode retains the displayed conversation and
 requests a fresh native snapshot without resending your prompt.
 
+Commands such as `/usage`, `/context`, and `/model` show NeoPi's result in the
+conversation without leaving your session. These results stay in the open
+client's conversation view; they are not added to the session's saved journal.
+
 The status beside the composer follows the connected native model and effort,
 output throughput, journal-wide cache hit rate, context utilization and recorded
 session cost. Context information is always available here, independent of the

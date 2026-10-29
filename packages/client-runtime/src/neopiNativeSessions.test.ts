@@ -8,6 +8,7 @@ import {
   emptyNativeSessionFeed,
   nativeSessionKey,
   nativeTranscriptEntries,
+  nativeTranscriptRows,
   reduceNativeSessionFeed,
   type NativeSession,
 } from "./neopiNativeSessions.ts";
@@ -45,6 +46,129 @@ const initial = () =>
   });
 
 describe("canonical native client projection", () => {
+  it("keeps command output between messages across hidden entries and reconnect", () => {
+    let feed = initial();
+    const bookkeeping = { ...user, id: "config", parentId: user.id, type: "model_change" };
+    const identity = {
+      sessionId: session.sessionId,
+      sessionFile: ref.sessionFile,
+      leafId: bookkeeping.id,
+    };
+    feed = reduceNativeSessionFeed(feed, {
+      type: "event",
+      frame: { type: "journal_entry", ...identity, entry: bookkeeping },
+    });
+    feed = reduceNativeSessionFeed(feed, {
+      type: "event",
+      frame: { type: "command_output", text: "Context\n42% used" },
+    });
+    const nextUser = { ...user, id: "user-b", parentId: bookkeeping.id };
+    feed = reduceNativeSessionFeed(feed, { type: "disconnected" });
+    feed = reduceNativeSessionFeed(feed, {
+      type: "snapshot",
+      session,
+      journal: {
+        ...identity,
+        leafId: nextUser.id,
+        entries: [user, bookkeeping, nextUser],
+        totalEntries: 3,
+      },
+    });
+    expect(
+      nativeTranscriptRows(feed, false).map((row) =>
+        row.kind === "command" ? row.text : row.entry.id,
+      ),
+    ).toEqual([user.id, "Context\n42% used", nextUser.id]);
+    expect(feed.conversation.entries).toEqual([user, bookkeeping, nextUser]);
+    expect(
+      nativeTranscriptRows(feed, true).map((row) =>
+        row.kind === "command" ? row.text : row.entry.id,
+      ),
+    ).toEqual([user.id, bookkeeping.id, "Context\n42% used", nextUser.id]);
+  });
+
+  it("keeps repeated command results after their live message becomes durable", () => {
+    let feed = initial();
+    const message = { role: "assistant", content: "Answer" };
+    feed = reduceNativeSessionFeed(feed, {
+      type: "event",
+      frame: { type: "message_update", messageId: "live-answer", message },
+    });
+    for (let i = 0; i < 2; i++)
+      feed = reduceNativeSessionFeed(feed, {
+        type: "event",
+        frame: { type: "command_output", text: "Current model: provider/model" },
+      });
+    expect(nativeTranscriptRows(feed, false).map((row) => row.id)).toEqual([
+      "entry:user-a",
+      "entry:live:live-answer",
+      "command:0",
+      "command:1",
+    ]);
+    const reply = { ...user, id: "reply", parentId: user.id, message };
+    const identity = {
+      sessionId: session.sessionId,
+      sessionFile: ref.sessionFile,
+      leafId: reply.id,
+    };
+    feed = reduceNativeSessionFeed(feed, {
+      type: "event",
+      frame: {
+        type: "message_persisted",
+        ...identity,
+        messageId: "live-answer",
+        entryId: reply.id,
+      },
+    });
+    feed = reduceNativeSessionFeed(feed, {
+      type: "event",
+      frame: { type: "journal_entry", ...identity, entry: reply },
+    });
+    expect(nativeTranscriptRows(feed, false).map((row) => row.id)).toEqual([
+      "entry:user-a",
+      "entry:reply",
+      "command:0",
+      "command:1",
+    ]);
+    expect(feed.conversation.entries).toEqual([user, reply]);
+    expect(feed.conversation.pending).toEqual([]);
+  });
+
+  it("hides output from another branch and clears it when the session changes", () => {
+    let feed = reduceNativeSessionFeed(initial(), {
+      type: "event",
+      frame: { type: "command_output", text: "Usage for the original branch" },
+    });
+    const branch = { ...user, id: "other-branch" };
+    const snapshot = {
+      type: "snapshot" as const,
+      session,
+      journal: {
+        sessionId: session.sessionId,
+        sessionFile: ref.sessionFile,
+        leafId: branch.id,
+        entries: [branch],
+        totalEntries: 1,
+      },
+    };
+    feed = reduceNativeSessionFeed(feed, snapshot);
+    expect(nativeTranscriptRows(feed, false).map((row) => row.id)).toEqual(["entry:other-branch"]);
+    feed = reduceNativeSessionFeed(feed, {
+      ...snapshot,
+      journal: { ...snapshot.journal, leafId: user.id, entries: [user] },
+    });
+    expect(nativeTranscriptRows(feed, false).map((row) => row.id)).toEqual([
+      "entry:user-a",
+      "command:0",
+    ]);
+    feed = reduceNativeSessionFeed(feed, {
+      ...snapshot,
+      session: { ...session, sessionId: "replacement" },
+      journal: { ...snapshot.journal, sessionId: "replacement", leafId: user.id, entries: [user] },
+    });
+    expect(nativeTranscriptRows(feed, false).map((row) => row.id)).toEqual(["entry:user-a"]);
+  });
+
   it("recovers missed persistence from an idle snapshot without matching message content", () => {
     let feed = initial();
     const message = { role: "assistant", content: "Identical text is not an identity" };

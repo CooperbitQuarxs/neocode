@@ -4,7 +4,7 @@ import {
   nativeCatalogModels,
   nativeRecord,
   nativeSessionKey,
-  nativeTranscriptEntries,
+  nativeTranscriptRows,
   type NativeSessionTarget,
 } from "@t3tools/client-runtime/neopi-native-sessions";
 import { journalEntryLabel } from "@t3tools/client-runtime/neopi-journal";
@@ -141,8 +141,12 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
     }
   };
   const rows = useMemo(
-    () => nativeTranscriptEntries(feed.conversation, debug),
-    [feed.conversation, debug],
+    () =>
+      nativeTranscriptRows(
+        { conversation: feed.conversation, commandOutputs: feed.commandOutputs },
+        debug,
+      ),
+    [feed.conversation, feed.commandOutputs, debug],
   );
   const model = nativeRecord(state.model);
   const suggestions =
@@ -193,19 +197,27 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
             />
           ) : null
         }
-        renderItem={({ item }) => (
-          <View className="gap-2 px-4 py-3">
-            <Text className="text-xs font-t3-medium text-foreground-muted">
-              {journalEntryLabel(item)}
-            </Text>
-            <NeoPiJournalContent
-              entry={item}
-              environmentId={target.environmentId}
-              nativeRef={feed.session?.ref ?? target.ref}
-              cwd={feed.session?.cwd ?? null}
-            />
-          </View>
-        )}
+        renderItem={({ item }) =>
+          item.kind === "command" ? (
+            <View className="px-4 py-3" accessibilityLabel="Command output">
+              <Text selectable className="font-mono text-sm text-foreground">
+                {item.text}
+              </Text>
+            </View>
+          ) : (
+            <View className="gap-2 px-4 py-3">
+              <Text className="text-xs font-t3-medium text-foreground-muted">
+                {journalEntryLabel(item.entry)}
+              </Text>
+              <NeoPiJournalContent
+                entry={item.entry}
+                environmentId={target.environmentId}
+                nativeRef={feed.session?.ref ?? target.ref}
+                cwd={feed.session?.cwd ?? null}
+              />
+            </View>
+          )
+        }
       />
       <View className="gap-2 border-t border-border px-4 py-3">
         {Object.values(feed.notices)

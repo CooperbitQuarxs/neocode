@@ -42,6 +42,12 @@ export const nativeRecord = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+interface NativeCommandOutput {
+  readonly id: string;
+  readonly text: string;
+  readonly afterEntryId: string | null;
+  readonly afterMessageId: string | null;
+}
 export interface NativeSessionFeed {
   readonly session: NativeSession | null;
   readonly conversation: NativeConversation;
@@ -49,6 +55,7 @@ export interface NativeSessionFeed {
   readonly busy: boolean;
   readonly dialogs: readonly Record<string, unknown>[];
   readonly notices: Readonly<Record<string, string>>;
+  readonly commandOutputs: readonly NativeCommandOutput[];
   readonly editor: { readonly id: string; readonly text: string } | null;
   readonly error: string | null;
   readonly reconciliationError: {
@@ -63,6 +70,7 @@ export const emptyNativeSessionFeed = (): NativeSessionFeed => ({
   busy: false,
   dialogs: [],
   notices: {},
+  commandOutputs: [],
   editor: null,
   error: null,
   reconciliationError: null,
@@ -180,6 +188,7 @@ export function reduceNativeSessionFeed(
       ...feed,
       session: event.session,
       conversation,
+      commandOutputs: sameFile ? feed.commandOutputs : [],
       connected: true,
       busy: event.session.state.isStreaming === true,
       error: null,
@@ -224,8 +233,21 @@ export function reduceNativeSessionFeed(
       ...next,
       session: { ...next.session, sessionId: frame.sessionId },
       ...(frame.sessionId !== next.session.sessionId
-        ? { busy: false, dialogs: [], editor: null }
+        ? { busy: false, dialogs: [], editor: null, commandOutputs: [] }
         : {}),
+    };
+  if (frame.type === "command_output" && typeof frame.text === "string" && frame.text)
+    next = {
+      ...next,
+      commandOutputs: [
+        ...next.commandOutputs,
+        {
+          id: `command:${next.commandOutputs.length}`,
+          text: frame.text,
+          afterEntryId: next.conversation.identity?.leafId ?? null,
+          afterMessageId: next.conversation.pending.at(-1)?.messageId ?? null,
+        },
+      ],
     };
   if (
     (frame.type === "tool_approval_request" || frame.type === "plan_proposal_request") &&
@@ -299,6 +321,44 @@ export function nativeTranscriptEntries(
       message,
     })),
   ];
+}
+
+export type NativeTranscriptRow =
+  | { readonly kind: "entry"; readonly id: string; readonly entry: NeoPiJournalEntry }
+  | { readonly kind: "command"; readonly id: string; readonly text: string };
+
+/** Command results are local display history, not entries in the native journal. */
+export function nativeTranscriptRows(
+  feed: Pick<NativeSessionFeed, "conversation" | "commandOutputs">,
+  debug: boolean,
+): readonly NativeTranscriptRow[] {
+  const outputs = new Map<string | null, NativeCommandOutput[]>();
+  for (const output of feed.commandOutputs) {
+    const anchor = output.afterMessageId
+      ? (feed.conversation.persisted.get(output.afterMessageId) ?? `live:${output.afterMessageId}`)
+      : output.afterEntryId;
+    const group = outputs.get(anchor);
+    if (group) group.push(output);
+    else outputs.set(anchor, [output]);
+  }
+  const rows: NativeTranscriptRow[] = [];
+  const appendOutputs = (anchor: string | null) => {
+    for (const output of outputs.get(anchor) ?? [])
+      rows.push({ kind: "command", id: output.id, text: output.text });
+  };
+  appendOutputs(null);
+  for (const entry of nativeTranscriptEntries(feed.conversation, true)) {
+    if (
+      debug ||
+      entry.type === "message" ||
+      (entry.type === "custom_message" && entry.display !== false)
+    )
+      rows.push({ kind: "entry", id: `entry:${entry.id}`, entry });
+    // A command after hidden bookkeeping still appears in the right place.
+    // Results on another branch stay hidden until its anchor is visible again.
+    appendOutputs(entry.id);
+  }
+  return rows;
 }
 
 export interface NativeCatalogModel {

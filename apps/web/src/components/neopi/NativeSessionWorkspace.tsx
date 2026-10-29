@@ -3,11 +3,11 @@ import {
   nativeCatalogModels,
   nativeRecord,
   nativeSessionKey,
-  nativeTranscriptEntries,
+  nativeTranscriptRows,
   type NativeSessionTarget,
+  type NativeTranscriptRow,
 } from "@t3tools/client-runtime/neopi-native-sessions";
 import { journalEntryLabel } from "@t3tools/client-runtime/neopi-journal";
-import type { NeoPiJournalEntry } from "@t3tools/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   nativeDraft,
@@ -170,22 +170,35 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
       editorRef.current?.focus();
     }
   };
-  const rows = useMemo(() => nativeTranscriptEntries(conversation, debug), [conversation, debug]);
+  const rows = useMemo(
+    () => nativeTranscriptRows({ conversation, commandOutputs: feed.commandOutputs }, debug),
+    [conversation, feed.commandOutputs, debug],
+  );
   const renderEntry = useCallback(
-    ({ item }: { item: NeoPiJournalEntry }) => (
-      <article
-        className="mx-auto w-full max-w-(--chat-max-width) px-5 py-4"
-        data-native-entry-id={item.id}
-      >
-        <p className="mb-2 text-xs font-medium text-muted-foreground">{journalEntryLabel(item)}</p>
-        <NeoPiJournalContent
-          entry={item}
-          environmentId={target.environmentId}
-          nativeRef={session?.ref ?? target.ref}
-          cwd={session?.cwd}
-        />
-      </article>
-    ),
+    ({ item }: { item: NativeTranscriptRow }) =>
+      item.kind === "command" ? (
+        <article
+          className="mx-auto w-full max-w-(--chat-max-width) px-5 py-4"
+          aria-label="Command output"
+        >
+          <pre className="whitespace-pre-wrap break-words text-sm">{item.text}</pre>
+        </article>
+      ) : (
+        <article
+          className="mx-auto w-full max-w-(--chat-max-width) px-5 py-4"
+          data-native-entry-id={item.entry.id}
+        >
+          <p className="mb-2 text-xs font-medium text-muted-foreground">
+            {journalEntryLabel(item.entry)}
+          </p>
+          <NeoPiJournalContent
+            entry={item.entry}
+            environmentId={target.environmentId}
+            nativeRef={session?.ref ?? target.ref}
+            cwd={session?.cwd}
+          />
+        </article>
+      ),
     [target.environmentId, target.ref, session?.ref, session?.cwd],
   );
   const model = nativeRecord(state.model);
