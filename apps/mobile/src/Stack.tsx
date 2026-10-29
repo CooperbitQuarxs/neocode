@@ -40,6 +40,10 @@ import {
   HardwareKeyboardCommandOverlay,
   HardwareKeyboardCommandProvider,
 } from "./features/keyboard/HardwareKeyboardCommandProvider";
+import {
+  nativeWorkspaceRoutePath,
+  resolveNativeWorkspaceRoute,
+} from "./features/keyboard/hardwareKeyboardCommands";
 import { ReviewCommentComposerSheet } from "./features/review/ReviewCommentComposerSheet";
 import { ReviewSheet } from "./features/review/ReviewSheet";
 import { ThreadTerminalRouteScreen } from "./features/terminal/ThreadTerminalRouteScreen";
@@ -494,10 +498,13 @@ function workspaceLocationFromState(state: NavigationState) {
     routes.length > 0 && routes.length !== state.routes.length
       ? ({ ...state, routes, index: routes.length - 1 } as NavigationState)
       : state;
-  const path = getPathFromState(effectiveState, navigationPathConfig);
+  const path =
+    nativeWorkspaceRoutePath(effectiveState.routes[effectiveState.index]!) ??
+    getPathFromState(effectiveState, navigationPathConfig);
   return {
     pathname: path.startsWith("/") ? path : `/${path}`,
     routeKey: effectiveState.routes[effectiveState.index]?.key,
+    nativeWorkspace: resolveNativeWorkspaceRoute(effectiveState.routes[effectiveState.index]!),
   };
 }
 
@@ -540,18 +547,26 @@ function RootStackLayout(props: {
   }, [navigation, pendingShare, props.state]);
   // Full pathname (sheets included) for keyboard-command scoping; the
   // workspace layout only reacts to the underlying non-overlay route.
-  const path = getPathFromState(props.state, navigationPathConfig);
+  const path =
+    nativeWorkspaceRoutePath(props.state.routes[props.state.index]!) ??
+    getPathFromState(props.state, navigationPathConfig);
   const pathname = path.startsWith("/") ? path : `/${path}`;
   const workspaceLocation = workspaceLocationFromState(props.state);
 
   return (
-    <HardwareKeyboardCommandProvider pathname={pathname}>
+    <HardwareKeyboardCommandProvider
+      pathname={pathname}
+      nativeWorkspace={workspaceLocation.nativeWorkspace}
+    >
       <ThreadOutboxDrainWorker />
       <ShowcaseCaptureCoordinator pathname={pathname} />
       <ExistingThreadSettingsRouteProvider>
         <AdaptiveWorkspaceLayout
           pathname={workspaceLocation.pathname}
           workspaceRouteKey={workspaceLocation.routeKey}
+          {...(workspaceLocation.nativeWorkspace
+            ? { nativeTarget: workspaceLocation.nativeWorkspace.target }
+            : {})}
         >
           {props.children}
           <HardwareKeyboardCommandOverlay />

@@ -37,6 +37,7 @@ import {
 } from "../lib/composerImages";
 import type { DraftComposerImageAttachment } from "../lib/composerImages";
 import { scopedThreadKey } from "../lib/scopedEntities";
+import { workspaceKey, type WorkspaceRef } from "@t3tools/client-runtime/environment";
 import { buildThreadFeed } from "../lib/threadActivity";
 import { acknowledgedThreadMessagesAtom } from "./acknowledged-thread-messages";
 import { appendPendingThreadMessages } from "../features/threads/pending-thread-feed";
@@ -65,20 +66,24 @@ import { useSelectedThreadDetail } from "../state/use-thread-detail";
 import { useThreadSelection } from "../state/use-thread-selection";
 import { enqueueThreadOutboxMessage } from "./thread-outbox";
 import { dispatchingQueuedMessageIdAtom, useThreadOutboxMessages } from "./use-thread-outbox";
-import { threadEnvironment } from "./threads";
-import { useAtomCommand } from "./use-atom-command";
 import {
   composerAttachmentUploadBlockReason,
   composerAttachmentUploadsAtom,
 } from "./composer-attachment-uploads";
 
-export function appendReviewCommentToDraft(input: {
-  readonly environmentId: EnvironmentId;
-  readonly threadId: ThreadId;
-  readonly text: string;
-  readonly attachments?: ReadonlyArray<DraftComposerImageAttachment>;
-}): void {
-  const threadKey = scopedThreadKey(input.environmentId, input.threadId);
+export function appendReviewCommentToDraft(
+  input: (
+    | { readonly environmentId: EnvironmentId; readonly threadId: ThreadId }
+    | { readonly workspaceRef: WorkspaceRef }
+  ) & {
+    readonly text: string;
+    readonly attachments?: ReadonlyArray<DraftComposerImageAttachment>;
+  },
+): boolean {
+  const threadKey =
+    "workspaceRef" in input
+      ? workspaceKey(input.workspaceRef)
+      : scopedThreadKey(input.environmentId, input.threadId);
   const upgraded = upgradeLegacyContextMessage(input.text);
   if (
     !insertComposerDraftContext(
@@ -87,7 +92,7 @@ export function appendReviewCommentToDraft(input: {
     )
   ) {
     Alert.alert("Too many context items", "Remove some context from the draft and try again.");
-    return;
+    return false;
   }
   if (input.attachments && input.attachments.length > 0) {
     // Capped: a review comment is new content, not a send-failure restore, so
@@ -101,6 +106,7 @@ export function appendReviewCommentToDraft(input: {
       );
     }
   }
+  return true;
 }
 
 export function useThreadDraftForThread(input: {

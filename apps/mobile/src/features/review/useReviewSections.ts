@@ -28,16 +28,18 @@ export function useReviewSections(input: {
   readonly environmentId?: EnvironmentId;
   readonly threadId?: ThreadId;
   readonly reviewCache: ReviewCacheForThread;
+  readonly cwd?: string;
 }) {
   const { environmentId, reviewCache, threadId } = input;
   const enabled = input.enabled ?? true;
   const selectedThread = useSelectedThreadDetail();
   const { selectedThreadCwd } = useSelectedThreadWorktree();
+  const cwd = input.cwd ?? selectedThreadCwd;
   const diffPreview = useEnvironmentQuery(
-    enabled && environmentId !== undefined && selectedThreadCwd !== null
+    enabled && environmentId !== undefined && cwd !== null
       ? reviewEnvironment.diffPreview({
           environmentId,
-          input: { cwd: selectedThreadCwd },
+          input: { cwd },
         })
       : null,
   );
@@ -50,8 +52,8 @@ export function useReviewSections(input: {
   }, [diffPreview.data, reviewCache.threadKey]);
 
   const readyCheckpoints = useMemo(
-    () => getReadyReviewCheckpoints(selectedThread?.checkpoints ?? []),
-    [selectedThread?.checkpoints],
+    () => getReadyReviewCheckpoints(threadId ? (selectedThread?.checkpoints ?? []) : []),
+    [selectedThread?.checkpoints, threadId],
   );
   const checkpointBySectionId = useMemo(
     () =>

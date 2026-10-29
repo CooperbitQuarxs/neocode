@@ -1,7 +1,7 @@
-import type { DeviceServiceState, ThreadId } from "@t3tools/contracts";
+import type { DeviceServiceState } from "@t3tools/contracts";
 
 /** Host identity is part of the selection because Android serials repeat across hosts. */
-export function threadDevicePreviews(state: DeviceServiceState | null, threadId: ThreadId) {
+export function threadDevicePreviews(state: DeviceServiceState | null, threadId: string) {
   return (state?.sessions ?? [])
     .filter((session) => session.threadId === threadId)
     .map((session) => {

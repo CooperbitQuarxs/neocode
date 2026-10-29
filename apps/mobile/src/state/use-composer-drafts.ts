@@ -19,6 +19,7 @@ import {
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { useEffect } from "react";
+import { parseWorkspaceKey } from "@t3tools/client-runtime/environment";
 import { Atom } from "effect/unstable/reactivity";
 
 import { writeFileAtomically } from "../lib/atomic-file";
@@ -1525,11 +1526,40 @@ export function clearComposerDraftContentState(
   options?: {
     readonly clearModelSelection?: boolean;
     readonly clearWorkspaceSelection?: boolean;
+    readonly acceptedSnapshot?: ComposerDraft;
   },
 ): Record<string, ComposerDraft> {
   const existing = current[draftKey];
   if (!existing) {
     return current;
+  }
+  const accepted = options?.acceptedSnapshot;
+  if (accepted) {
+    // Only an unchanged prefix can be attributed to this send. Edits inside the
+    // captured text (or to one of its context records) remain the user's draft.
+    if (
+      !existing.text.startsWith(accepted.text) ||
+      accepted.context?.records.some((record) => {
+        const retained = existing.context?.records.find(
+          (candidate) => candidate.contextId === record.contextId,
+        );
+        return retained !== undefined && retained !== record;
+      })
+    )
+      return current;
+    const text = existing.text.slice(accepted.text.length);
+    const context = referencedComposerContext(text, existing.context);
+    const retainedAttachmentIds = new Set(
+      context?.records.flatMap((record) =>
+        "attachmentId" in record ? [record.attachmentId] : [],
+      ) ?? [],
+    );
+    const acceptedIds = new Set(accepted.attachments.map((attachment) => attachment.id));
+    const attachments = existing.attachments.filter(
+      (attachment) => !acceptedIds.has(attachment.id) || retainedAttachmentIds.has(attachment.id),
+    );
+    const remaining = { ...existing, text, context, attachments };
+    return withComposerDraft(current, draftKey, remaining);
   }
   // Clearing content is the "this draft is done" moment (sent, queued, or
   // discarded), so the project stamp goes too and an otherwise-empty new-task
@@ -1817,6 +1847,7 @@ export function clearComposerDraftContent(
   options?: {
     readonly clearModelSelection?: boolean;
     readonly clearWorkspaceSelection?: boolean;
+    readonly acceptedSnapshot?: ComposerDraft;
     // Send clears the draft while the durable outbox write is still in
     // flight. Sweeping then would race the write: a failed enqueue rolls the
     // message out of the queue mid-sweep and its files get deleted right
@@ -1858,7 +1889,9 @@ export function removeComposerDraftsForEnvironment(
   return Object.fromEntries(
     Object.entries(drafts).filter(
       ([draftKey, draft]) =>
-        !draftKey.startsWith(environmentPrefix) && draft.project?.environmentId !== environmentId,
+        parseWorkspaceKey(draftKey)?.environmentId !== environmentId &&
+        !draftKey.startsWith(environmentPrefix) &&
+        draft.project?.environmentId !== environmentId,
     ),
   );
 }

@@ -1,5 +1,6 @@
 import { EnvironmentId, type ServerConfig } from "@t3tools/contracts";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
+import { parseWorkspaceKey } from "@t3tools/client-runtime/environment";
 
 import { parseLegacyNewTaskDraftKey } from "../state/new-task-draft-key";
 import type { DraftComposerAttachment } from "./composerImages";
@@ -48,6 +49,7 @@ export function composerDraftEnvironmentId(
     const legacy = parseLegacyNewTaskDraftKey(draftKey);
     return legacy === null ? null : EnvironmentId.make(legacy.environmentId);
   }
+  if (draftKey.includes(":native:")) return parseWorkspaceKey(draftKey)?.environmentId ?? null;
   const separator = draftKey.lastIndexOf(":");
   return separator > 0 ? EnvironmentId.make(draftKey.slice(0, separator)) : null;
 }

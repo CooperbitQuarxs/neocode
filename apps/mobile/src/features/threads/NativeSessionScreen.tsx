@@ -9,23 +9,22 @@ import {
 } from "@t3tools/client-runtime/neopi-native-sessions";
 import { journalEntryLabel } from "@t3tools/client-runtime/neopi-journal";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  TextInput,
-  View,
-} from "react-native";
+import { FlatList, KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
 import { AppText as Text } from "../../components/AppText";
 import { MaterialButton } from "../../components/MaterialButton";
 import { ScreenHeader } from "../../components/ScreenHeader";
+import { nativeSessionAtoms, useNativeSession } from "../../state/neopiNativeSessions";
+import { useNativeComposerState } from "../../state/use-native-composer-state";
 import {
-  getNativeDraft,
-  setNativeDraft,
-  nativeSessionAtoms,
-  useNativeSession,
-} from "../../state/neopiNativeSessions";
+  getComposerDraftSnapshot,
+  setComposerDraftText,
+  waitForComposerDraftsLoaded,
+} from "../../state/use-composer-drafts";
+import { NativeSessionComposer } from "./NativeSessionComposer";
+import {
+  NativeSessionWorkspaceControls,
+  NativeSessionAgents,
+} from "./NativeSessionWorkspaceControls";
 import { NativeField, NativeModal, NativeError } from "./NativeNeoPiControls";
 import { NeoPiJournalContent } from "./NeoPiJournalContent";
 import { NativeSessionMobileTree } from "./NativeSessionMobileTree";
@@ -51,14 +50,20 @@ export function NativeSessionScreen({ route }: StaticScreenProps<Params>) {
   return <NativeSessionBody key={nativeSessionKey(target)} target={target} />;
 }
 function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
-  const { feed, request, draft, setDraft, error } = useNativeSession(target);
+  const { feed, request, error } = useNativeSession(target);
+  const composer = useNativeComposerState({
+    target,
+    request,
+    connected: feed.connected,
+    busy: feed.busy,
+  });
   const close = useAtomCommand(nativeSessionAtoms.close, { reportFailure: false });
-  const [sending, setSending] = useState(false);
   const [paging, setPaging] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [models, setModels] = useState(false);
   const [tree, setTree] = useState(false);
   const [debug, setDebug] = useState(false);
+  const [agents, setAgents] = useState(false);
   const [state, setState] = useState<Record<string, unknown>>({});
   const [commands, setCommands] = useState<readonly Record<string, unknown>[]>([]);
   const key = nativeSessionKey(target);
@@ -109,37 +114,33 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
     };
   }, [feed.connected, request]);
   useEffect(() => {
-    if (!feed.editor || editors.get(key) === feed.editor.id) return;
-    editors.set(key, feed.editor.id);
-    if (!getNativeDraft(target)) setNativeDraft(target, feed.editor.text);
-  }, [feed.editor, key, target]);
+    const editor = feed.editor;
+    if (!editor || editors.get(key) === editor.id) return;
+    let active = true;
+    void waitForComposerDraftsLoaded()
+      .then(() => {
+        if (!active || editors.get(key) === editor.id) return;
+        editors.set(key, editor.id);
+        const draft = getComposerDraftSnapshot(composer.key);
+        if (!draft.text && !draft.attachments.length && !draft.context?.records.length)
+          setComposerDraftText(composer.key, editor.text);
+      })
+      .catch((cause) => {
+        if (active) setLocalError(String(cause));
+      });
+    return () => {
+      active = false;
+    };
+  }, [feed.editor, key, composer.key]);
   const execute = useCallback<Request>(
-    async (command) => {
-      const result = await request(command);
+    async (command, attachments) => {
+      const result = await request(command, attachments);
       if (command.type !== "prompt" && command.type !== "extension_ui_response")
         setState(nativeRecord(await request({ type: "get_state" })));
       return result;
     },
     [request],
   );
-  const send = async () => {
-    const message = getNativeDraft(target);
-    if (!message.trim() || sending || !feed.connected) return;
-    setSending(true);
-    setLocalError(null);
-    try {
-      await request({
-        type: "prompt",
-        message,
-        ...(feed.busy ? { streamingBehavior: "followUp" } : {}),
-      });
-      if (getNativeDraft(target) === message) setDraft("");
-    } catch (cause) {
-      setLocalError(String(cause));
-    } finally {
-      setSending(false);
-    }
-  };
   const rows = useMemo(
     () =>
       nativeTranscriptRows(
@@ -150,10 +151,14 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
   );
   const model = nativeRecord(state.model);
   const suggestions =
-    draft.startsWith("/") && !draft.includes(" ") && !draft.includes("\n")
+    composer.draft.text.startsWith("/") &&
+    !composer.draft.text.includes(" ") &&
+    !composer.draft.text.includes("\n")
       ? commands
           .filter(
-            (command) => typeof command.name === "string" && `/${command.name}`.startsWith(draft),
+            (command) =>
+              typeof command.name === "string" &&
+              `/${command.name}`.startsWith(composer.draft.text),
           )
           .slice(0, 10)
       : [];
@@ -234,18 +239,26 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
                 key={String(command.name)}
                 label={`/${command.name}`}
                 tone="text"
-                onPress={() => setDraft(`/${command.name} `)}
+                onPress={() => composer.setText(`/${command.name} `)}
               />
             ))}
           </ScrollView>
         ) : null}
-        <TextInput
-          accessibilityLabel="Message NeoPi"
-          multiline
-          value={draft}
-          onChangeText={setDraft}
-          placeholder="Ask anything, or type / for commands"
-          className="min-h-16 max-h-48 rounded-xl bg-card px-3 py-2 text-foreground"
+        <NativeSessionWorkspaceControls
+          target={target}
+          cwd={feed.session?.cwd ?? null}
+          agentCount={feed.agents.length}
+          onOpenAgents={() => setAgents(true)}
+          onError={setLocalError}
+        />
+        <NativeSessionComposer
+          target={target}
+          cwd={feed.session?.cwd ?? null}
+          composer={composer}
+          busy={feed.busy}
+          onStop={() =>
+            void execute({ type: "abort" }).catch((cause) => setLocalError(String(cause)))
+          }
         />
         <View className="flex-row flex-wrap items-center gap-2">
           <MaterialButton
@@ -257,20 +270,6 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
             label={debug ? "Hide debug" : "Debug"}
             tone="text"
             onPress={() => setDebug((value) => !value)}
-          />
-          {feed.busy ? (
-            <MaterialButton
-              label="Stop"
-              tone="secondary"
-              onPress={() =>
-                void execute({ type: "abort" }).catch((cause) => setLocalError(String(cause)))
-              }
-            />
-          ) : null}
-          <MaterialButton
-            label={sending ? "Sending…" : feed.busy ? "Queue" : "Send"}
-            disabled={sending || !feed.connected || !draft.trim()}
-            onPress={() => void send()}
           />
         </View>
         <NeoPiModelsEntry environmentId={target.environmentId} target={target.ref} />
@@ -288,6 +287,9 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
           }
         />
       </View>
+      {agents ? (
+        <NativeSessionAgents agents={feed.agents} onClose={() => setAgents(false)} />
+      ) : null}
       {models ? <NativeMobileModels request={execute} onClose={() => setModels(false)} /> : null}
       {tree ? (
         <NativeSessionMobileTree target={target} request={execute} onClose={() => setTree(false)} />

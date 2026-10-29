@@ -6,6 +6,7 @@ import { pipe } from "effect/Function";
 import * as Result from "effect/Result";
 
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { WorkspaceRef } from "@t3tools/client-runtime/environment";
 import {
   buildReviewCommentTarget,
   clearReviewCommentTarget,
@@ -29,6 +30,7 @@ interface PendingNativeCommentSelection extends NativeReviewDiffCommentTarget {
 export function useReviewCommentSelectionController(input: {
   readonly environmentId?: EnvironmentId;
   readonly threadId?: ThreadId;
+  readonly workspaceRef?: WorkspaceRef;
   readonly selectedSection: ReviewSectionItem | null;
   readonly nativeReviewDiffData: NativeReviewDiffData;
 }) {
@@ -39,6 +41,18 @@ export function useReviewCommentSelectionController(input: {
     useState<PendingNativeCommentSelection | null>(null);
 
   const openReviewCommentSheet = useCallback(() => {
+    if (input.workspaceRef) {
+      navigation.navigate(
+        "ThreadReviewComment",
+        "ref" in input.workspaceRef
+          ? { workspaceRef: input.workspaceRef }
+          : {
+              environmentId: input.workspaceRef.environmentId,
+              threadId: input.workspaceRef.threadId,
+            },
+      );
+      return;
+    }
     if (!environmentId || !threadId) {
       return;
     }
@@ -47,7 +61,7 @@ export function useReviewCommentSelectionController(input: {
       environmentId,
       threadId,
     });
-  }, [environmentId, navigation, threadId]);
+  }, [environmentId, navigation, threadId, input.workspaceRef]);
 
   const selectedRowIds = useMemo(() => {
     if (
