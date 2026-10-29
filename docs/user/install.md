@@ -252,6 +252,9 @@ conversation without leaving your session. These results stay in the open
 client's conversation view through reconnects; they are not added to the
 session's saved journal.
 
+For a native session working in a Git repository, **Diff** shows working-tree
+changes. Native sessions do not create the turn snapshots used by turn-based diffs.
+
 The status beside the composer follows the connected native model and effort,
 output throughput, journal-wide cache hit rate, context utilization and recorded
 session cost. Context information is always available here, independent of the
