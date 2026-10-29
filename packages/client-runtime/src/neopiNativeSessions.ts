@@ -5,6 +5,7 @@ import type {
   NeoPiNativeSessionRef,
   WS_METHODS,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import type { EnvironmentRpcSuccess, EnvironmentRpcStreamValue } from "./rpc/client.ts";
 import {
   emptyNativeConversation,
@@ -162,7 +163,7 @@ export function reduceNativeSessionFeed(
         event.agents,
         event.revision,
         feed.agentsRevision + 1,
-        new Date().toISOString(),
+        DateTime.formatIso(DateTime.nowUnsafe()),
       ),
       agentsRevision: feed.agentsRevision + 1,
     };
@@ -215,7 +216,7 @@ export function reduceNativeSessionFeed(
       agents: disconnectNativeSubagents(
         feed.agents,
         feed.agentsRevision + 1,
-        new Date().toISOString(),
+        DateTime.formatIso(DateTime.nowUnsafe()),
       ),
       agentsRevision: feed.agentsRevision + 1,
       agentsEpoch: feed.agentsEpoch + 1,
@@ -242,7 +243,11 @@ export function reduceNativeSessionFeed(
       conversation,
       commandOutputs: sameFile ? feed.commandOutputs : [],
       agents: sameFile
-        ? disconnectNativeSubagents(feed.agents, feed.agentsRevision + 1, new Date().toISOString())
+        ? disconnectNativeSubagents(
+            feed.agents,
+            feed.agentsRevision + 1,
+            DateTime.formatIso(DateTime.nowUnsafe()),
+          )
         : [],
       agentsRevision: feed.agentsRevision + 1,
       agentsEpoch: feed.agentsEpoch + 1,
@@ -288,7 +293,7 @@ export function reduceNativeSessionFeed(
       next.agents,
       frame,
       next.agentsRevision + 1,
-      new Date().toISOString(),
+      DateTime.formatIso(DateTime.nowUnsafe()),
     );
     if (agents !== next.agents) next = { ...next, agents, agentsRevision: next.agentsRevision + 1 };
   }
