@@ -31,6 +31,18 @@ import {
   NeoPiSessionConfigurationInput,
   NeoPiSessionConfigurationResult,
 } from "./neopiSessions.ts";
+import {
+  NeoPiNativeSessionsError,
+  NeoPiNativeSessionsListInput,
+  NeoPiNativeSessionsListResult,
+  NeoPiNativeSessionsOpenInput,
+  NeoPiNativeSessionsOpenResult,
+  NeoPiNativeSessionsRequestInput,
+  NeoPiNativeSessionsWatchInput,
+  NeoPiNativeSessionsStreamEvent,
+  NeoPiNativeSessionsCloseInput,
+  NeoPiNativeSessionsCloseResult,
+} from "./neopiNativeSessions.ts";
 import { NeoPiSessionJournalInput, NeoPiSessionJournalResult } from "./neopiJournal.ts";
 import {
   NeoPiWatchJournalInput,
@@ -305,6 +317,11 @@ export const WS_METHODS = {
 
   // Filesystem methods
   filesystemBrowse: "filesystem.browse",
+  neopiNativeSessionsList: "neopiNativeSessions.list",
+  neopiNativeSessionsOpen: "neopiNativeSessions.open",
+  neopiNativeSessionsRequest: "neopiNativeSessions.request",
+  neopiNativeSessionsWatch: "neopiNativeSessions.watch",
+  neopiNativeSessionsClose: "neopiNativeSessions.close",
   neopiSessionsList: "neopiSessions.list",
   neopiSessionsResume: "neopiSessions.resume",
   neopiSessionsHandoff: "neopiSessions.handoff",
@@ -940,6 +957,37 @@ const WsNeoPiCancelNavigationRpc = Rpc.make(WS_METHODS.neopiSessionsCancelNaviga
   error: EnvironmentAuthorizationError,
 });
 
+const NeoPiNativeSessionsRpcError = Schema.Union([
+  NeoPiNativeSessionsError,
+  EnvironmentAuthorizationError,
+]);
+const WsNeoPiNativeSessionsListRpc = Rpc.make(WS_METHODS.neopiNativeSessionsList, {
+  payload: NeoPiNativeSessionsListInput,
+  success: NeoPiNativeSessionsListResult,
+  error: NeoPiNativeSessionsRpcError,
+});
+const WsNeoPiNativeSessionsOpenRpc = Rpc.make(WS_METHODS.neopiNativeSessionsOpen, {
+  payload: NeoPiNativeSessionsOpenInput,
+  success: NeoPiNativeSessionsOpenResult,
+  error: NeoPiNativeSessionsRpcError,
+});
+const WsNeoPiNativeSessionsRequestRpc = Rpc.make(WS_METHODS.neopiNativeSessionsRequest, {
+  payload: NeoPiNativeSessionsRequestInput,
+  success: Schema.Unknown,
+  error: NeoPiNativeSessionsRpcError,
+});
+const WsNeoPiNativeSessionsWatchRpc = Rpc.make(WS_METHODS.neopiNativeSessionsWatch, {
+  payload: NeoPiNativeSessionsWatchInput,
+  success: NeoPiNativeSessionsStreamEvent,
+  error: NeoPiNativeSessionsRpcError,
+  stream: true,
+});
+const WsNeoPiNativeSessionsCloseRpc = Rpc.make(WS_METHODS.neopiNativeSessionsClose, {
+  payload: NeoPiNativeSessionsCloseInput,
+  success: NeoPiNativeSessionsCloseResult,
+  error: NeoPiNativeSessionsRpcError,
+});
+
 const WsNeoPiSessionsListRpc = Rpc.make(WS_METHODS.neopiSessionsList, {
   payload: NeoPiSessionListInput,
   success: NeoPiSessionListResult,
@@ -1503,6 +1551,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
+  WsNeoPiNativeSessionsListRpc,
+  WsNeoPiNativeSessionsOpenRpc,
+  WsNeoPiNativeSessionsRequestRpc,
+  WsNeoPiNativeSessionsWatchRpc,
+  WsNeoPiNativeSessionsCloseRpc,
   WsNeoPiSessionsListRpc,
   WsNeoPiSessionsResumeRpc,
   WsNeoPiSessionsHandoffRpc,

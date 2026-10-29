@@ -113,6 +113,7 @@ import * as ProviderService from "./provider/Services/ProviderService.ts";
 import * as ProviderSessionDirectory from "./provider/Services/ProviderSessionDirectory.ts";
 import { ProviderInstanceRegistry } from "./provider/Services/ProviderInstanceRegistry.ts";
 import { makeNeoPiSessionCatalog } from "./provider/neopi/NeoPiSessionCatalog.ts";
+import { NeoPiNativeSessions } from "./provider/neopi/NeoPiNativeSessions.ts";
 import { makeNeoPiSessionJournal } from "./provider/neopi/NeoPiSessionJournal.ts";
 import { makeNeoPiNativeConversation } from "./provider/neopi/NeoPiNativeConversation.ts";
 import { makeNeoPiThemes } from "./provider/neopi/NeoPiThemes.ts";
@@ -621,7 +622,8 @@ const makeWsRpcLayer = (
         | WorkspacePaths.WorkspacePaths
       >();
       const neopiSessionCatalog = yield* makeNeoPiSessionCatalog();
-      const neopiModels = yield* makeNeoPiModels();
+      const neopiNativeSessions = yield* NeoPiNativeSessions;
+      const neopiModels = yield* makeNeoPiModels(neopiNativeSessions.modelsConnection);
       const neopiSessionJournal = yield* makeNeoPiSessionJournal();
       const neopiNativeConversation = yield* makeNeoPiNativeConversation();
       const neopiThemes = makeNeoPiThemes(neopiModels.connection);
@@ -3105,6 +3107,30 @@ const makeWsRpcLayer = (
             deletePendingAttachment(input.attachmentId),
             { "rpc.aggregate": "workspace" },
           ),
+        [WS_METHODS.neopiNativeSessionsList]: (input) =>
+          observeRpcEffect(WS_METHODS.neopiNativeSessionsList, neopiNativeSessions.list(input), {
+            "rpc.aggregate": "workspace",
+          }),
+        [WS_METHODS.neopiNativeSessionsOpen]: (input) =>
+          observeRpcEffect(WS_METHODS.neopiNativeSessionsOpen, neopiNativeSessions.open(input), {
+            "rpc.aggregate": "workspace",
+          }),
+        [WS_METHODS.neopiNativeSessionsRequest]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.neopiNativeSessionsRequest,
+            neopiNativeSessions.request(input),
+            {
+              "rpc.aggregate": "workspace",
+            },
+          ),
+        [WS_METHODS.neopiNativeSessionsWatch]: (input) =>
+          observeRpcStream(WS_METHODS.neopiNativeSessionsWatch, neopiNativeSessions.watch(input), {
+            "rpc.aggregate": "workspace",
+          }),
+        [WS_METHODS.neopiNativeSessionsClose]: (input) =>
+          observeRpcEffect(WS_METHODS.neopiNativeSessionsClose, neopiNativeSessions.close(input), {
+            "rpc.aggregate": "workspace",
+          }),
         [WS_METHODS.neopiSessionsList]: (input) =>
           observeRpcEffect(WS_METHODS.neopiSessionsList, neopiSessionCatalog.list(input), {
             "rpc.aggregate": "workspace",
@@ -3177,6 +3203,8 @@ const makeWsRpcLayer = (
               if (
                 input.resource._tag === "attachment" ||
                 input.resource._tag === "native-app-icon" ||
+                input.resource._tag === "native-media-file" ||
+                input.resource._tag === "native-workspace-file" ||
                 // GitHub media names the repository it authenticates through itself.
                 input.resource._tag === "github-media" ||
                 (input.resource._tag === "media-file" && path.isAbsolute(input.resource.path))

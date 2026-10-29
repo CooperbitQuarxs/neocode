@@ -5,6 +5,7 @@ import { ProviderInstanceId } from "./providerInstance.ts";
 export const NeoPiModelsScope = Schema.Literals(["global", "project"]);
 export const NeoPiModelsTarget = Schema.Struct({
   providerInstanceId: ProviderInstanceId,
+  sessionFile: Schema.optional(Schema.String),
   projectId: Schema.optional(ProjectId),
   threadId: Schema.optional(ThreadId),
 });

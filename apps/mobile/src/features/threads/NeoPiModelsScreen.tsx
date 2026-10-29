@@ -26,6 +26,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { useRemoteConnectionStatus } from "../../state/use-remote-environment-registry";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 import { NativeChoice, NativeError, NativeField, NativeModal } from "./NativeNeoPiControls";
+import { NeoPiModelsSelector } from "./NeoPiModelsSelector";
 
 type Configuration = NeoPiModelsConfiguration;
 type Role = Configuration["roles"][number];
@@ -58,7 +59,7 @@ export function NeoPiModelsScreen({ route }: StaticScreenProps<NeoPiModelsScreen
     environmentId: route.params?.environmentId ?? null,
     instanceId: route.params?.target?.providerInstanceId ?? null,
     projectId: route.params?.target?.projectId ?? null,
-    threadId: route.params?.target?.threadId,
+    sessionFile: route.params?.target?.sessionFile,
   }));
   const environmentId = selection.environmentId ?? environments[0]?.environmentId;
   const environment = environments.find((value) => value.environmentId === environmentId);
@@ -74,7 +75,7 @@ export function NeoPiModelsScreen({ route }: StaticScreenProps<NeoPiModelsScreen
     ? {
         providerInstanceId: provider.instanceId,
         ...(selection.projectId ? { projectId: selection.projectId } : {}),
-        ...(selection.threadId ? { threadId: selection.threadId } : {}),
+        ...(selection.sessionFile ? { sessionFile: selection.sessionFile } : {}),
       }
     : null;
   return (
@@ -92,7 +93,7 @@ export function NeoPiModelsScreen({ route }: StaticScreenProps<NeoPiModelsScreen
               environmentId: value as EnvironmentId,
               instanceId: null,
               projectId: null,
-              threadId: undefined,
+              sessionFile: undefined,
             })
           }
         />
@@ -107,7 +108,7 @@ export function NeoPiModelsScreen({ route }: StaticScreenProps<NeoPiModelsScreen
             setSelection((previous) => ({
               ...previous,
               instanceId: value as ProviderInstanceId,
-              threadId: undefined,
+              sessionFile: undefined,
             }))
           }
         />
@@ -124,13 +125,13 @@ export function NeoPiModelsScreen({ route }: StaticScreenProps<NeoPiModelsScreen
             setSelection((previous) => ({
               ...previous,
               projectId: value ? (value as ProjectId) : null,
-              threadId: undefined,
+              sessionFile: undefined,
             }))
           }
         />
         <Text className="text-xs text-foreground-muted">
-          {selection.threadId
-            ? "Configuration from this thread's native session. Changing project or runtime leaves session-bound settings."
+          {selection.sessionFile
+            ? "Configuration from this session. Changing project or runtime leaves session-bound settings."
             : "NeoPi owns these settings. Native clients share changes; model and effort selection stay native."}
         </Text>
       </View>
@@ -276,10 +277,10 @@ function ModelsContent({
     { value: "all", label: "All models" },
     { value: "roles", label: "Roles" },
     ...[...configuration.providers]
-      .sort((a, b) => Number(b.available) - Number(a.available) || a.name.localeCompare(b.name))
+      .sort((a, b) => Number(b.authenticated) - Number(a.authenticated) || a.id.localeCompare(b.id))
       .map((value) => ({
         value: `provider:${value.id}`,
-        label: `${value.mark.text} ${value.name}${value.available ? "" : " · Not connected"}`,
+        label: `${value.authenticated ? "●" : "○"} ${value.id} · ${value.authenticated ? "Signed in" : "Not signed in"}`,
       })),
   ];
   return (
@@ -348,9 +349,7 @@ function ModelsContent({
           }
           renderItem={({ item: role }) => (
             <View className="gap-2 border-b border-border-subtle pb-3">
-              <Text className="font-t3-medium text-foreground">
-                {role.name} · {role.alias}
-              </Text>
+              <Text className="font-t3-medium text-foreground">{role.alias}</Text>
               {role.description ? (
                 <Text className="text-sm text-foreground-muted">{role.description}</Text>
               ) : null}
@@ -363,7 +362,7 @@ function ModelsContent({
                   : " · Unresolved"}
               </Text>
               <MaterialButton
-                label={`Configure ${role.name}`}
+                label={`Configure ${role.alias}`}
                 disabled={pending}
                 onPress={() => setAssignment({ role, selector: role.configured ?? "" })}
               />
@@ -403,7 +402,7 @@ function ModelsContent({
                 {model.provider}/{model.id}
                 {"\n"}
                 {model.kind}
-                {!model.available ? " · Not connected" : ""}
+                {!model.available ? " · Not available" : ""}
                 {model.supportsFastMode ? " · Native fast mode" : ""}
                 {"\n"}Context effective/native: {model.effectiveContextWindow.toLocaleString()} /{" "}
                 {formatNeoPiModelTokenLimit(model.contextWindow)} · Output{" "}
@@ -444,7 +443,9 @@ function RoleEditor({
   const [expected, setExpected] = useState(
     initial.role?.global ?? { selector: null, effort: null },
   );
-  const [selector, setSelector] = useState(initial.role?.global.selector ?? initial.selector);
+  const [selector, setSelector] = useState(
+    initial.role ? (initial.role.global.selector ?? "") : initial.selector,
+  );
   const [mode, setMode] = useState<"selector" | "inherit" | "fixed" | "auto">(
     initial.role?.global.effort?.mode ?? "selector",
   );
@@ -485,19 +486,24 @@ function RoleEditor({
           : undefined;
   return (
     <View className="gap-4">
-      <NativeField
-        label="Role name"
-        value={roleId}
-        disabled={pending}
-        onChange={(value) => load(value, scope)}
-      />
       <NativeChoice
-        label="Existing native roles"
-        value={roleId}
-        options={configuration.roles.map((role) => ({ value: role.id, label: role.name }))}
+        label="Native role"
+        value={configuration.roles.some((role) => role.id === roleId) ? roleId : ""}
+        options={[
+          { value: "", label: "New role…" },
+          ...configuration.roles.map((role) => ({ value: role.id, label: role.alias })),
+        ]}
         disabled={pending}
         onChange={(value) => load(value, scope)}
       />
+      {!configuration.roles.some((role) => role.id === roleId) ? (
+        <NativeField
+          label="New role name"
+          value={roleId}
+          disabled={pending}
+          onChange={(value) => load(value, scope)}
+        />
+      ) : null}
       <NativeChoice
         label="Save scope"
         value={scope}
@@ -510,12 +516,12 @@ function RoleEditor({
         disabled={pending}
         onChange={(value) => load(roleId, value)}
       />
-      <NativeField
+      <NeoPiModelsSelector
+        configuration={configuration}
         label="Model or native selector"
         value={selector}
         disabled={pending}
         onChange={setSelector}
-        placeholder="provider/model, glob, @role or re:expression"
       />
       <Text className="text-xs text-foreground-muted">
         NeoPi validates and resolves this selector. Clearing this scope restores its inherited
@@ -750,11 +756,17 @@ function ProviderAccounts({
   }
   return (
     <View className="gap-3 border-b border-border-subtle pb-4">
+      <Text className="text-sm text-foreground">
+        {provider.authenticated ? "●" : "○"}{" "}
+        {provider.authenticated ? "Signed in" : "Not signed in"}
+      </Text>
       <Text className="text-sm text-foreground-muted">
         {provider.disabled
           ? "Disabled in native NeoPi settings"
           : (provider.authSource ??
-            (provider.available ? "Models available without stored credentials" : "Not connected"))}
+            (provider.available
+              ? "Models available without stored credentials"
+              : "No models available"))}
       </Text>
       {provider.envVars.length ? (
         <Text className="text-xs text-foreground-muted">
@@ -790,7 +802,7 @@ function ProviderAccounts({
         />
       ) : null}
       <NativeField
-        label={`Native ${provider.name} API key`}
+        label={`Native ${provider.id} API key`}
         value={key}
         onChange={setKey}
         secret

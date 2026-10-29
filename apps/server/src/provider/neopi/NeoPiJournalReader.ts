@@ -5,11 +5,14 @@ import {
   type NeoPiJournalOptions,
   type NeoPiSessionJournalResult,
 } from "@t3tools/contracts";
+import type { NeoPiRpcError } from "effect-neopi-rpc/errors";
 import * as Effect from "effect/Effect";
 import type * as FileSystem from "effect/FileSystem";
+import type * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
 import { NEOPI_CAPABILITIES } from "./NeoPiCompatibility.ts";
 import type { NeoPiConfigurationIdentity } from "./NeoPiSessionConfiguration.ts";
+import type { NeoPiRuntimeError } from "./NeoPiRuntimeError.ts";
 
 export type ReadResult =
   | { readonly status: "available"; readonly page: NeoPiJournalPage }
@@ -92,12 +95,18 @@ export const readNeoPiJournalPeer = Effect.fn("NeoPiJournal.readPeer")(
   function* (
     peer: {
       readonly capabilities: ReadonlySet<string>;
-      readonly request: (command: { readonly type: string; readonly [key: string]: unknown }) => Effect.Effect<unknown, unknown>;
+      readonly request: (command: {
+        readonly type: string;
+        readonly [key: string]: unknown;
+      }) => Effect.Effect<unknown, NeoPiRpcError | NeoPiRuntimeError>;
     },
     expected: NeoPiConfigurationIdentity,
     options: NeoPiJournalOptions,
     resolveFile: (file: string) => ReturnType<FileSystem.FileSystem["realPath"]>,
-  ): Effect.fn.Return<ReadResult, unknown> {
+  ): Effect.fn.Return<
+    ReadResult,
+    NeoPiRpcError | NeoPiRuntimeError | Schema.SchemaError | PlatformError.PlatformError
+  > {
     if (!peer.capabilities.has(NEOPI_CAPABILITIES.sessionJournal))
       return {
         status: "unavailable",

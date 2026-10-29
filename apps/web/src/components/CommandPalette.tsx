@@ -32,6 +32,7 @@ import {
   type EnvironmentMachineKind,
   type FilesystemBrowseResult,
   type ProjectId,
+  type ScopedProjectRef,
   type SourceControlDiscoveryResult,
   type SourceControlProviderKind,
   type SourceControlRepositoryInfo,
@@ -173,6 +174,7 @@ import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindin
 import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/command";
 import { NeoPiSessionPickerHost, useNeoPiSessionPickerAction } from "./neopi/NeoPiSessionEntry";
 import { useOpenModels } from "./neopi/modelsPageState";
+import { useCreateNativeSession } from "./neopi/NativeSessionSidebar";
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -734,10 +736,32 @@ function OpenCommandPaletteDialog(props: {
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
-  const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
-    useHandleNewThread();
+  const { activeDraftThread, activeThread, defaultProjectRef } = useHandleNewThread();
   const projects = useProjects();
   const neopiSessionAction = useNeoPiSessionPickerAction();
+  const createNativeSession = useCreateNativeSession();
+  const handleNewThread = useCallback(
+    (
+      projectRef: ScopedProjectRef,
+      options?: {
+        worktreePath?: string | null;
+        branch?: string | null;
+        envMode?: string;
+        startFromOrigin?: boolean;
+        replace?: boolean;
+      },
+    ) =>
+      createNativeSession(
+        projectRef.environmentId,
+        options?.worktreePath ??
+          projects.find(
+            (project) =>
+              project.environmentId === projectRef.environmentId &&
+              project.id === projectRef.projectId,
+          )?.workspaceRoot,
+      ),
+    [createNativeSession, projects],
+  );
   const referenceThreadRef =
     pathname === "/pull-requests"
       ? environments.some(
@@ -1733,35 +1757,19 @@ function OpenCommandPaletteDialog(props: {
 
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
   if (neopiSessionAction) actionItems.push(neopiSessionAction);
+  actionItems.push({
+    kind: "action",
+    value: "action:new-native-session",
+    title: "New thread",
+    searchTerms: ["new thread", "chat", "create", "native"],
+    shortcutCommand: "chat.new",
+    icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await createNativeSession();
+    },
+  });
 
   if (projects.length > 0) {
-    const activeProjectTitle =
-      projectPickerEntries.find((entry) => entry.isPreferred)?.group.displayName ??
-      (currentProjectId ? (projectTitleById.get(currentProjectId) ?? null) : null);
-
-    if (activeProjectTitle) {
-      actionItems.push({
-        kind: "action",
-        value: "action:new-thread",
-        searchTerms: ["new thread", "chat", "create", "draft"],
-        title: (
-          <>
-            New thread in <span className="font-semibold">{activeProjectTitle}</span>
-          </>
-        ),
-        icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
-        shortcutCommand: "chat.new",
-        run: async () => {
-          await startNewThreadFromContext({
-            activeDraftThread,
-            activeThread: activeThread ?? undefined,
-            defaultProjectRef,
-            handleNewThread,
-          });
-        },
-      });
-    }
-
     actionItems.push({
       kind: "submenu",
       value: "action:new-thread-in",

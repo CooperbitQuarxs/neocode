@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
+import { ProjectId } from "./baseSchemas.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { RuntimeEventRaw } from "./providerRuntime.ts";
 import {
@@ -32,13 +33,15 @@ describe("scoped action settings", () => {
     const stored = decodeServerSettings(patch);
     const reloaded = decodeServerSettings(encodeServerSettings(stored));
     expect(reloaded.actions).toEqual(actions);
-    expect(reloaded.projectSettingsOverrides.project?.actions).toEqual(actions);
+    expect(reloaded.projectSettingsOverrides[ProjectId.make("project")]?.actions).toEqual(actions);
   });
 
   it("rejects incomplete command definitions instead of accepting a broken action", () => {
-    expect(() => decodeServerSettingsPatch({
-      actions: { broken: { id: "broken", name: "Broken" } },
-    })).toThrow();
+    expect(() =>
+      decodeServerSettingsPatch({
+        actions: { broken: { id: "broken", name: "Broken" } },
+      }),
+    ).toThrow();
   });
 });
 

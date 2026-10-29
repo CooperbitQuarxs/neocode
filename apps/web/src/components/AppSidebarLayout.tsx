@@ -25,14 +25,13 @@ import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../termina
 import { resolveThreadRouteRef } from "../threadRoutes";
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../hooks/useSettings";
+import { useEnvironmentIdentificationMode } from "../hooks/useSettings";
 import {
   PanelAnimationSuppressionProvider,
   usePanelAnimationSettings,
   usePanelNavigationSuppression,
 } from "../panelAnimations";
-import LegacyThreadSidebar from "./LegacySidebar";
-import ThreadSidebar from "./Sidebar";
+import { NativeSessionSidebar } from "./neopi/NativeSessionSidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { ConnectionCatalogRecoveryNotice } from "./desktop/ConnectionCatalogRecoveryNotice";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
@@ -218,7 +217,6 @@ function ProjectProjectionRetention() {
 
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
-  const legacySidebarEnabled = useLegacySidebarEnabled();
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   // Settings routes show the settings nav in place of whichever thread
@@ -324,11 +322,12 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
               <SettingsSidebarNav pathname={pathname} />
             </>
           ) : pathname === "/models" ? (
-            <><SidebarChromeHeader isElectron={isElectron} /><NeoPiModelsSidebar /></>
-          ) : legacySidebarEnabled ? (
-            <LegacyThreadSidebar />
+            <>
+              <SidebarChromeHeader isElectron={isElectron} />
+              <NeoPiModelsSidebar />
+            </>
           ) : (
-            <ThreadSidebar />
+            <NativeSessionSidebar />
           )}
           <SidebarRail onDoubleClick={resetSidebarWidth} />
         </Sidebar>

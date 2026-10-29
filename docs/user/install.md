@@ -210,34 +210,27 @@ choices. Login and cancellation are handled by the selected native connection.
 Cancelling a login does not undo an account save that already completed; native
 failures remain visible so you can retry from Models. API-key and local models
 can work even when authentication is reported as unknown.
-With a current `npi`, NeoPi threads use the CLI's normal session folders, so they
-also appear in `npi --resume`; older CLIs keep them isolated under T3's home directory.
 
-To continue a terminal session in NeoCode, use **Resume NeoPi session** (beside
-**New thread** in the sidebar, or in the command palette). It lists the
-project's NeoPi sessions, or every project's, across all enabled NeoPi instances
-that support discovery. Shared session files appear once, preferring your default
-instance for new imports. Bound sessions retain their saved provider instance.
-GUI-created worktree sessions appear in their owning project under the saved
-NeoCode thread title, even if the native file has no title or message preview.
-If one instance cannot load its catalog, the picker identifies it and keeps
-sessions from healthy instances available. Fix that instance and refresh to
-include its sessions.
-Symlink and canonical paths refer to the same project and session. Under
-**All projects**, you can resume a session from another accessible directory.
-NeoCode uses its existing project or known worktree association, or registers
-that directory as a project after validating the session. Browsing the list
-does not register projects.
-The list shows which sessions are open in a terminal. The picker waits for
-imported history before opening the thread. Reopening an already-bound, stopped
-thread restores new terminal turns into that same thread without duplicating
-earlier messages. An active NeoCode thread opens without replacing its history.
+**New thread** creates a session directly in NeoPi. You do not need to add a
+project or initialize a repository first. The session uses NeoPi's normal session
+folders and can also be opened with `npi --resume`.
 
-NeoCode follows the native session's selected branch in the main conversation,
-including turns started in its terminal. GUI turns use the existing NeoPi send
-path. Opening a conversation never takes ownership from the terminal or starts a
-second writer. The conversation header distinguishes attached input, terminal
-observation, stopped history and reconnecting state.
+To continue a terminal session in NeoCode, use **Resume NeoPi session** in the
+sidebar or command palette. Discovery reads the enabled NeoPi instances without
+starting their sessions. Each result keeps its configured profile and native
+file identity. If one instance cannot load its catalog, its error remains visible
+while sessions from healthy instances stay available.
+
+Opening a session reads its native journal; it does not import a second
+conversation into NeoCode's database. Windows on the same server share the
+connection to that file. Closing a window does not stop its running turn.
+When a terminal already owns the session, NeoCode attaches through its control
+connection rather than starting a second writer. Disconnecting that attachment
+leaves the terminal running.
+
+The conversation follows NeoPi's selected branch, including turns started from
+the terminal. While reconnecting, NeoCode retains the displayed conversation and
+requests a fresh native snapshot without resending your prompt.
 
 The status beside the composer follows the connected native model and effort,
 output throughput, journal-wide cache hit rate, context utilization and recorded

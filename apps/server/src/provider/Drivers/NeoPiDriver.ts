@@ -232,6 +232,7 @@ export const NeoPiDriver: ProviderDriver<NeoPiSettings, NeoPiDriverEnv> = {
           binary,
           env,
           profile: config.profile,
+          launchArgs: config.launchArgs,
           capabilities: sharedSessionCapabilities,
           probe: capabilityProbe,
           configuration: adapter.getConfiguration,

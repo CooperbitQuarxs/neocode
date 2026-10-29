@@ -41,6 +41,11 @@ export type NativeConversationAction =
   | { type: "identity"; identity: NativeIdentity }
   | { type: "entry"; identity: NativeIdentity; entry: NeoPiJournalEntry }
   | { type: "persisted"; identity: NativeIdentity; messageId: string; entryId: string }
+  | {
+      type: "persistence_snapshot";
+      identity: NativeIdentity;
+      messageEntryIds: ReadonlyArray<{ messageId: string; entryId: string }>;
+    }
   | { type: "message"; messageId: string; message: Readonly<Record<string, unknown>> };
 
 function uniqueEntries(entries: ReadonlyArray<NeoPiJournalEntry>) {
@@ -81,7 +86,7 @@ export function reduceNativeConversation(
               (message) => !ids.has(state.persisted.get(message.messageId) ?? ""),
             )
           : [],
-        persisted: extendsBranch ? state.persisted : new Map(),
+        persisted: sameNativeSession(state.identity, page) ? state.persisted : new Map(),
         cursor: page.nextCursor,
         cursorLeaf: page.leafId,
         revision: state.revision + 1,
@@ -95,9 +100,14 @@ export function reduceNativeConversation(
         action.page.leafId !== state.cursorLeaf
       )
         return state;
+      const entries = uniqueEntries([...action.page.entries, ...state.entries]);
+      const entryIds = new Set(entries.map((entry) => entry.id));
       return {
         ...state,
-        entries: uniqueEntries([...action.page.entries, ...state.entries]),
+        entries,
+        pending: state.pending.filter(
+          (message) => !entryIds.has(state.persisted.get(message.messageId) ?? ""),
+        ),
         cursor: action.page.nextCursor,
       };
     }
@@ -135,6 +145,23 @@ export function reduceNativeConversation(
         pending,
         needsSnapshot: action.entry.id !== action.identity.leafId,
         revision: state.revision + 1,
+      };
+    }
+    case "persistence_snapshot": {
+      if (
+        !sameNativeSession(state.identity, action.identity) ||
+        action.messageEntryIds.length === 0
+      )
+        return state;
+      const persisted = new Map(state.persisted);
+      for (const pair of action.messageEntryIds) persisted.set(pair.messageId, pair.entryId);
+      const entryIds = new Set(state.entries.map((entry) => entry.id));
+      return {
+        ...state,
+        persisted,
+        pending: state.pending.filter(
+          (message) => !entryIds.has(persisted.get(message.messageId) ?? ""),
+        ),
       };
     }
     case "persisted": {

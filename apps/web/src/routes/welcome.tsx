@@ -3,7 +3,8 @@ import { useState } from "react";
 
 import { NoProjectsHero } from "../components/NoProjectsHero";
 import { WelcomeWizard } from "../components/onboarding/WelcomeWizard";
-import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { useCreateNativeSession } from "../components/neopi/NativeSessionSidebar";
+import { readProjects } from "../state/entities";
 
 /** Onboarding overlays the workspace. Visiting /welcome reopens setup. */
 export const Route = createFileRoute("/welcome")({
@@ -23,7 +24,7 @@ function WelcomeRouteView() {
   // Never reopen setup while the destination route is still loading.
   const isWelcomeRoute = useLocation({ select: (location) => location.pathname === "/welcome" });
   const [dismissed, setDismissed] = useState(false);
-  const openNewThread = useNewThreadHandler();
+  const createSession = useCreateNativeSession();
   // An authenticated gate means a primary server is serving this app —
   // desktop, `npx t3`, or a dev server — and that server is "this machine"
   // no matter what hostname the browser used. Only hosted-static has no
@@ -38,7 +39,12 @@ function WelcomeRouteView() {
           onDone={(projectRef) => {
             setDismissed(true);
             if (projectRef !== undefined) {
-              void openNewThread(projectRef, { replace: true }).catch(() => {
+              const cwd = readProjects().find(
+                (project) =>
+                  project.environmentId === projectRef.environmentId &&
+                  project.id === projectRef.projectId,
+              )?.workspaceRoot;
+              void createSession(projectRef.environmentId, cwd).catch(() => {
                 void navigate({ to: "/", replace: true });
               });
               return;

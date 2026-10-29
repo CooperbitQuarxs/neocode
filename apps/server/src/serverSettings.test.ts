@@ -81,25 +81,35 @@ const recordProviderUsage = (provider: string, instanceId: string | null = provi
   });
 
 it.layer(NodeServices.layer)("server settings", (it) => {
-  it.effect("respects an explicit disabled native default when finding a text-generation fallback", () =>
-    Effect.gen(function* () {
-      const service = yield* ServerSettingsModule.ServerSettingsService;
-      const defaultId = ProviderInstanceId.make("neopi");
-      const workId = ProviderInstanceId.make("native-work");
-      const legacyId = ProviderInstanceId.make("saved-codex");
-      const next = yield* service.updateSettings({
-        providerInstances: {
-          [defaultId]: { driver: ProviderDriverKind.make("neopi"), enabled: false, config: { profile: "personal" } },
-          [workId]: { driver: ProviderDriverKind.make("neopi"), enabled: true, config: { profile: "work" } },
-          [legacyId]: { driver: ProviderDriverKind.make("codex"), enabled: true, config: {} },
-        },
-        textGenerationModelSelection: { instanceId: legacyId, model: "saved-model" },
-      });
-      assert.equal(next.textGenerationModelSelection.instanceId, workId);
-      assert.equal(next.providerInstances[defaultId]?.enabled, false);
-      assert.deepEqual(next.providerInstances[defaultId]?.config, { profile: "personal" });
-      assert.deepEqual(next.providerInstances[workId]?.config, { profile: "work" });
-    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  it.effect(
+    "respects an explicit disabled native default when finding a text-generation fallback",
+    () =>
+      Effect.gen(function* () {
+        const service = yield* ServerSettingsModule.ServerSettingsService;
+        const defaultId = ProviderInstanceId.make("neopi");
+        const workId = ProviderInstanceId.make("native-work");
+        const legacyId = ProviderInstanceId.make("saved-codex");
+        const next = yield* service.updateSettings({
+          providerInstances: {
+            [defaultId]: {
+              driver: ProviderDriverKind.make("neopi"),
+              enabled: false,
+              config: { profile: "personal" },
+            },
+            [workId]: {
+              driver: ProviderDriverKind.make("neopi"),
+              enabled: true,
+              config: { profile: "work" },
+            },
+            [legacyId]: { driver: ProviderDriverKind.make("codex"), enabled: true, config: {} },
+          },
+          textGenerationModelSelection: { instanceId: legacyId, model: "saved-model" },
+        });
+        assert.equal(next.textGenerationModelSelection.instanceId, workId);
+        assert.equal(next.providerInstances[defaultId]?.enabled, false);
+        assert.deepEqual(next.providerInstances[defaultId]?.config, { profile: "personal" });
+        assert.deepEqual(next.providerInstances[workId]?.config, { profile: "work" });
+      }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
   it.effect("preserves context when reading a provider environment secret fails", () => {
@@ -253,7 +263,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         const claudeId = ProviderInstanceId.make("claude_work");
         yield* fs.writeFileString(
           config.settingsPath,
-          JSON.stringify({
+          yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
             providers: { codex: { enabled }, claudeAgent: { enabled } },
             providerInstances: {
               [codexId]: { driver: "codex", enabled, config: {} },
@@ -499,13 +509,34 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const work = ProviderInstanceId.make("work");
       yield* serverSettings.updateSettings({
         providerInstances: {
-          [personal]: { driver: ProviderDriverKind.make("neopi"), enabled: true, config: { profile: "personal" } },
-          [work]: { driver: ProviderDriverKind.make("neopi"), enabled: true, config: { profile: "work" } },
+          [personal]: {
+            driver: ProviderDriverKind.make("neopi"),
+            enabled: true,
+            config: { profile: "personal" },
+          },
+          [work]: {
+            driver: ProviderDriverKind.make("neopi"),
+            enabled: true,
+            config: { profile: "work" },
+          },
         },
-        textGenerationModelSelection: { instanceId: personal, model: "anthropic/current", options: [{ id: "reasoningEffort", value: "high" }, { id: "fastMode", value: true }] },
+        textGenerationModelSelection: {
+          instanceId: personal,
+          model: "anthropic/current",
+          options: [
+            { id: "reasoningEffort", value: "high" },
+            { id: "fastMode", value: true },
+          ],
+        },
       });
-      const selection = { instanceId: work, model: "openai-codex/current", options: [{ id: "reasoningEffort", value: "low" }] };
-      const next = yield* serverSettings.updateSettings({ textGenerationModelSelection: selection });
+      const selection = {
+        instanceId: work,
+        model: "openai-codex/current",
+        options: [{ id: "reasoningEffort", value: "low" }],
+      };
+      const next = yield* serverSettings.updateSettings({
+        textGenerationModelSelection: selection,
+      });
       assert.deepEqual(next.textGenerationModelSelection, selection);
       assert.deepEqual(next.providerInstances[personal]?.config, { profile: "personal" });
       assert.deepEqual(next.providerInstances[work]?.config, { profile: "work" });
@@ -577,9 +608,19 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const fileSystem = yield* FileSystem.FileSystem;
       const instanceId = ProviderInstanceId.make("openrouter_text");
       const selection = { instanceId, model: "openai/gpt-5.5" };
-      const legacy = { driver: ProviderDriverKind.make("openrouter"), enabled: true, config: { customModels: [selection.model] } };
-      const next = yield* serverSettings.updateSettings({ providerInstances: { [instanceId]: legacy }, textGenerationModelSelection: selection });
-      assert.deepEqual(next.textGenerationModelSelection, DEFAULT_SERVER_SETTINGS.textGenerationModelSelection);
+      const legacy = {
+        driver: ProviderDriverKind.make("openrouter"),
+        enabled: true,
+        config: { customModels: [selection.model] },
+      };
+      const next = yield* serverSettings.updateSettings({
+        providerInstances: { [instanceId]: legacy },
+        textGenerationModelSelection: selection,
+      });
+      assert.deepEqual(
+        next.textGenerationModelSelection,
+        DEFAULT_SERVER_SETTINGS.textGenerationModelSelection,
+      );
       assert.deepEqual(next.providerInstances[instanceId], legacy);
       // @effect-diagnostics-next-line preferSchemaOverJson:off
       const persisted = JSON.parse(yield* fileSystem.readFileString(serverConfig.settingsPath));
@@ -1409,8 +1450,11 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         },
       });
 
-      const environment = yield* resolveProviderInstanceTerminalEnvironment({ serverSettings, rawProviderInstanceId: instanceId,
-      env: undefined, });
+      const environment = yield* resolveProviderInstanceTerminalEnvironment({
+        serverSettings,
+        rawProviderInstanceId: instanceId,
+        env: undefined,
+      });
       const persisted = yield* fileSystem.readFileString(serverConfig.settingsPath);
 
       assert.equal(environment.OPENROUTER_API_KEY, "sk-terminal-secret");

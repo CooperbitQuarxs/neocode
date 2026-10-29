@@ -1,8 +1,14 @@
-import type { NeoPiJournalEntry, ScopedThreadRef } from "@t3tools/contracts";
-import { useState } from "react";
+import type {
+  EnvironmentId,
+  NeoPiJournalEntry,
+  NeoPiNativeSessionRef,
+  ScopedThreadRef,
+} from "@t3tools/contracts";
+import { useCallback, useState } from "react";
 import ChatMarkdown from "../ChatMarkdown";
 import { cn } from "../../lib/utils";
 import { journalRecord } from "@t3tools/client-runtime/neopi-journal";
+import { NativeMarkdownFilePreview } from "./NativeMarkdownFilePreview";
 
 export function NativeJson({
   value,
@@ -24,10 +30,41 @@ export function NativeJson({
   );
 }
 
-type ContentProps = { threadRef: ScopedThreadRef; cwd: string | undefined };
+type ContentProps = {
+  threadRef?: ScopedThreadRef;
+  environmentId?: EnvironmentId;
+  nativeRef?: NeoPiNativeSessionRef;
+  cwd: string | undefined;
+};
+
+function NativeMarkdown({ text, ...context }: ContentProps & { text: string }) {
+  const [file, setFile] = useState<{
+    environmentId: EnvironmentId;
+    nativeRef: NeoPiNativeSessionRef;
+    cwd: string | undefined;
+    path: string;
+  } | null>(null);
+  const { environmentId, nativeRef, cwd } = context;
+  const openFile = useCallback(
+    (path: string) => {
+      if (environmentId && nativeRef) setFile({ environmentId, nativeRef, cwd, path });
+    },
+    [environmentId, nativeRef, cwd],
+  );
+  return (
+    <>
+      <ChatMarkdown
+        text={text}
+        {...context}
+        onOpenFile={nativeRef && environmentId ? openFile : undefined}
+      />
+      {file ? <NativeMarkdownFilePreview {...file} onClose={() => setFile(null)} /> : null}
+    </>
+  );
+}
 
 function NativeContent({ content, ...context }: ContentProps & { content: unknown }) {
-  if (typeof content === "string") return <ChatMarkdown text={content} {...context} />;
+  if (typeof content === "string") return <NativeMarkdown text={content} {...context} />;
   if (!Array.isArray(content))
     return content === undefined ? null : <NativeJson value={content} label="Native content" />;
 
@@ -36,14 +73,14 @@ function NativeContent({ content, ...context }: ContentProps & { content: unknow
       {content.map((value, index) => {
         const block = journalRecord(value);
         if (block.type === "text" && typeof block.text === "string")
-          return <ChatMarkdown key={index} text={block.text} {...context} />;
+          return <NativeMarkdown key={index} text={block.text} {...context} />;
         if (block.type === "thinking" && typeof block.thinking === "string") {
           return (
             <details key={index}>
               <summary className="cursor-pointer text-xs text-muted-foreground">
                 {block.summary === true ? "Reasoning summary" : "Reasoning"}
               </summary>
-              <ChatMarkdown text={block.thinking} {...context} />
+              <NativeMarkdown text={block.thinking} {...context} />
             </details>
           );
         }
@@ -130,6 +167,12 @@ function NativeFileMentions({ files, ...context }: ContentProps & { files: unkno
             <summary className="cursor-pointer font-mono text-xs">
               {String(file.path ?? "Native file mention")}
             </summary>
+            {typeof file.path === "string" ? (
+              <NativeMarkdown
+                text={`[${file.path.replaceAll("[", "\\[").replaceAll("]", "\\]")}](${encodeURI(file.path).replaceAll("#", "%23").replaceAll("?", "%3F").replaceAll("(", "%28").replaceAll(")", "%29")})`}
+                {...context}
+              />
+            ) : null}
             {file.image ? <NativeContent content={[file.image]} {...context} /> : null}
             {typeof file.content === "string" ? (
               <pre className="mt-2 overflow-x-auto whitespace-pre-wrap font-mono text-xs">
@@ -210,7 +253,7 @@ export function NeoPiJournalContent({
         <NativeContent content={entry.content} {...context} />
       ) : null}
       {typeof entry.summary === "string" ? (
-        <ChatMarkdown text={entry.summary} {...context} />
+        <NativeMarkdown text={entry.summary} {...context} />
       ) : null}
       {entry.type === "compaction" ? (
         <p className="text-xs text-muted-foreground">

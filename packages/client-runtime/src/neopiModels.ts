@@ -16,6 +16,38 @@ export function formatNeoPiModelTokenLimit(value: number | null): string {
   return value === null ? "Unknown" : value.toLocaleString();
 }
 
+/** Keep authored selectors intact: catalog refreshes must not turn patterns into resolved model IDs. */
+export function getNeoPiModelsSelectorOptions(
+  configuration: NeoPiModelsConfiguration,
+  retainedSelector: string,
+) {
+  const entries = new Map<string, { label: string; detail: string }>();
+  const preserve = (selector: string | null) => {
+    if (selector && !entries.has(selector))
+      entries.set(selector, { label: selector, detail: "Saved native selector" });
+  };
+  for (const model of configuration.models) {
+    entries.set(`${model.provider}/${model.id}`, {
+      label: model.name,
+      detail: `${model.provider} · ${model.id}${model.available ? "" : " · Not available"}`,
+    });
+  }
+  for (const role of configuration.roles) {
+    entries.set(role.alias, { label: role.alias, detail: role.description ?? role.alias });
+    preserve(role.configured);
+    preserve(role.global.selector);
+    preserve(role.project.selector);
+  }
+  for (const rules of [
+    configuration.effortRules,
+    configuration.effortRuleScopes.global,
+    configuration.effortRuleScopes.project,
+  ])
+    for (const rule of rules ?? []) preserve(rule.selector);
+  preserve(retainedSelector);
+  return entries;
+}
+
 /** Web, desktop and mobile share the native contract; a reconnect clears the previous connection's snapshot. */
 export function makeNeoPiModelsClientState<R, ER>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, ER>,

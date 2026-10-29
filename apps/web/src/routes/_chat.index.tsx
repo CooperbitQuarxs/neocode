@@ -1,24 +1,13 @@
-import { RefreshIcon } from "~/components/ui/refresh-icon";
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { LinkIcon, PlusIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
 
 import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import { isElectron } from "../env";
-import { NoProjectsHero } from "../components/NoProjectsHero";
-import { sortScopedProjectsForSidebar } from "../components/Sidebar.logic";
 import { Button } from "../components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/ui/empty";
 import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
-import { useNewThreadHandler } from "../hooks/useHandleNewThread";
-import { useAvailableProject } from "../hooks/useAvailableProject";
-import {
-  useAllEnvironmentShellsBootstrapped,
-  useProjects,
-  useThreadShells,
-} from "../state/entities";
+import { NativeSessionWorkspace } from "../components/neopi/NativeSessionWorkspace";
 import { useEnvironments } from "../state/environments";
 import { APP_BASE_NAME, APP_DISPLAY_NAME } from "~/branding";
 import { hasCloudPublicConfig } from "~/cloud/publicConfig";
@@ -32,92 +21,7 @@ function ChatIndexRouteView() {
     if (environments.length === 0) return <HostedStaticOnboardingState />;
   }
 
-  return <IndexDraftLanding />;
-}
-
-/**
- * Landing on the index route opens a draft in the most recently active
- * reachable project. Unavailable workspaces keep their saved history but are
- * never automatic work destinations.
- */
-function IndexDraftLanding() {
-  const projects = useProjects();
-  const threads = useThreadShells();
-  const bootstrapped = useAllEnvironmentShellsBootstrapped();
-  const handleNewThread = useNewThreadHandler();
-  const startingRef = useRef(false);
-  const [startState, setStartState] = useState<{ error: string | null; retryRequest: number }>({
-    error: null,
-    retryRequest: 0,
-  });
-
-  const orderedProjects = useMemo(
-    () => sortScopedProjectsForSidebar(projects, threads, "updated_at"),
-    [projects, threads],
-  );
-  const mostRecentProject = useAvailableProject(orderedProjects, bootstrapped);
-
-  useEffect(() => {
-    if (!mostRecentProject || startingRef.current) {
-      return;
-    }
-    startingRef.current = true;
-    void handleNewThread(scopeProjectRef(mostRecentProject.environmentId, mostRecentProject.id), {
-      replace: true,
-    }).catch((error: unknown) => {
-      startingRef.current = false;
-      setStartState((state) => ({
-        ...state,
-        error: error instanceof Error ? error.message : "The draft could not be opened. Try again.",
-      }));
-    });
-  }, [handleNewThread, mostRecentProject, startState.retryRequest]);
-
-  if (!bootstrapped || mostRecentProject === undefined) {
-    return null;
-  }
-  if (mostRecentProject !== null) {
-    return startState.error !== null ? (
-      <DraftStartError
-        message={startState.error}
-        onRetry={() => {
-          setStartState((state) => ({
-            error: null,
-            retryRequest: state.retryRequest + 1,
-          }));
-        }}
-      />
-    ) : null;
-  }
-  // First-run routing to the welcome wizard happens in FirstRunGate at the
-  // root, before this route ever renders.
-  return <NoProjectsHero hasSavedProjects={projects.length > 0} />;
-}
-
-function DraftStartError({
-  message,
-  onRetry,
-}: {
-  readonly message: string;
-  readonly onRetry: () => void;
-}) {
-  return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
-      {isElectron ? <WorkspacePageHeader electron /> : null}
-      <Empty className="flex-1">
-        <EmptyHeader className="max-w-md">
-          <EmptyTitle>Couldn’t start a new thread</EmptyTitle>
-          <EmptyDescription>{message}</EmptyDescription>
-          <div className="mt-5 flex justify-center">
-            <Button size="sm" onClick={onRetry}>
-              <RefreshIcon size="md" />
-              Try again
-            </Button>
-          </div>
-        </EmptyHeader>
-      </Empty>
-    </SidebarInset>
-  );
+  return <NativeSessionWorkspace />;
 }
 
 export const Route = createFileRoute("/_chat/")({

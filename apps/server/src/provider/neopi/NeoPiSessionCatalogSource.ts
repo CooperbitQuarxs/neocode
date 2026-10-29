@@ -12,6 +12,7 @@ export interface NeoPiSessionCatalogSource {
   readonly binary: string;
   readonly env: Record<string, string>;
   readonly profile: string;
+  readonly launchArgs?: string;
   /** The same mutable capability set refreshed by the driver's RPC probe. */
   readonly capabilities: ReadonlySet<string>;
   readonly probe: NeoPiCapabilityProbe;

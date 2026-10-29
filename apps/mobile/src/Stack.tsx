@@ -50,6 +50,7 @@ import { GitConfirmSheet } from "./features/threads/git/GitConfirmSheet";
 import { GitOverviewSheet } from "./features/threads/git/GitOverviewSheet";
 import { ThreadRouteScreen } from "./features/threads/ThreadRouteScreen";
 import { NeoPiModelsScreen } from "./features/threads/NeoPiModelsScreen";
+import { NativeSessionScreen } from "./features/threads/NativeSessionScreen";
 import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteScreen";
 import { ConnectionsNewRouteScreen } from "./features/connection/ConnectionsNewRouteScreen";
 import { HomeRouteScreen } from "./features/home/HomeRouteScreen";
@@ -620,6 +621,11 @@ const RootStackConfig = createNativeStackNavigator({
       screen: NeoPiModelsScreen,
       linking: "models",
       options: { ...GLASS_HEADER_OPTIONS, title: "Models" },
+    }),
+    NativeSession: createNativeStackScreen({
+      screen: NativeSessionScreen,
+      linking: "sessions/:environmentId/:providerInstanceId/:sessionFile",
+      options: { headerShown: false },
     }),
     Thread: createNativeStackScreen({
       screen: ThreadRouteScreen,

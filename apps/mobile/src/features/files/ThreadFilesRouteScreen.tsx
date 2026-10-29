@@ -4,7 +4,12 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
-import { EnvironmentId, type ProjectReadFileResult, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  type NeoPiNativeSessionRef,
+  type ProjectReadFileResult,
+  ThreadId,
+} from "@t3tools/contracts";
 import { videoMimeType } from "@t3tools/shared/video";
 import {
   isWorkspaceBrowserPreviewPath,
@@ -219,6 +224,7 @@ function FileContent(props: {
   readonly fileError: string | null;
   readonly relativePath: string;
   readonly threadId: ThreadId | null;
+  readonly nativeRef?: NeoPiNativeSessionRef | undefined;
   readonly initialLine: number | null;
   readonly truncated: boolean;
   readonly onRefresh?: () => Promise<void> | void;
@@ -309,6 +315,7 @@ function FileContent(props: {
           markdown={props.fileContents}
           relativePath={props.relativePath}
           threadId={props.threadId}
+          nativeRef={props.nativeRef}
           onRefresh={props.onRefresh}
         />
       ) : (
@@ -332,6 +339,7 @@ type ThreadFileRouteScreenProps = StaticScreenProps<{
   readonly environmentId: string;
   /** Absent for a project draft, which has no thread yet. */
   readonly threadId?: string;
+  readonly nativeRef?: NeoPiNativeSessionRef;
   readonly path: string[];
   readonly line?: string;
   /** Supplied when there is no thread to resolve the workspace from. */
@@ -342,6 +350,7 @@ type ThreadFileRouteScreenProps = StaticScreenProps<{
 function useThreadFilesWorkspace(params: {
   readonly environmentId?: string | string[];
   readonly threadId?: string | string[];
+  readonly nativeRef?: NeoPiNativeSessionRef;
   readonly cwd?: string | string[];
   readonly projectName?: string | string[];
 }) {
@@ -368,6 +377,7 @@ function useThreadFilesWorkspace(params: {
     projectName: routeProjectName ?? project?.title ?? "Files",
     selectedThread,
     threadId,
+    nativeRef: params.nativeRef,
   };
 }
 
@@ -565,9 +575,8 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
   const params = props.route.params;
   const relativePath = normalizeRoutePath(params.path);
   const targetLine = normalizeRouteLine(firstRouteParam(params.line));
-  const { cwd, environmentId, projectName, selectedThread, threadId } = useThreadFilesWorkspace(
-    props.route.params,
-  );
+  const { cwd, environmentId, projectName, selectedThread, threadId, nativeRef } =
+    useThreadFilesWorkspace(props.route.params);
   const [modeOverride, setModeOverride] = useState<{
     readonly path: string;
     readonly mode: FileViewMode;
@@ -601,6 +610,7 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
     environmentId,
     relativePath: assetPreviewPath,
     threadId,
+    nativeRef,
     // A project draft names its workspace root explicitly: there is no thread to resolve one.
     draftCwd: threadId === null ? cwd : null,
   });
@@ -906,6 +916,7 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
           initialLine={targetLine}
           relativePath={relativePath}
           threadId={threadId}
+          nativeRef={nativeRef}
           truncated={fileData?.truncated ?? false}
           onRefresh={() => fileQuery.refresh()}
         />

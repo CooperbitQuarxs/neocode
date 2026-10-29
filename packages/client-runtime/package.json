@@ -3,6 +3,14 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./neopi-native-sessions": {
+      "types": "./src/neopiNativeSessions.ts",
+      "default": "./src/neopiNativeSessions.ts"
+    },
+    "./state/neopi-native-sessions": {
+      "types": "./src/state/neopiNativeSessions.ts",
+      "default": "./src/state/neopiNativeSessions.ts"
+    },
     "./neopi-journal": {
       "types": "./src/neopiJournal.ts",
       "default": "./src/neopiJournal.ts"

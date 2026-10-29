@@ -1,4 +1,5 @@
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, NeoPiNativeSessionRef, ThreadId } from "@t3tools/contracts";
+import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-images";
 import { resolveMediaSource } from "@t3tools/client-runtime/media-source";
 import { getBrowseDirectoryPath } from "@t3tools/client-runtime/state/projects";
 import { useCallback, useMemo, useState } from "react";
@@ -199,6 +200,7 @@ export function FileMarkdownPreview(props: {
   readonly relativePath: string;
   /** Absent for a file opened from a project draft, which has no thread yet. */
   readonly threadId: ThreadId | null;
+  readonly nativeRef?: NeoPiNativeSessionRef | undefined;
   readonly onRefresh?: () => Promise<void> | void;
 }) {
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
@@ -219,8 +221,13 @@ export function FileMarkdownPreview(props: {
   );
   const renderImage = useCallback<MarkdownImageRenderer>(
     (image) => {
+      const nativeImage = props.nativeRef
+        ? classifyMarkdownImageSource(image.href, markdownDirectory)
+        : null;
       const media = resolveMediaSource(image.href, {
         threadId: props.threadId ?? undefined,
+        nativeRef: props.nativeRef,
+        resolvedFilePath: nativeImage?._tag === "WorkspaceFile" ? nativeImage.path : undefined,
         workspaceRoot: markdownDirectory,
         imageEmbed: true,
       });
@@ -245,7 +252,7 @@ export function FileMarkdownPreview(props: {
         />
       );
     },
-    [markdownDirectory, props.environmentId, props.threadId, props.captured],
+    [markdownDirectory, props.environmentId, props.threadId, props.nativeRef, props.captured],
   );
   const styles = useMarkdownPreviewStyles(renderImage);
   const onLinkPress = useCallback((href: string) => {

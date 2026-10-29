@@ -34,6 +34,7 @@ export * from "./project.ts";
 export * from "./filesystem.ts";
 export * from "./agentSessions.ts";
 export * from "./neopiSessions.ts";
+export * from "./neopiNativeSessions.ts";
 export * from "./neopiJournal.ts";
 export * from "./neopiNativeConversation.ts";
 export * from "./neopiThemes.ts";

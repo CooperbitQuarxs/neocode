@@ -462,7 +462,8 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
         yield* invalidateConfiguration;
       // Native observers retain process-local message IDs independently of SQL
       // turns. Only message_persisted can associate one with a durable entry.
-      yield* nativeEvents.publish(frame);
+      const nativeFrame: { readonly type: string } = frame;
+      yield* nativeEvents.publish(nativeFrame);
       if (
         frame.type === "journal_state" ||
         frame.type === "journal_entry" ||
@@ -1313,7 +1314,13 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
             command: command.type,
             message: "Not a native conversation command.",
           });
-        return yield* (yield* current()).request(command);
+        if (!client)
+          return yield* new NeoPiRpcError({
+            code: "closed",
+            command: command.type,
+            message: "NeoPi session is not connected",
+          });
+        return yield* client.request(command);
       }),
     invalidateConfiguration,
     prepareForTurn,

@@ -34,6 +34,8 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { isElectron } from "../../env";
 import { neopiModels, useModelsPageTarget } from "./modelsPageState";
+import { Toggle } from "../ui/toggle";
+import { NeoPiModelsSelector } from "./NeoPiModelsSelector";
 
 type Configuration = NeoPiModelsConfiguration;
 type Role = Configuration["roles"][number];
@@ -59,7 +61,7 @@ function Choice({
         }}
       >
         <SelectTrigger aria-label={label}>
-          <SelectValue />
+          <SelectValue>{options.find((option) => option.value === value)?.label}</SelectValue>
         </SelectTrigger>
         <SelectPopup>
           {options.map((option) => (
@@ -113,10 +115,10 @@ export function NeoPiModelsSidebar() {
   const { target, environmentId, search, changeSearch } = useModelsPageTarget();
   const back = useNavigateBack();
   const section = search.section ?? "all";
-  const item = (id: string, label: ReactNode, dimmed = false) => (
+  const item = (id: string, label: ReactNode) => (
     <SidebarMenuItem key={id}>
       <SidebarMenuButton isActive={section === id} onClick={() => changeSearch({ section: id })}>
-        <span className={dimmed ? "truncate text-muted-foreground" : "truncate"}>{label}</span>
+        <span className="truncate text-sidebar-foreground">{label}</span>
       </SidebarMenuButton>
     </SidebarMenuItem>
   );
@@ -140,22 +142,26 @@ export function NeoPiModelsSidebar() {
                   {[...configuration.providers]
                     .sort(
                       (a, b) =>
-                        Number(b.available) - Number(a.available) || a.name.localeCompare(b.name),
+                        Number(b.authenticated) - Number(a.authenticated) ||
+                        a.id.localeCompare(b.id),
                     )
                     .map((provider) =>
                       item(
                         `provider:${provider.id}`,
                         <span className="flex items-center gap-2">
                           <span
-                            aria-hidden="true"
-                            data-native-icon={provider.mark.icon}
-                            className="w-6 shrink-0 text-center font-medium"
+                            role="img"
+                            aria-label={provider.authenticated ? "Signed in" : "Not signed in"}
+                            className={
+                              provider.authenticated
+                                ? "shrink-0 text-success"
+                                : "shrink-0 text-muted-foreground"
+                            }
                           >
-                            {provider.mark.text}
+                            {provider.authenticated ? "●" : "○"}
                           </span>
-                          <span className="truncate">{provider.name}</span>
+                          <span className="truncate">{provider.id}</span>
                         </span>,
-                        !provider.available,
                       ),
                     )}
                 </SidebarMenu>
@@ -203,7 +209,7 @@ export function NeoPiModelsPage() {
                     environment,
                     instance: undefined,
                     project: undefined,
-                    thread: undefined,
+                    sessionFile: undefined,
                   })
                 }
               />
@@ -214,7 +220,7 @@ export function NeoPiModelsPage() {
                   value: provider.instanceId,
                   label: provider.displayName ?? provider.instanceId,
                 }))}
-                onChange={(instance) => state.changeSearch({ instance, thread: undefined })}
+                onChange={(instance) => state.changeSearch({ instance, sessionFile: undefined })}
               />
               <Choice
                 label="Project settings"
@@ -224,19 +230,18 @@ export function NeoPiModelsPage() {
                   ...state.projects.map((project) => ({ value: project.id, label: project.title })),
                 ]}
                 onChange={(project) =>
-                  state.changeSearch({ project: project || undefined, thread: undefined })
+                  state.changeSearch({ project: project || undefined, sessionFile: undefined })
                 }
               />
             </div>
             <p className="text-sm text-muted-foreground">
-              {state.search.thread
+              {state.search.sessionFile
                 ? "Using this thread's connected native session. Choosing another project or connection leaves session-bound configuration."
                 : "Configuration belongs to NeoPi. Changes use its saved scopes and update connected native clients."}
             </p>
             <div>
               <Button
                 variant="outline"
-                size="sm"
                 render={
                   <Link
                     to="/settings/neocore"
@@ -333,9 +338,9 @@ function ModelsContent({
             ? "Roles"
             : section === "effort"
               ? "Effort rules"
-              : (provider?.name ?? "All models")}
+              : (provider?.id ?? "All models")}
         </h2>
-        <Button variant="outline" size="sm" onClick={refresh}>
+        <Button variant="outline" onClick={refresh}>
           Refresh native state
         </Button>
       </div>
@@ -403,10 +408,7 @@ function ModelsContent({
             {configuration.roles.map((role) => (
               <div key={role.id} className="flex items-start justify-between gap-4 py-3">
                 <div className="min-w-0">
-                  <p className="font-medium">
-                    {role.name}{" "}
-                    <span className="text-sm font-normal text-muted-foreground">{role.alias}</span>
-                  </p>
+                  <p className="font-medium">{role.alias}</p>
                   {role.description ? (
                     <p className="mt-1 text-sm text-muted-foreground">{role.description}</p>
                   ) : null}
@@ -481,7 +483,7 @@ function ModelsContent({
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {model.kind}
-                        {!model.available ? " • Not connected" : ""}
+                        {!model.available ? " • Not available" : ""}
                         {model.supportsFastMode ? " • Native fast mode" : ""}
                       </p>
                     </div>
@@ -534,20 +536,17 @@ function EffortChoices({
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-2">
       {choices.map((choice) => (
-        <label key={choice} className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={selected.includes(choice)}
-            onChange={(event) =>
-              onChange(
-                event.target.checked
-                  ? [...selected, choice]
-                  : selected.filter((value) => value !== choice),
-              )
-            }
-          />
+        <Toggle
+          key={choice}
+          variant="outline"
+          pressed={selected.includes(choice)}
+          aria-label={`Allow ${choice} effort`}
+          onPressedChange={(pressed) =>
+            onChange(pressed ? [...selected, choice] : selected.filter((value) => value !== choice))
+          }
+        >
           {choice}
-        </label>
+        </Toggle>
       ))}
     </div>
   );
@@ -571,7 +570,9 @@ function RoleEditor({
   const [expected, setExpected] = useState(
     initial.role?.global ?? { selector: null, effort: null },
   );
-  const [selector, setSelector] = useState(initial.role?.global.selector ?? initial.selector);
+  const [selector, setSelector] = useState(
+    initial.role ? (initial.role.global.selector ?? "") : initial.selector,
+  );
   const [mode, setMode] = useState(initial.role?.global.effort?.mode ?? "selector");
   const [level, setLevel] = useState(
     initial.role?.global.effort?.mode === "fixed"
@@ -612,22 +613,28 @@ function RoleEditor({
     <section className="flex flex-col gap-4 border-y border-border py-5">
       <h3 className="font-medium">Assign a native role</h3>
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-sm">
-          Role name
-          <Input
-            aria-label="Role name"
-            value={roleId}
-            list="native-role-names"
-            onChange={(event) => load(event.target.value, scope)}
+        <div className="flex min-w-0 flex-col gap-2">
+          <Choice
+            label="Native role"
+            value={role ? roleId : ""}
+            options={[
+              { value: "", label: "New role…" },
+              ...configuration.roles.map((role) => ({ value: role.id, label: role.alias })),
+            ]}
+            onChange={(value) => load(value, scope)}
           />
-          <datalist id="native-role-names">
-            {configuration.roles.map((role) => (
-              <option key={role.id} value={role.id}>
-                {role.name}
-              </option>
-            ))}
-          </datalist>
-        </label>
+          {!role ? (
+            <label className="flex flex-col gap-1 text-sm">
+              New role name
+              <Input
+                aria-label="New role name"
+                value={roleId}
+                disabled={pending}
+                onChange={(event) => load(event.target.value, scope)}
+              />
+            </label>
+          ) : null}
+        </div>
         <Choice
           label="Save scope"
           value={scope}
@@ -643,15 +650,13 @@ function RoleEditor({
       {role?.description ? (
         <p className="text-sm text-muted-foreground">{role.description}</p>
       ) : null}
-      <label className="flex flex-col gap-1 text-sm">
-        Model or native selector
-        <Input
-          aria-label="Model or native selector"
-          value={selector}
-          onChange={(event) => setSelector(event.target.value)}
-          placeholder="provider/model, glob, @role or re:expression"
-        />
-      </label>
+      <NeoPiModelsSelector
+        configuration={configuration}
+        label="Model or native selector"
+        value={selector}
+        onChange={setSelector}
+        disabled={pending}
+      />
       <p className="text-xs text-muted-foreground">
         Native NeoPi validates and resolves this single selector. Clearing this scope restores its
         inherited selection.
@@ -891,13 +896,17 @@ function ProviderAccounts({
   };
   return (
     <section className="flex flex-col gap-3 border-b border-border pb-5">
+      <p className="flex items-center gap-2 text-sm">
+        <span aria-hidden="true">{provider.authenticated ? "●" : "○"}</span>
+        {provider.authenticated ? "Signed in" : "Not signed in"}
+      </p>
       <p className="text-sm">
         {provider.disabled
           ? "Disabled in native NeoPi settings"
           : (provider.authSource ??
             (provider.available
               ? "Native models available without stored credentials"
-              : "Not connected"))}
+              : "No models available"))}
       </p>
       {provider.envVars.length ? (
         <p className="text-xs text-muted-foreground">
@@ -910,14 +919,13 @@ function ProviderAccounts({
           <Button
             key={loginProvider.id}
             variant="outline"
-            size="sm"
             disabled={!loginProvider.available || flowId !== null}
             onClick={() => void login(loginProvider.id)}
           >
             Log in to {loginProvider.name}
           </Button>
         ))}
-        <Button variant="outline" size="sm" onClick={() => void loadAccounts()}>
+        <Button variant="outline" onClick={() => void loadAccounts()}>
           Show native accounts
         </Button>
       </div>
@@ -936,7 +944,7 @@ function ProviderAccounts({
       <div className="flex flex-col gap-2 sm:flex-row">
         <div className="min-w-0 flex-1">
           <Input
-            aria-label={`Native ${provider.name} API key`}
+            aria-label={`Native ${provider.id} API key`}
             type="password"
             autoComplete="off"
             value={key}
@@ -967,7 +975,6 @@ function ProviderAccounts({
           </div>
           <Button
             variant="outline"
-            size="sm"
             disabled={pending}
             onClick={() =>
               void save({

@@ -1,4 +1,9 @@
-import type { NeoPiJournalEntry, ScopedThreadRef } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  NeoPiJournalEntry,
+  NeoPiNativeSessionRef,
+  ScopedThreadRef,
+} from "@t3tools/contracts";
 import { journalRecord } from "@t3tools/client-runtime/neopi-journal";
 import { resolveMediaSource } from "@t3tools/client-runtime/media-source";
 import { resolveMarkdownLinkPresentation } from "@t3tools/mobile-markdown-text/links";
@@ -9,6 +14,8 @@ import { Markdown } from "react-native-nitro-markdown";
 
 import { AppText as Text } from "../../components/AppText";
 import { FilePreviewModal, type FilePreviewSource } from "../../components/FilePreviewModal";
+import { VideoPreviewModal, type VideoPreviewSource } from "../../components/VideoPreviewModal";
+import { resolveMarkdownMediaPreview } from "../../lib/markdownMedia";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 import {
   hasNativeSelectableMarkdownText,
@@ -28,22 +35,52 @@ import {
   ThreadMarkdownImageView,
 } from "./ThreadMarkdownImage";
 
-type ContentContext = { threadRef: ScopedThreadRef; cwd: string | null };
+type ContentContext = {
+  threadRef?: ScopedThreadRef;
+  environmentId?: EnvironmentId;
+  nativeRef?: NeoPiNativeSessionRef;
+  cwd: string | null;
+};
 
-function NativeMarkdown({ text, threadRef, cwd }: ContentContext & { text: string }) {
+function NativeMarkdown({
+  text,
+  threadRef,
+  environmentId: explicitEnvironmentId,
+  nativeRef,
+  cwd,
+}: ContentContext & { text: string }) {
   const [preview, setPreview] = useState<FilePreviewSource | null>(null);
+  const [video, setVideo] = useState<VideoPreviewSource | null>(null);
+  const environmentId = threadRef?.environmentId ?? explicitEnvironmentId;
   const navigation = useNavigation();
   const openLink = useCallback(
     (href: string) => {
+      if (environmentId) {
+        const media = resolveMarkdownMediaPreview(href, {
+          environmentId,
+          ...(threadRef ? { threadId: threadRef.threadId } : {}),
+          ...(nativeRef ? { nativeRef } : {}),
+          workspaceRoot: cwd,
+        });
+        if (media?.kind === "image") {
+          setPreview(media.source);
+          return;
+        }
+        if (media?.kind === "video") {
+          setVideo(media.source);
+          return;
+        }
+      }
       const link = resolveMarkdownLinkPresentation(href);
       if (link.kind === "file") {
         const path =
           resolveWorkspaceRelativeFilePath(cwd, link.path) ??
           (isAbsolutePath(link.path) ? link.path : null);
-        if (path) {
+        if (path && environmentId) {
           navigation.navigate("ThreadFile", {
-            environmentId: String(threadRef.environmentId),
-            threadId: String(threadRef.threadId),
+            environmentId: String(environmentId),
+            ...(threadRef ? { threadId: String(threadRef.threadId) } : { cwd: cwd ?? "/" }),
+            ...(nativeRef ? { nativeRef } : {}),
             path: fileRoutePathSegments(path),
             ...(link.line ? { line: String(link.line) } : {}),
           });
@@ -61,16 +98,22 @@ function NativeMarkdown({ text, threadRef, cwd }: ContentContext & { text: strin
             Alert.alert("Link unavailable", "This device could not open the native entry's link.");
         });
     },
-    [cwd, navigation, threadRef.environmentId, threadRef.threadId],
+    [cwd, navigation, environmentId, nativeRef, threadRef],
   );
   const renderImage = useCallback<MarkdownImageRenderer>(
     (image) => {
       const media = resolveMediaSource(image.href, {
-        threadId: threadRef.threadId,
+        threadId: threadRef?.threadId,
+        nativeRef,
         workspaceRoot: cwd,
         imageEmbed: true,
       });
-      if (!media || media.kind !== "image" || media.access === "unavailable")
+      if (
+        !media ||
+        media.kind !== "image" ||
+        media.access === "unavailable" ||
+        (media.access === "environment" && !environmentId)
+      )
         return <ThreadMarkdownImageUnavailable alt={image.alt} />;
       return media.access === "direct" ? (
         <ThreadMarkdownImageView
@@ -82,15 +125,23 @@ function NativeMarkdown({ text, threadRef, cwd }: ContentContext & { text: strin
         />
       ) : (
         <ThreadMarkdownImage
-          environmentId={threadRef.environmentId}
+          environmentId={environmentId!}
           resource={media.resource}
           alt={image.alt}
           srcFragment={media.srcFragment}
+          actionsSource={{
+            name: media.name,
+            mimeType: media.mimeType,
+            reference: media.reference,
+            environmentId: environmentId!,
+            resource: media.resource,
+            ...(threadRef ? { threadId: threadRef.threadId } : {}),
+          }}
           onPressPreview={setPreview}
         />
       );
     },
-    [cwd, threadRef.environmentId, threadRef.threadId],
+    [cwd, environmentId, nativeRef, threadRef],
   );
   const styles = useMarkdownPreviewStyles(renderImage);
   return (
@@ -105,7 +156,20 @@ function NativeMarkdown({ text, threadRef, cwd }: ContentContext & { text: strin
       ) : (
         <Markdown
           options={{ gfm: true }}
-          renderers={styles.renderers}
+          renderers={{
+            ...styles.renderers,
+            link: ({ href, children }) => (
+              <Text
+                className="font-t3-medium"
+                style={{ color: styles.theme.colors?.link }}
+                onPress={() => {
+                  if (href) openLink(href);
+                }}
+              >
+                {children}
+              </Text>
+            ),
+          }}
           styles={styles.styles}
           theme={styles.theme}
         >
@@ -113,6 +177,7 @@ function NativeMarkdown({ text, threadRef, cwd }: ContentContext & { text: strin
         </Markdown>
       )}
       <FilePreviewModal source={preview} onRequestClose={() => setPreview(null)} />
+      <VideoPreviewModal source={video} onRequestClose={() => setVideo(null)} />
     </View>
   );
 }
@@ -256,6 +321,12 @@ export function NeoPiJournalContent({
                     <Text selectable className="font-mono text-sm text-foreground">
                       {String(file.path ?? "Native file mention")}
                     </Text>
+                    {typeof file.path === "string" ? (
+                      <NativeMarkdown
+                        text={`[Open file](${encodeURI(file.path).replaceAll("#", "%23").replaceAll("?", "%3F").replaceAll("(", "%28").replaceAll(")", "%29")})`}
+                        {...context}
+                      />
+                    ) : null}
                     {file.image ? <NativeContent content={[file.image]} {...context} /> : null}
                     {typeof file.content === "string" ? (
                       <Text selectable className="font-mono text-xs text-foreground">

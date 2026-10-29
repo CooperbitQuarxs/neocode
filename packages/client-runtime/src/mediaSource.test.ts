@@ -1,4 +1,4 @@
-import { ThreadId } from "@t3tools/contracts";
+import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { resolveMediaSource } from "./mediaSource.ts";
@@ -53,6 +53,48 @@ describe("resolveMediaSource", () => {
   });
 
   describe("host paths", () => {
+    it("keeps native relative media anchored by the server, with decoded filename and fragment intact", () => {
+      const nativeRef = {
+        providerInstanceId: ProviderInstanceId.make("profile"),
+        sessionFile: "/native/session.jsonl",
+      };
+      expect(
+        resolveMediaSource("screens/logo%23one.svg?v=2#mark", {
+          nativeRef,
+          workspaceRoot: "/display-only",
+          imageEmbed: true,
+        }),
+      ).toEqual({
+        kind: "image",
+        mimeType: "image/svg+xml",
+        name: "logo#one.svg",
+        reference: {
+          kind: "file",
+          path: "/display-only/screens/logo#one.svg",
+          relativePath: "screens/logo#one.svg",
+        },
+        srcFragment: "#mark",
+        access: "environment",
+        resource: { _tag: "native-media-file", ref: nativeRef, path: "screens/logo#one.svg" },
+      });
+      expect(resolveMediaSource("screens/logo.png", { nativeRef, imageEmbed: true })).toMatchObject(
+        {
+          access: "environment",
+          resource: { _tag: "native-media-file", ref: nativeRef, path: "screens/logo.png" },
+        },
+      );
+      expect(
+        resolveMediaSource("nested.svg", {
+          nativeRef,
+          workspaceRoot: "/repo/docs",
+          resolvedFilePath: "/repo/docs/nested.svg",
+        }),
+      ).toMatchObject({
+        access: "environment",
+        resource: { _tag: "native-media-file", ref: nativeRef, path: "/repo/docs/nested.svg" },
+      });
+    });
+
     // POSIX, Windows, UNC, and file URLs must all reach the same media-file resource.
     it.each([
       ["/tmp/frame%23one.png:12", "/tmp/frame#one.png"],

@@ -6,6 +6,8 @@ import {
   type NeoPiModelsTarget,
   type NeoPiModelsUpdate,
   type NeoPiModelsAuthState,
+  type NeoPiNativeSessionRef,
+  type NeoPiNativeSessionsError,
 } from "@t3tools/contracts";
 import { NeoPiModelSelectorResult } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -93,7 +95,7 @@ export const queryNativeModelSelector = Effect.fnUntraced(function* (
 export const makeNativeModelsAuth = Effect.fn("makeNativeModelsAuth")(function* (
   connection: (
     target: NeoPiModelsTarget,
-  ) => Effect.Effect<NeoPiModelsConnection, unknown, Scope.Scope>,
+  ) => Effect.Effect<NeoPiModelsConnection, NeoPiModelsError, Scope.Scope>,
 ) {
   const lifetime = yield* Effect.scope;
   const flows = new Map<string, AuthFlow>();
@@ -281,12 +283,26 @@ export const makeNativeModelsAuth = Effect.fn("makeNativeModelsAuth")(function* 
 });
 
 /** Routes explicit graphical model operations to their native owner; it stores no model policy or credentials. */
-export const makeNeoPiModels = Effect.fn("makeNeoPiModels")(function* () {
+export const makeNeoPiModels = Effect.fn("makeNeoPiModels")(function* (
+  nativeSessionConnection?: (
+    ref: NeoPiNativeSessionRef,
+  ) => Effect.Effect<NeoPiModelsConnection, NeoPiNativeSessionsError | NeoPiModelsError>,
+) {
   const instances = yield* ProviderInstanceRegistry;
   const snapshots = yield* ProjectionSnapshotQuery;
   const directory = yield* ProviderSessionDirectory;
   const serverConfig = yield* ServerConfig;
   const connection = Effect.fnUntraced(function* (target: NeoPiModelsTarget) {
+    if (target.sessionFile !== undefined) {
+      if (!nativeSessionConnection)
+        return yield* new NeoPiModelsError({
+          message: "Native session configuration is unavailable.",
+        });
+      return yield* nativeSessionConnection({
+        providerInstanceId: target.providerInstanceId,
+        sessionFile: target.sessionFile,
+      }).pipe(Effect.mapError(modelError));
+    }
     const instance = yield* instances.getInstance(target.providerInstanceId);
     const source = instance && neoPiSessionCatalogSource(instance);
     if (!instance?.enabled || instance.driverKind !== "neopi" || !source?.modelsConnection)
@@ -331,7 +347,7 @@ export const makeNeoPiModels = Effect.fn("makeNeoPiModels")(function* () {
     }
     const native = yield* source.modelsConnection(cwd, target.threadId, expected);
     return native;
-  });
+  }, Effect.mapError(modelError));
   const auth = yield* makeNativeModelsAuth(connection);
   const read = (target: NeoPiModelsTarget) =>
     Effect.scoped(Effect.flatMap(connection(target), readNativeModelsConfiguration)).pipe(
