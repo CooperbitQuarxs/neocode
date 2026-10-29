@@ -161,6 +161,7 @@ export function NativeSessionWorkspacePanels({
     panel.surfaces.find((surface) => surface.id === panel.activeSurfaceId) ??
     panel.surfaces[0] ??
     null;
+
   const pendingSurfaceIds = useMemo(
     () =>
       new Set(
@@ -457,6 +458,7 @@ export function NativeSessionWorkspacePanels({
         {activeSurface?.kind === "preview" ? (
           <PreviewPanel
             mode="embedded"
+            placement={sheet ? "sheet" : "inline"}
             threadRef={target}
             tabId={activeSurface.resourceId}
             visible={panel.isOpen}
@@ -680,6 +682,7 @@ export function NativeSessionWorkspacePanels({
           <RightPanelSheet
             animationDurationMs={0}
             open={panel.isOpen}
+            browserSurface={activeSurface?.kind === "preview"}
             onClose={() => useRightPanelStore.getState().close(target)}
           >
             {tabs}

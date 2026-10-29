@@ -78,6 +78,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 
 interface Props {
   threadRef: WorkspaceRef;
+  placement?: "inline" | "sheet";
   tabId?: string | null;
   configuredUrls?: ReadonlyArray<string> | undefined;
   visible: boolean;
@@ -102,6 +103,7 @@ const localApi = typeof window === "undefined" ? null : ensureLocalApi();
  */
 export function PreviewView({
   threadRef,
+  placement = "inline",
   tabId: requestedTabId,
   configuredUrls,
   visible,
@@ -785,6 +787,8 @@ export function PreviewView({
             key={runtimeTabId}
             tabId={runtimeTabId}
             visible={visible && !isUnreachable}
+            // Global guests sit above their sheet (46), below floating players (48) and dialogs (50).
+            zIndex={placement === "sheet" ? 47 : 30}
             className="absolute inset-0 h-full w-full"
           />
         ) : null}

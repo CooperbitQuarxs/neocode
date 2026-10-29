@@ -9210,6 +9210,7 @@ export default function ChatView(props: ChatViewProps) {
       <Suspense fallback={null}>
         <PreviewPanel
           mode="embedded"
+          placement={shouldUseRightPanelSheet ? "sheet" : "inline"}
           threadRef={activeThreadRef}
           tabId={renderedRightPanelSurface.resourceId}
           configuredUrls={configuredPreviewUrls}
@@ -9965,6 +9966,7 @@ export default function ChatView(props: ChatViewProps) {
         <RightPanelSheet
           animationDurationMs={panelAnimationsActive ? panelAnimationDurationMs : 0}
           open={rightPanelOpen}
+          browserSurface={renderedRightPanelSurface?.kind === "preview"}
           onClose={closePreviewPanel}
         >
           <RightPanelTabs

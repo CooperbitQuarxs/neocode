@@ -12,6 +12,7 @@ import { PreviewView } from "./PreviewView";
 
 interface Props {
   mode: PreviewPanelMode;
+  placement?: "inline" | "sheet";
   threadRef: WorkspaceRef;
   tabId?: string | null;
   configuredUrls?: ReadonlyArray<string> | undefined;
@@ -24,6 +25,7 @@ interface Props {
 
 export function PreviewPanel({
   mode,
+  placement = "inline",
   threadRef,
   tabId,
   configuredUrls,
@@ -46,6 +48,7 @@ export function PreviewPanel({
     <PreviewPanelShell mode={mode}>
       <PreviewView
         threadRef={threadRef}
+        placement={placement}
         {...(tabId !== undefined ? { tabId } : {})}
         configuredUrls={configuredUrls}
         visible={visible}
