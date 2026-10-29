@@ -56,6 +56,7 @@ export function reconcileNativeSessionFeed<E, R, ReadE, ReadR>(
       );
       const stateReads = yield* Effect.acquireRelease(Queue.sliding<void>(1), Queue.shutdown);
       const branchReads = yield* Effect.acquireRelease(Queue.sliding<void>(1), Queue.shutdown);
+      const subagentReads = yield* Effect.acquireRelease(Queue.sliding<void>(1), Queue.shutdown);
       let current = initial;
       let divergentEntry = false;
       const needsBranch = () => {
@@ -70,9 +71,9 @@ export function reconcileNativeSessionFeed<E, R, ReadE, ReadR>(
             conversation.entries.some((entry) => entry.id === conversation.identity?.leafId))
         );
       };
-      const recovered = (operation: "state" | "branch") =>
+      const recovered = (operation: "state" | "branch" | "subagents") =>
         Queue.offer(replies, { type: "reconciliation", operation, error: null });
-      const failed = (operation: "state" | "branch", error: unknown) =>
+      const failed = (operation: "state" | "branch" | "subagents", error: unknown) =>
         Queue.offer(replies, {
           type: "reconciliation",
           operation,
@@ -113,6 +114,36 @@ export function reconcileNativeSessionFeed<E, R, ReadE, ReadR>(
         ),
         Effect.forkScoped,
       );
+      yield* Stream.fromQueue(subagentReads).pipe(
+        Stream.runForEach(() =>
+          Effect.gen(function* () {
+            if (!current.connected || !current.session) return;
+            const { ref, sessionId } = current.session;
+            const epoch = current.agentsEpoch;
+            // This is the existing native owner's control connection, not a
+            // new session/stream. Control subscription levels are per peer.
+            yield* read({ type: "set_subagent_subscription", level: "progress" });
+            if (!current.connected || current.agentsEpoch !== epoch) return;
+            const revision = current.agentsRevision;
+            const result = nativeRecord(yield* read({ type: "get_subagents" }));
+            if (!Array.isArray(result.subagents))
+              return yield* failed(
+                "subagents",
+                new Error("NeoPi returned an invalid subagent inventory."),
+              );
+            yield* Queue.offer(replies, {
+              type: "subagents",
+              ref,
+              sessionId,
+              epoch,
+              revision,
+              agents: result.subagents,
+            });
+            yield* recovered("subagents");
+          }).pipe(Effect.catch((error) => failed("subagents", error))),
+        ),
+        Effect.forkScoped,
+      );
       return Stream.merge(source, Stream.fromQueue(replies), { haltStrategy: "left" }).pipe(
         Stream.map((event) => {
           current = reduceNativeSessionFeed(current, event);
@@ -128,6 +159,7 @@ export function reconcileNativeSessionFeed<E, R, ReadE, ReadR>(
               divergentEntry = true;
           }
           onFeed(current);
+          if (event.type === "snapshot") Queue.offerUnsafe(subagentReads, undefined);
           if (event.type === "event") {
             if (stateReconciliationEvents.has(event.frame.type))
               Queue.offerUnsafe(stateReads, undefined);
@@ -213,7 +245,16 @@ export function createNativeSessionAtoms<R, E>(
                 ),
               );
               return reconcileNativeSessionFeed(
-                Stream.merge(remote, Stream.fromQueue(queue), { haltStrategy: "left" }).pipe(
+                Stream.merge(
+                  // A remounted observer may have missed lifecycle frames while
+                  // idle. Cached running status is unverified until inventory.
+                  Stream.concat(
+                    Stream.succeed<NativeSessionUpdate>({ type: "disconnected" }),
+                    remote,
+                  ),
+                  Stream.fromQueue(queue),
+                  { haltStrategy: "left" },
+                ).pipe(
                   Stream.takeUntil(
                     (event) =>
                       event.type === "closed" ||

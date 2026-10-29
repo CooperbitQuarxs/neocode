@@ -14,6 +14,12 @@ import {
   type NativeIdentity,
 } from "./neopiConversation.ts";
 import { applyNativeConversationEvent } from "./state/neopiConversation.ts";
+import {
+  disconnectNativeSubagents,
+  reduceNativeSubagents,
+  snapshotNativeSubagents,
+  type NativeSubagent,
+} from "./neopiNativeSubagents.ts";
 
 export type NativeSession = EnvironmentRpcSuccess<typeof WS_METHODS.neopiNativeSessionsOpen>;
 export type NativeSessionList = EnvironmentRpcSuccess<typeof WS_METHODS.neopiNativeSessionsList>;
@@ -31,7 +37,15 @@ export type NativeSessionUpdate =
       older: boolean;
       identity?: NativeIdentity;
     }
-  | { type: "reconciliation"; operation: "state" | "branch"; error: string | null };
+  | {
+      type: "subagents";
+      sessionId: string;
+      ref: NeoPiNativeSessionRef;
+      revision: number;
+      epoch: number;
+      agents: readonly unknown[];
+    }
+  | { type: "reconciliation"; operation: "state" | "branch" | "subagents"; error: string | null };
 export interface NativeSessionTarget {
   readonly environmentId: EnvironmentId;
   readonly ref: NeoPiNativeSessionRef;
@@ -56,10 +70,13 @@ export interface NativeSessionFeed {
   readonly dialogs: readonly Record<string, unknown>[];
   readonly notices: Readonly<Record<string, string>>;
   readonly commandOutputs: readonly NativeCommandOutput[];
+  readonly agents: readonly NativeSubagent[];
+  readonly agentsRevision: number;
+  readonly agentsEpoch: number;
   readonly editor: { readonly id: string; readonly text: string } | null;
   readonly error: string | null;
   readonly reconciliationError: {
-    readonly operation: "state" | "branch";
+    readonly operation: "state" | "branch" | "subagents";
     readonly message: string;
   } | null;
 }
@@ -71,6 +88,9 @@ export const emptyNativeSessionFeed = (): NativeSessionFeed => ({
   dialogs: [],
   notices: {},
   commandOutputs: [],
+  agents: [],
+  agentsRevision: 0,
+  agentsEpoch: 0,
   editor: null,
   error: null,
   reconciliationError: null,
@@ -126,6 +146,27 @@ export function reduceNativeSessionFeed(
         }
       : feed;
   }
+  if (event.type === "subagents") {
+    if (
+      !feed.connected ||
+      event.epoch !== feed.agentsEpoch ||
+      feed.session?.sessionId !== event.sessionId ||
+      feed.session.ref.sessionFile !== event.ref.sessionFile ||
+      feed.session.ref.providerInstanceId !== event.ref.providerInstanceId
+    )
+      return feed;
+    return {
+      ...feed,
+      agents: snapshotNativeSubagents(
+        feed.agents,
+        event.agents,
+        event.revision,
+        feed.agentsRevision + 1,
+        new Date().toISOString(),
+      ),
+      agentsRevision: feed.agentsRevision + 1,
+    };
+  }
   if (event.type === "state")
     return feed.session &&
       (typeof event.state.sessionFile !== "string" ||
@@ -167,14 +208,25 @@ export function reduceNativeSessionFeed(
         }
       : next;
   }
-  if (event.type === "disconnected") return { ...feed, connected: false };
-  if (event.type === "closed")
-    return { ...feed, connected: false, busy: false, error: event.reason };
+  if (event.type === "disconnected" || event.type === "closed")
+    return {
+      ...feed,
+      connected: false,
+      agents: disconnectNativeSubagents(
+        feed.agents,
+        feed.agentsRevision + 1,
+        new Date().toISOString(),
+      ),
+      agentsRevision: feed.agentsRevision + 1,
+      agentsEpoch: feed.agentsEpoch + 1,
+      ...(event.type === "closed" ? { busy: false, error: event.reason } : {}),
+    };
   if (event.type === "snapshot") {
     const page = nativeJournalPage(event.journal);
     const previous = feed.conversation;
     const sameFile =
       feed.session?.ref.sessionFile === event.session.ref.sessionFile &&
+      feed.session.ref.providerInstanceId === event.session.ref.providerInstanceId &&
       feed.session.sessionId === event.session.sessionId;
     const conversation = page
       ? retainNativePending(
@@ -189,6 +241,11 @@ export function reduceNativeSessionFeed(
       session: event.session,
       conversation,
       commandOutputs: sameFile ? feed.commandOutputs : [],
+      agents: sameFile
+        ? disconnectNativeSubagents(feed.agents, feed.agentsRevision + 1, new Date().toISOString())
+        : [],
+      agentsRevision: feed.agentsRevision + 1,
+      agentsEpoch: feed.agentsEpoch + 1,
       connected: true,
       busy: event.session.state.isStreaming === true,
       error: null,
@@ -210,6 +267,9 @@ export function reduceNativeSessionFeed(
       busy: false,
       dialogs: [],
       editor: null,
+      agents: [],
+      agentsRevision: feed.agentsRevision + 1,
+      agentsEpoch: feed.agentsEpoch + 1,
       error:
         "The native owner changed session. Select its new native file before sending commands.",
     };
@@ -223,6 +283,15 @@ export function reduceNativeSessionFeed(
     conversation: projected.conversation,
     busy: projected.busy ?? feed.busy,
   };
+  if (frame.type === "subagent_lifecycle" || frame.type === "subagent_progress") {
+    const agents = reduceNativeSubagents(
+      next.agents,
+      frame,
+      next.agentsRevision + 1,
+      new Date().toISOString(),
+    );
+    if (agents !== next.agents) next = { ...next, agents, agentsRevision: next.agentsRevision + 1 };
+  }
   if (
     frame.type === "journal_state" &&
     typeof frame.sessionId === "string" &&
@@ -233,7 +302,15 @@ export function reduceNativeSessionFeed(
       ...next,
       session: { ...next.session, sessionId: frame.sessionId },
       ...(frame.sessionId !== next.session.sessionId
-        ? { busy: false, dialogs: [], editor: null, commandOutputs: [] }
+        ? {
+            busy: false,
+            dialogs: [],
+            editor: null,
+            commandOutputs: [],
+            agents: [],
+            agentsRevision: next.agentsRevision + 1,
+            agentsEpoch: next.agentsEpoch + 1,
+          }
         : {}),
     };
   if (frame.type === "command_output" && typeof frame.text === "string" && frame.text)

@@ -856,4 +856,58 @@ describe("canonical native client projection", () => {
       }),
     );
   });
+
+  it("isolates agent inventory by profile, canonical file, identity and reconnect epoch", () => {
+    let feed = initial();
+    const inventory = {
+      type: "subagents" as const,
+      ref,
+      sessionId: session.sessionId,
+      epoch: feed.agentsEpoch,
+      revision: feed.agentsRevision,
+      agents: [{ id: "worker", status: "running", agent: "scout", index: 0 }],
+    };
+    feed = reduceNativeSessionFeed(feed, inventory);
+    expect(feed.agents[0]?.status).toBe("running");
+    const original = feed.agents;
+    for (const stale of [
+      { ...inventory, sessionId: "other-session" },
+      { ...inventory, ref: { ...ref, sessionFile: "/sessions/other.jsonl" } },
+      { ...inventory, ref: { ...ref, providerInstanceId: ProviderInstanceId.make("other") } },
+    ]) {
+      feed = reduceNativeSessionFeed(feed, stale);
+      expect(feed.agents).toBe(original);
+    }
+    feed = reduceNativeSessionFeed(feed, { type: "disconnected" });
+    expect(feed.agents[0]?.status).toBe("interrupted");
+    feed = reduceNativeSessionFeed(feed, {
+      type: "snapshot",
+      session,
+      journal: {
+        sessionId: session.sessionId,
+        sessionFile: ref.sessionFile,
+        leafId: user.id,
+        entries: [user],
+        totalEntries: 1,
+      },
+    });
+    // Even an id not previously observed cannot leak from an old connection.
+    feed = reduceNativeSessionFeed(feed, {
+      ...inventory,
+      agents: [{ id: "stale-worker", status: "running" }],
+    });
+    expect(feed.agents.map((agent) => agent.id)).toEqual(["worker"]);
+    expect(feed.agents[0]?.status).toBe("interrupted");
+    feed = reduceNativeSessionFeed(feed, {
+      type: "event",
+      frame: {
+        type: "journal_state",
+        sessionId: "replacement",
+        sessionFile: ref.sessionFile,
+        leafId: null,
+      },
+    });
+    expect(feed.agents).toEqual([]);
+    expect(feed.conversation.entries).toEqual([]);
+  });
 });

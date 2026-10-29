@@ -388,4 +388,87 @@ describe("native feed reconciliation lifetime", () => {
       }),
     ),
   );
+
+  it.effect(
+    "reconciles active inventory beside live frames and retains completion across reconnect",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const started = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<unknown>();
+          let inventories = 0;
+          const { events, feeds } = yield* harness((command) => {
+            if (command.type === "set_subagent_subscription")
+              return Effect.succeed({ level: "progress" });
+            if (command.type === "get_subagents")
+              return Effect.gen(function* () {
+                inventories++;
+                if (inventories > 1) return { subagents: [] };
+                yield* Deferred.succeed(started, undefined);
+                return yield* Deferred.await(release);
+              });
+            return Effect.succeed({});
+          });
+          const reconnect: NativeSessionUpdate = {
+            type: "snapshot",
+            session,
+            journal: page([user]),
+          };
+          yield* Queue.offer(events, reconnect);
+          yield* Deferred.await(started);
+          const payload = { id: "worker", agent: "scout", index: 0, parentToolCallId: "task" };
+          yield* Queue.offerAll(events, [
+            event({ type: "subagent_lifecycle", payload: { ...payload, status: "started" } }),
+            event({
+              type: "subagent_progress",
+              payload: { ...payload, progress: { id: "worker", status: "running", tokens: 90 } },
+            }),
+            event({
+              type: "message_update",
+              messageId: "live",
+              message: { role: "assistant", content: "Visible while inventory is blocked" },
+            }),
+            event({ type: "subagent_lifecycle", payload: { ...payload, status: "completed" } }),
+          ]);
+          const completed = yield* nextFeed(
+            feeds,
+            (feed) => feed.agents[0]?.status === "completed",
+          );
+          expect(completed.conversation.pending[0]?.message.content).toBe(
+            "Visible while inventory is blocked",
+          );
+          expect(completed.agents[0]?.usage?.totalTokens).toBe(90);
+          yield* Deferred.succeed(release, {
+            subagents: [
+              { ...payload, status: "running" },
+              { id: "discovered", agent: "task", index: 1, status: "running" },
+            ],
+          });
+          const hydrated = yield* nextFeed(feeds, (feed) =>
+            feed.agents.some((agent) => agent.id === "discovered"),
+          );
+          expect(hydrated.agents.map((agent) => [agent.id, agent.status])).toEqual([
+            ["worker", "completed"],
+            ["discovered", "running"],
+          ]);
+          yield* Queue.offer(events, { type: "disconnected" });
+          const disconnected = yield* nextFeed(feeds, (feed) => !feed.connected);
+          expect(disconnected.agents.map((agent) => agent.status)).toEqual([
+            "completed",
+            "interrupted",
+          ]);
+          yield* Queue.offer(events, reconnect);
+          const refreshed = yield* nextFeed(
+            feeds,
+            (feed) => feed.connected && feed.agentsRevision > disconnected.agentsRevision + 1,
+          );
+          expect(refreshed.agents.map((agent) => [agent.id, agent.status])).toEqual([
+            ["worker", "completed"],
+            ["discovered", "interrupted"],
+          ]);
+          expect(refreshed.agents[0]?.usage?.totalTokens).toBe(90);
+          expect(refreshed.conversation.pending).toEqual(completed.conversation.pending);
+        }),
+      ),
+  );
 });
