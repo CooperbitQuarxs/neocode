@@ -1,15 +1,24 @@
 import { describe, expect, it } from "@effect/vitest";
 import {
+  EnvironmentId,
+  WS_METHODS,
   ProviderInstanceId,
   type NeoPiJournalEntry,
   type NeoPiJournalPage,
 } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as SubscriptionRef from "effect/SubscriptionRef";
+import { AsyncResult, Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { EnvironmentRegistry } from "../connection/registry.ts";
+import { EnvironmentSupervisor } from "../connection/supervisor.ts";
+import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
+import type { RpcSession } from "../rpc/session.ts";
 import {
   emptyNativeSessionFeed,
   reduceNativeSessionFeed,
@@ -17,7 +26,7 @@ import {
   type NativeSessionFeed,
   type NativeSessionUpdate,
 } from "../neopiNativeSessions.ts";
-import { reconcileNativeSessionFeed } from "./neopiNativeSessions.ts";
+import { createNativeSessionAtoms, reconcileNativeSessionFeed } from "./neopiNativeSessions.ts";
 
 class StateReadError extends Schema.TaggedError<StateReadError>()("StateReadError", {
   message: Schema.String,
@@ -89,6 +98,273 @@ const harness = <E, R>(
     );
     return { events, feeds };
   });
+
+const makeAtomHarness = Effect.fn("NativeSessionAtomsTest.makeHarness")(function* () {
+  const subscriptions = yield* Queue.unbounded<{
+    readonly events: Queue.Queue<NativeSessionUpdate>;
+    readonly detached: Deferred.Deferred<void>;
+  }>();
+  const active = new Set<Queue.Queue<NativeSessionUpdate>>();
+  let opens = 0;
+  let closes = 0;
+  let prompts = 0;
+  const client = {
+    [WS_METHODS.neopiNativeSessionsOpen]: () =>
+      Effect.sync(() => {
+        opens++;
+        return session;
+      }),
+    [WS_METHODS.neopiNativeSessionsClose]: () =>
+      Effect.gen(function* () {
+        closes++;
+        for (const events of active)
+          yield* Queue.offer(events, {
+            type: "closed",
+            reason: "The native connection was explicitly closed.",
+          });
+        return { closed: true };
+      }),
+    [WS_METHODS.neopiNativeSessionsRequest]: (input: {
+      readonly command: Record<string, unknown> & { type: string };
+    }) =>
+      Effect.sync(() => {
+        if (input.command.type === "get_subagents") return { subagents: [] };
+        if (input.command.type === "prompt") {
+          prompts++;
+          return { userEntryId: "new-turn" };
+        }
+        return {};
+      }),
+    [WS_METHODS.neopiNativeSessionsWatch]: () =>
+      Stream.unwrap(
+        Effect.gen(function* () {
+          const events = yield* Queue.unbounded<NativeSessionUpdate>();
+          const detached = yield* Deferred.make<void>();
+          yield* Effect.acquireRelease(
+            Effect.sync(() => active.add(events)),
+            () =>
+              Effect.sync(() => active.delete(events)).pipe(
+                Effect.andThen(Deferred.succeed(detached, undefined)),
+              ),
+          );
+          yield* Queue.offer(subscriptions, { events, detached });
+          return Stream.concat(
+            Stream.succeed<NativeSessionUpdate>({
+              type: "snapshot",
+              session,
+              journal: page([user]),
+            }),
+            Stream.fromQueue(events).pipe(Stream.takeUntil((update) => update.type === "closed")),
+          );
+        }),
+      ),
+  } as unknown as WsRpcProtocolClient;
+  const connection = { client } as RpcSession;
+  const environmentId = EnvironmentId.make("native-remote");
+  const sessionRef = yield* SubscriptionRef.make(Option.some(connection));
+  const supervisor = EnvironmentSupervisor.of({
+    target: { environmentId },
+    session: sessionRef,
+  } as EnvironmentSupervisor["Service"]);
+  const environments = EnvironmentRegistry.of({
+    run: (_id, effect) => Effect.provideService(effect, EnvironmentSupervisor, supervisor),
+    followStream: (_id, stream) => Stream.provideService(stream, EnvironmentSupervisor, supervisor),
+  } as EnvironmentRegistry["Service"]);
+  const atoms = createNativeSessionAtoms(
+    Atom.runtime(Layer.succeed(EnvironmentRegistry, environments)),
+  );
+  // Normal work uses microtasks; tests can drain disposal deterministically
+  // without advancing the old five-minute retention period.
+  const scheduled = new Set<() => void>();
+  const flush = () => {
+    while (scheduled.size > 0) scheduled.values().next().value!();
+  };
+  const registry = yield* Effect.acquireRelease(
+    Effect.sync(() =>
+      AtomRegistry.make({
+        scheduleTask: (f) => {
+          const task = () => {
+            if (scheduled.delete(task)) f();
+          };
+          scheduled.add(task);
+          queueMicrotask(task);
+          return () => {
+            scheduled.delete(task);
+          };
+        },
+      }),
+    ),
+    (registry) => Effect.sync(() => registry.dispose()),
+  );
+  const target = { environmentId, ref };
+  const watch = atoms.watch({ environmentId, input: { ref } });
+  const observe = (predicate: (feed: NativeSessionFeed) => boolean) =>
+    AtomRegistry.toStream(registry, watch).pipe(
+      Stream.filter(AsyncResult.isSuccess),
+      Stream.map((result) => result.value),
+      Stream.filter(predicate),
+      Stream.runHead,
+      Effect.map(Option.getOrThrow),
+    );
+  return {
+    atoms,
+    registry,
+    watch,
+    target,
+    observe,
+    flush,
+    connection,
+    sessionRef,
+    subscriptions,
+    counts: () => ({ opens, closes, prompts, active: active.size }),
+  };
+});
+
+describe("native session observation lifetime", () => {
+  it.effect(
+    "reopens an explicitly closed canonical ref with cached history and command output",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const h = yield* makeAtomHarness();
+          const unmount = h.registry.mount(h.watch);
+          const first = yield* Queue.take(h.subscriptions);
+          yield* h.observe((feed) => feed.connected);
+          yield* Queue.offer(
+            first.events,
+            event({ type: "command_output", text: "Retained native command output" }),
+          );
+          const before = yield* h.observe((feed) => feed.commandOutputs.length === 1);
+          const closed = yield* Effect.promise(() =>
+            h.atoms.close.run(h.registry, {
+              environmentId: h.target.environmentId,
+              input: { ref },
+            }),
+          );
+          expect(closed._tag).toBe("Success");
+          const stopped = yield* h.observe((feed) => !feed.connected && feed.error !== null);
+          expect(stopped.error).toBe("The native connection was explicitly closed.");
+          expect(stopped.conversation.entries).toEqual([user]);
+          expect(stopped.commandOutputs).toEqual(before.commandOutputs);
+          yield* Deferred.await(first.detached);
+          expect(h.counts().opens).toBe(1);
+
+          unmount();
+          h.flush();
+          expect(h.atoms.cached(h.target)?.conversation.entries).toEqual([user]);
+          expect(h.atoms.cached(h.target)?.commandOutputs).toEqual(before.commandOutputs);
+
+          const remount = h.registry.mount(h.watch);
+          const second = yield* Queue.take(h.subscriptions);
+          expect(second.events).not.toBe(first.events);
+          const reopened = yield* h.observe((feed) => feed.connected);
+          expect(reopened.error).toBeNull();
+          expect(reopened.conversation.entries).toEqual([user]);
+          expect(reopened.commandOutputs).toEqual(before.commandOutputs);
+          expect(reopened.session?.ref).toEqual(ref);
+          const reply = yield* Effect.promise(() =>
+            h.atoms.request.run(h.registry, {
+              environmentId: h.target.environmentId,
+              input: { ref, command: { type: "prompt", message: "After reopen" } },
+            }),
+          );
+          expect(reply).toMatchObject({ _tag: "Success", value: { userEntryId: "new-turn" } });
+          yield* Queue.offer(
+            second.events,
+            event({
+              type: "message_update",
+              messageId: "new-live",
+              message: { role: "assistant", content: "Live after reopen" },
+            }),
+          );
+          const live = yield* h.observe(
+            (feed) => feed.conversation.pending[0]?.message.content === "Live after reopen",
+          );
+          expect(live.connected).toBe(true);
+          expect(live.commandOutputs).toEqual(before.commandOutputs);
+          expect(h.counts()).toEqual({ opens: 2, closes: 1, prompts: 1, active: 1 });
+          remount();
+        }),
+      ),
+  );
+
+  it.effect("keeps a running observation warm through switch-away and switch-back", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const h = yield* makeAtomHarness();
+        const unmount = h.registry.mount(h.watch);
+        const first = yield* Queue.take(h.subscriptions);
+        yield* h.observe((feed) => feed.connected);
+        yield* Queue.offer(first.events, event({ type: "agent_start" }));
+        yield* h.observe((feed) => feed.busy);
+
+        unmount();
+        h.flush();
+        expect(h.counts()).toEqual({ opens: 1, closes: 0, prompts: 0, active: 1 });
+        const reply = {
+          ...user,
+          id: "background-reply",
+          parentId: user.id,
+          message: { role: "assistant", content: "Delivered while elsewhere" },
+        };
+        yield* Queue.offerAll(first.events, [
+          event({ type: "journal_state", reason: "leaf", ...identity(reply.id) }),
+          event({ type: "journal_entry", ...identity(reply.id), entry: reply }),
+          event({ type: "command_output", text: "Background command output" }),
+        ]);
+
+        const remount = h.registry.mount(h.watch);
+        const returned = yield* h.observe(
+          (feed) => feed.busy && feed.commandOutputs[0]?.text === "Background command output",
+        );
+        expect(returned.connected).toBe(true);
+        expect(returned.conversation.entries).toEqual([user, reply]);
+        expect(returned.error).toBeNull();
+        // No second open/watch or snapshot is needed: the background stream
+        // delivered the durable reply and command output through the same peer.
+        expect(h.counts()).toEqual({ opens: 1, closes: 0, prompts: 0, active: 1 });
+        expect(yield* Deferred.isDone(first.detached)).toBe(false);
+        yield* Queue.offer(first.events, event({ type: "agent_end" }));
+        const settled = yield* h.observe((feed) => !feed.busy);
+        expect(settled.conversation.entries).toEqual([user, reply]);
+        remount();
+      }),
+    ),
+  );
+
+  it.effect("shares active observers and reconnects the environment without a native close", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const h = yield* makeAtomHarness();
+        const firstObserver = h.registry.mount(h.watch);
+        const secondObserver = h.registry.mount(h.watch);
+        const first = yield* Queue.take(h.subscriptions);
+        yield* h.observe((feed) => feed.connected);
+        firstObserver();
+        h.flush();
+        expect(h.counts()).toEqual({ opens: 1, closes: 0, prompts: 0, active: 1 });
+
+        yield* SubscriptionRef.set(h.sessionRef, Option.none());
+        const offline = yield* h.observe((feed) => !feed.connected);
+        expect(offline.conversation.entries).toEqual([user]);
+        yield* Deferred.await(first.detached);
+        yield* SubscriptionRef.set(h.sessionRef, Option.some({ ...h.connection }));
+        const second = yield* Queue.take(h.subscriptions);
+        yield* h.observe((feed) => feed.connected);
+        expect(h.counts()).toEqual({ opens: 2, closes: 0, prompts: 0, active: 1 });
+
+        secondObserver();
+        h.flush();
+        expect(h.counts()).toEqual({ opens: 2, closes: 0, prompts: 0, active: 1 });
+        // The underlying five-minute observation remains warm. Disposing the
+        // client registry still must not invoke the native owner's close RPC.
+        h.registry.dispose();
+        yield* Deferred.await(second.detached);
+        expect(h.counts()).toEqual({ opens: 2, closes: 0, prompts: 0, active: 0 });
+      }),
+    ),
+  );
+});
 
 describe("native feed reconciliation lifetime", () => {
   it.effect(

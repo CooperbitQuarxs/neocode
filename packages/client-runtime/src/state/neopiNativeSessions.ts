@@ -4,7 +4,7 @@ import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import type { Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { EnvironmentSupervisor } from "../connection/supervisor.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { request as rpcRequest, subscribe } from "../rpc/client.ts";
@@ -188,6 +188,7 @@ export function createNativeSessionAtoms<R, E>(
 ) {
   const cache = new Map<string, NativeSessionFeed>();
   const updates = new Map<string, Queue.Queue<NativeSessionUpdate>>();
+  const closedObservations = new Set<string>();
   const publish = (key: string, update: NativeSessionUpdate) =>
     Effect.sync(() => {
       const queue = updates.get(key);
@@ -200,7 +201,7 @@ export function createNativeSessionAtoms<R, E>(
     tag: WS_METHODS.neopiNativeSessionsList,
     staleTimeMs: 5_000,
   });
-  const watch = createEnvironmentSubscriptionAtomFamily(runtime, {
+  const observation = createEnvironmentSubscriptionAtomFamily(runtime, {
     label: "native-sessions:watch",
     idleTtlMs: 5 * 60_000,
     subscribe: (input: { ref: NeoPiNativeSessionRef }) =>
@@ -255,14 +256,19 @@ export function createNativeSessionAtoms<R, E>(
                   Stream.fromQueue(queue),
                   { haltStrategy: "left" },
                 ).pipe(
-                  Stream.takeUntil(
-                    (event) =>
-                      event.type === "closed" ||
-                      (event.type === "event" &&
-                        event.frame.type === "journal_state" &&
-                        typeof event.frame.sessionFile === "string" &&
-                        event.frame.sessionFile !== input.ref.sessionFile),
-                  ),
+                  Stream.takeUntil((event) => {
+                    if (event.type === "closed") {
+                      closedObservations.add(key);
+                      return true;
+                    }
+                    if (event.type === "snapshot") closedObservations.delete(key);
+                    return (
+                      event.type === "event" &&
+                      event.frame.type === "journal_state" &&
+                      typeof event.frame.sessionFile === "string" &&
+                      event.frame.sessionFile !== input.ref.sessionFile
+                    );
+                  }),
                 ),
                 (command) =>
                   rpcRequest(WS_METHODS.neopiNativeSessionsRequest, { ref: input.ref, command }),
@@ -276,6 +282,30 @@ export function createNativeSessionAtoms<R, E>(
         }),
       ),
   });
+  const mountedWatch = Atom.family((key: string) => {
+    const target = JSON.parse(key) as Parameters<typeof observation>[0];
+    const source = observation(target);
+    const sessionKey = nativeSessionKey({
+      environmentId: target.environmentId,
+      ref: target.input.ref,
+    });
+    return Atom.make((get) => {
+      const current = get.once(source);
+      // Forward updates without recalculating this mount boundary: delivering
+      // `closed` must not itself reopen the native owner.
+      get.subscribe(source, (value) => get.setSelf(value));
+      if (
+        closedObservations.has(sessionKey) &&
+        AsyncResult.isSuccess(current) &&
+        !current.value.connected
+      )
+        get.refresh(source);
+      return get.once(source);
+    }).pipe(Atom.setIdleTTL(0));
+  });
+  // Only the mount boundary expires immediately. The observation stays warm
+  // for ordinary workspace switching and is restarted on remount if closed.
+  const watch = (target: Parameters<typeof observation>[0]) => mountedWatch(JSON.stringify(target));
   const request = createEnvironmentRpcCommand(runtime, {
     label: "native-sessions:request",
     tag: WS_METHODS.neopiNativeSessionsRequest,
