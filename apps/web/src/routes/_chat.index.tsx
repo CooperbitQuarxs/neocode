@@ -13,6 +13,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/
 import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
 import { useNewThreadHandler } from "../hooks/useHandleNewThread";
+import { useAvailableProject } from "../hooks/useAvailableProject";
 import {
   useAllEnvironmentShellsBootstrapped,
   useProjects,
@@ -35,9 +36,9 @@ function ChatIndexRouteView() {
 }
 
 /**
- * Landing on the index route drops straight into a draft thread for the most
- * recently active project, so the first screen is a prompt instead of a dead
- * end. Falls back to an add-project hero when no project exists yet.
+ * Landing on the index route opens a draft in the most recently active
+ * reachable project. Unavailable workspaces keep their saved history but are
+ * never automatic work destinations.
  */
 function IndexDraftLanding() {
   const projects = useProjects();
@@ -45,38 +46,43 @@ function IndexDraftLanding() {
   const bootstrapped = useAllEnvironmentShellsBootstrapped();
   const handleNewThread = useNewThreadHandler();
   const startingRef = useRef(false);
-  const [startState, setStartState] = useState({ failed: false, retryRequest: 0 });
+  const [startState, setStartState] = useState<{ error: string | null; retryRequest: number }>({
+    error: null,
+    retryRequest: 0,
+  });
 
-  const mostRecentProject = useMemo(
-    () =>
-      bootstrapped
-        ? (sortScopedProjectsForSidebar(projects, threads, "updated_at")[0] ?? null)
-        : null,
-    [bootstrapped, projects, threads],
+  const orderedProjects = useMemo(
+    () => sortScopedProjectsForSidebar(projects, threads, "updated_at"),
+    [projects, threads],
   );
+  const mostRecentProject = useAvailableProject(orderedProjects, bootstrapped);
 
   useEffect(() => {
-    if (mostRecentProject === null || startingRef.current) {
+    if (!mostRecentProject || startingRef.current) {
       return;
     }
     startingRef.current = true;
     void handleNewThread(scopeProjectRef(mostRecentProject.environmentId, mostRecentProject.id), {
       replace: true,
-    }).catch(() => {
+    }).catch((error: unknown) => {
       startingRef.current = false;
-      setStartState((state) => ({ ...state, failed: true }));
+      setStartState((state) => ({
+        ...state,
+        error: error instanceof Error ? error.message : "The draft could not be opened. Try again.",
+      }));
     });
   }, [handleNewThread, mostRecentProject, startState.retryRequest]);
 
-  if (!bootstrapped) {
+  if (!bootstrapped || mostRecentProject === undefined) {
     return null;
   }
   if (mostRecentProject !== null) {
-    return startState.failed ? (
+    return startState.error !== null ? (
       <DraftStartError
+        message={startState.error}
         onRetry={() => {
           setStartState((state) => ({
-            failed: false,
+            error: null,
             retryRequest: state.retryRequest + 1,
           }));
         }}
@@ -85,19 +91,23 @@ function IndexDraftLanding() {
   }
   // First-run routing to the welcome wizard happens in FirstRunGate at the
   // root, before this route ever renders.
-  return <NoProjectsHero />;
+  return <NoProjectsHero hasSavedProjects={projects.length > 0} />;
 }
 
-function DraftStartError({ onRetry }: { readonly onRetry: () => void }) {
+function DraftStartError({
+  message,
+  onRetry,
+}: {
+  readonly message: string;
+  readonly onRetry: () => void;
+}) {
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
       {isElectron ? <WorkspacePageHeader electron /> : null}
       <Empty className="flex-1">
         <EmptyHeader className="max-w-md">
           <EmptyTitle>Couldn’t start a new thread</EmptyTitle>
-          <EmptyDescription>
-            The project is still available. Try opening the draft again.
-          </EmptyDescription>
+          <EmptyDescription>{message}</EmptyDescription>
           <div className="mt-5 flex justify-center">
             <Button size="sm" onClick={onRetry}>
               <RefreshIcon size="md" />

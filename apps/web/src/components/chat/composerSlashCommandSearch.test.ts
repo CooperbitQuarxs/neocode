@@ -6,9 +6,54 @@ import {
   searchSlashCommandItems,
   slashCommandItemsForPromptPosition,
 } from "./composerSlashCommandSearch";
+import { composerCapabilitiesForProvider } from "./neopiComposerUi";
 
 describe("searchSlashCommandItems", () => {
   const claudeDriver = ProviderDriverKind.make("claudeAgent");
+
+  it.each(["model", "plan", "default"] as const)(
+    "keeps native /%s authoritative rather than consuming it as a local GUI action",
+    (command) => {
+      const nativeCommand = {
+        id: `native:${command}`,
+        type: "provider-slash-command" as const,
+        provider: ProviderDriverKind.make("neopi"),
+        command: { name: command, source: "builtin" as const },
+        label: `/${command}`,
+        description: "Native command",
+      };
+      const localCommand = {
+        id: `local:${command}`,
+        type: "slash-command" as const,
+        command,
+        label: `/${command}`,
+        description: "Local GUI action",
+      };
+      const menu = slashCommandItemsForPromptPosition(
+        [localCommand, nativeCommand],
+        true,
+        composerCapabilitiesForProvider("neopi")?.ownsSlashCommands,
+      );
+      expect(searchSlashCommandItems(menu, command)).toEqual([nativeCommand]);
+    },
+  );
+
+  it("does not offer a local picker when the native catalog is unavailable", () => {
+    const menu = slashCommandItemsForPromptPosition(
+      [
+        {
+          id: "slash:model",
+          type: "slash-command",
+          command: "model",
+          label: "/model",
+          description: "Local GUI action",
+        },
+      ],
+      true,
+      true,
+    );
+    expect(searchSlashCommandItems(menu, "model")).toEqual([]);
+  });
 
   it("moves exact provider command matches ahead of broader description matches", () => {
     const items = [

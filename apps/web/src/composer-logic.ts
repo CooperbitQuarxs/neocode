@@ -279,7 +279,9 @@ export function composerStateAtPromptEnd(text: string): {
 
 export function parseStandaloneComposerSlashCommand(
   text: string,
+  providerOwnsCommands = false,
 ): Exclude<ComposerSlashCommand, "model"> | null {
+  if (providerOwnsCommands) return null;
   const match = /^\/(plan|default)\s*$/i.exec(text.trim());
   if (!match) {
     return null;

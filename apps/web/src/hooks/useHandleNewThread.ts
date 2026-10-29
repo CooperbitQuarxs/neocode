@@ -34,6 +34,7 @@ import { environmentServerConfigsAtom } from "../state/server";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useClientSettings } from "./useSettings";
+import { useAvailableProject } from "./useAvailableProject";
 
 interface NewThreadWorkspaceOptions {
   branch?: string | null;
@@ -463,13 +464,14 @@ export function useHandleNewThread() {
       ],
     });
   }, [projectOrder, projects]);
+  const defaultProject = useAvailableProject(orderedProjects);
   const handleNewThread = useNewThreadHandler();
 
   return {
     activeDraftThread,
     activeThread,
-    defaultProjectRef: orderedProjects[0]
-      ? scopeProjectRef(orderedProjects[0].environmentId, orderedProjects[0].id)
+    defaultProjectRef: defaultProject
+      ? scopeProjectRef(defaultProject.environmentId, defaultProject.id)
       : null,
     handleNewThread,
     routeDraftId,
