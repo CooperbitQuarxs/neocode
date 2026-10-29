@@ -241,7 +241,7 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
     >
       <ScreenHeader
         title={String(state.sessionName ?? "Conversation")}
-        onBack={() => navigation.navigate("Home")}
+        onBack={() => navigation.dispatch(StackActions.popTo("Home"))}
         actions={[
           {
             accessibilityLabel: "Session tree",
@@ -395,7 +395,7 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
               (result) => {
                 if (result._tag === "Failure")
                   setLocalError(String(squashAtomCommandFailure(result)));
-                else navigation.navigate("Home");
+                else navigation.dispatch(StackActions.popTo("Home"));
               },
             )
           }
