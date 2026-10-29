@@ -247,10 +247,10 @@ than uploading the same files again.
 After acceptance, matching drafts in other open windows are cleared too. Text,
 context and attachments added while the send is pending remain in the composer.
 
-Commands such as `/usage`, `/context`, and `/model` show NeoPi's result in the
-conversation without leaving your session. These results stay in the open
-client's conversation view through reconnects; they are not added to the
-session's saved journal.
+Commands such as `/usage`, `/context`, and `/model` show NeoPi's preformatted
+report in the conversation, preserving its spacing and colors without leaving
+your session. These results stay in the open client's conversation view through
+reconnects; they are not added to the session's saved journal.
 
 For a native session working in a Git repository, **Diff** shows working-tree
 changes in that session's folder, even when it is outside the folder where

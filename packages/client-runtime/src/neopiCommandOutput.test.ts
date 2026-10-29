@@ -76,10 +76,32 @@ describe("native command output presentation", () => {
     ]);
   });
 
-  it("preserves plain text, HTML-like text, Markdown fences, newlines and complete Unicode glyphs", () => {
-    const text = "```\n<em>not HTML</em>\t░█ 🪐 e\u0301 漢字\n```";
-    expect(nativeCommandTextRuns(text)).toEqual([plain(text)]);
+  it("presents a complete native report without its enclosing Markdown fence", () => {
+    const body =
+      `${esc}[1mUsage${esc}[0m\n` +
+      "<em>not HTML</em>\t░█ 🪐 e\u0301 漢字; inline ``` stays\n\n" +
+      `${esc}[38;2;12;34;56m███${esc}[0m final quota`;
+    expect(nativeCommandTextRuns("```\n" + body + "\n```")).toEqual([
+      { text: "Usage", bold: true, color: null },
+      plain("\n<em>not HTML</em>\t░█ 🪐 e\u0301 漢字; inline ``` stays\n\n"),
+      { text: "███", bold: false, color: "rgb(12, 34, 56)" },
+      plain(" final quota"),
+    ]);
+  });
+
+  it("presents an empty report without introducing fence markers", () => {
+    expect(nativeCommandTextRuns("```\n```")).toEqual([]);
     expect(nativeCommandTextRuns("")).toEqual([]);
+  });
+
+  it.each([
+    "inline ``` markers",
+    "```\nunclosed output",
+    "unfenced result\n```",
+    "```\nfirst\n```\nprose\n```\nlast\n```",
+    "```\nfirst\n````\nlast\n```",
+  ])("preserves text that is not a single complete native report: %j", (text) => {
+    expect(visible(text)).toBe(text);
   });
 
   it("drops truncated escape prefixes without consuming the ordinary tail after a boundary", () => {

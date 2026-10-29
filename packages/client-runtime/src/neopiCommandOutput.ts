@@ -7,6 +7,13 @@ export interface NativeCommandTextRun {
 // A command result is a text document, not a terminal. Only native SGR emphasis
 // and foreground RGB are presented; cursor movement and terminal payloads vanish.
 export function nativeCommandTextRuns(text: string): ReadonlyArray<NativeCommandTextRun> {
+  // Native reports wrap preformatted SGR text in a bare Markdown fence.
+  // Consume only a complete single block, not partial or mixed documents.
+  if (text.startsWith("```\n") && text.endsWith("\n```")) {
+    const body = text.slice(4, -4);
+    if (!/^ {0,3}`{3,}[ \t]*\r?$/m.test(body)) text = body;
+  }
+
   const runs: NativeCommandTextRun[] = [];
   let chunks: string[] = [];
   let bold = false;
