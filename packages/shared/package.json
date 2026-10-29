@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./neopiWorkspace": {
+      "types": "./src/neopiWorkspace.ts",
+      "import": "./src/neopiWorkspace.ts"
+    },
     "./neopiStats": {
       "types": "./src/neopiStats.ts",
       "import": "./src/neopiStats.ts"
