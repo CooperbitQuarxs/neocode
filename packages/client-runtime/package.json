@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./neopi-command-output": {
+      "types": "./src/neopiCommandOutput.ts",
+      "default": "./src/neopiCommandOutput.ts"
+    },
     "./neopi-native-sessions": {
       "types": "./src/neopiNativeSessions.ts",
       "default": "./src/neopiNativeSessions.ts"

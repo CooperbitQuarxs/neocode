@@ -6,9 +6,10 @@ import {
   nativeSessionKey,
   nativeTranscriptRows,
   type NativeSessionTarget,
+  type NativeTranscriptRow,
 } from "@t3tools/client-runtime/neopi-native-sessions";
 import { journalEntryLabel } from "@t3tools/client-runtime/neopi-journal";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
 import { AppText as Text } from "../../components/AppText";
 import { MaterialButton } from "../../components/MaterialButton";
@@ -27,6 +28,7 @@ import {
 } from "./NativeSessionWorkspaceControls";
 import { NativeField, NativeModal, NativeError } from "./NativeNeoPiControls";
 import { NeoPiJournalContent } from "./NeoPiJournalContent";
+import { NativeCommandOutput } from "./NativeCommandOutput";
 import { NativeSessionMobileTree } from "./NativeSessionMobileTree";
 import { NeoPiModelsEntry } from "./NeoPiModelsScreen";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -51,9 +53,32 @@ export function NativeSessionScreen({ route }: StaticScreenProps<Params>) {
 }
 function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
   const { feed, request, error } = useNativeSession(target);
+  const timelineRef = useRef<FlatList<NativeTranscriptRow>>(null);
+  const nearEndRef = useRef(false);
+  const submissionGenerationRef = useRef(0);
+  const submissionFrameRef = useRef<number | null>(null);
+  const [submittedGeneration, setSubmittedGeneration] = useState<number | null>(null);
+  const cancelSubmissionFollow = useCallback(() => {
+    submissionGenerationRef.current += 1;
+    if (submissionFrameRef.current !== null) cancelAnimationFrame(submissionFrameRef.current);
+    submissionFrameRef.current = null;
+  }, []);
+  useEffect(() => cancelSubmissionFollow, [cancelSubmissionFollow]);
+  const submit = useCallback<Request>(
+    async (command, attachments) => {
+      if (command.type !== "prompt") return request(command, attachments);
+      cancelSubmissionFollow();
+      const generation = submissionGenerationRef.current;
+      const result = await request(command, attachments);
+      if (generation !== submissionGenerationRef.current) return result;
+      setSubmittedGeneration(generation);
+      return result;
+    },
+    [request, cancelSubmissionFollow],
+  );
   const composer = useNativeComposerState({
     target,
-    request,
+    request: submit,
     connected: feed.connected,
     busy: feed.busy,
   });
@@ -82,6 +107,8 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
       );
   }, [feed.session, target.environmentId, target.ref.sessionFile, navigation]);
   const loadOlder = async () => {
+    cancelSubmissionFollow();
+    nearEndRef.current = false;
     if (paging || !feed.conversation.cursor) return;
     setPaging(true);
     try {
@@ -134,12 +161,12 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
   }, [feed.editor, key, composer.key]);
   const execute = useCallback<Request>(
     async (command, attachments) => {
-      const result = await request(command, attachments);
+      const result = await submit(command, attachments);
       if (command.type !== "prompt" && command.type !== "extension_ui_response")
         setState(nativeRecord(await request({ type: "get_state" })));
       return result;
     },
-    [request],
+    [request, submit],
   );
   const rows = useMemo(
     () =>
@@ -149,6 +176,15 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
       ),
     [feed.conversation, feed.commandOutputs, debug],
   );
+  useEffect(() => {
+    if (submittedGeneration === null || submittedGeneration !== submissionGenerationRef.current)
+      return;
+    submissionFrameRef.current = requestAnimationFrame(() => {
+      submissionFrameRef.current = null;
+      nearEndRef.current = true;
+      timelineRef.current?.scrollToEnd({ animated: false });
+    });
+  }, [submittedGeneration]);
   const model = nativeRecord(state.model);
   const suggestions =
     composer.draft.text.startsWith("/") &&
@@ -190,6 +226,23 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
         <NativeError message={localError ?? error} />
       </View>
       <FlatList
+        ref={timelineRef}
+        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+        onScrollBeginDrag={() => {
+          cancelSubmissionFollow();
+          nearEndRef.current = false;
+        }}
+        onScroll={({ nativeEvent }) => {
+          nearEndRef.current =
+            nativeEvent.contentSize.height -
+              nativeEvent.layoutMeasurement.height -
+              nativeEvent.contentOffset.y <=
+            nativeEvent.layoutMeasurement.height * 0.1;
+        }}
+        scrollEventThrottle={16}
+        onContentSizeChange={() => {
+          if (nearEndRef.current) timelineRef.current?.scrollToEnd({ animated: false });
+        }}
         data={rows}
         keyExtractor={(entry) => entry.id}
         ListHeaderComponent={
@@ -205,9 +258,7 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
         renderItem={({ item }) =>
           item.kind === "command" ? (
             <View className="px-4 py-3" accessibilityLabel="Command output">
-              <Text selectable className="font-mono text-sm text-foreground">
-                {item.text}
-              </Text>
+              <NativeCommandOutput text={item.text} />
             </View>
           ) : (
             <View className="gap-2 px-4 py-3">
@@ -269,7 +320,11 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
           <MaterialButton
             label={debug ? "Hide debug" : "Debug"}
             tone="text"
-            onPress={() => setDebug((value) => !value)}
+            onPress={() => {
+              cancelSubmissionFollow();
+              nearEndRef.current = false;
+              setDebug((value) => !value);
+            }}
           />
         </View>
         <NeoPiModelsEntry environmentId={target.environmentId} target={target.ref} />

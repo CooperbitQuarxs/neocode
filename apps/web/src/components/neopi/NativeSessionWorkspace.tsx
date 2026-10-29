@@ -1,4 +1,4 @@
-import { LegendList } from "@legendapp/list/react";
+import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import {
   nativeCatalogModels,
   nativeRecord,
@@ -26,6 +26,7 @@ import { isElectron } from "../../env";
 import { NeoPiJournalContent } from "./NeoPiJournalContent";
 import { useCreateNativeSession } from "./NativeSessionSidebar";
 import { NativeSessionTree } from "./NativeSessionTree";
+import { NativeCommandOutput } from "./NativeCommandOutput";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useAtomValue } from "@effect/atom-react";
@@ -122,6 +123,28 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
   const timelineHostRef = useRef<HTMLDivElement>(null);
+  const timelineRef = useRef<LegendListRef | null>(null);
+  const submissionGenerationRef = useRef(0);
+  const submissionFrameRef = useRef<number | null>(null);
+  const [submittedGeneration, setSubmittedGeneration] = useState<number | null>(null);
+  const cancelSubmissionFollow = useCallback(() => {
+    submissionGenerationRef.current += 1;
+    if (submissionFrameRef.current !== null) cancelAnimationFrame(submissionFrameRef.current);
+    submissionFrameRef.current = null;
+  }, []);
+  useEffect(() => cancelSubmissionFollow, [cancelSubmissionFollow]);
+  const submit = useCallback<Request>(
+    async (command, attachments) => {
+      if (command.type !== "prompt") return request(command, attachments);
+      cancelSubmissionFollow();
+      const generation = submissionGenerationRef.current;
+      const result = await request(command, attachments);
+      if (generation !== submissionGenerationRef.current) return result;
+      setSubmittedGeneration(generation);
+      return result;
+    },
+    [request, cancelSubmissionFollow],
+  );
   const [composerElement, setComposerElement] = useState<HTMLDivElement | null>(null);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
   const sendingRef = useRef(false);
@@ -132,8 +155,9 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
         getContainer: () =>
           timelineHostRef.current?.querySelector<HTMLElement>(".overflow-auto") ?? null,
         getScrollPaddingBottomPx: () => 0,
+        onScrollStart: cancelSubmissionFollow,
       }),
-    [],
+    [cancelSubmissionFollow],
   );
   useEffect(() => () => pageScroll.dispose(), [pageScroll]);
   const [debug, setDebug] = useState(false);
@@ -153,6 +177,7 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
       selectNativeSession({ environmentId: target.environmentId, ref: session.ref });
   }, [session, target.environmentId, target.ref.sessionFile]);
   const loadOlder = async () => {
+    cancelSubmissionFollow();
     if (paging || !conversation.cursor) return;
     setPaging(true);
     try {
@@ -195,14 +220,14 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   const execute = useCallback(
     async (command: Record<string, unknown> & { type: string }) => {
       setLocalError(null);
-      const result = await request(command);
+      const result = await submit(command);
       if (command.type !== "prompt" && command.type !== "extension_ui_response") {
         const observed = await request({ type: "get_state" });
         setState(nativeRecord(observed));
       }
       return result;
     },
-    [request],
+    [request, submit],
   );
   const send = useCallback(async () => {
     const snapshot = draftStore.getState().getComposerDraft(target);
@@ -222,7 +247,7 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
     setLocalError(null);
     try {
       const prompt = await prepareNativePrompt(target, snapshot);
-      await request(
+      await submit(
         {
           type: "prompt",
           message: prompt.message,
@@ -240,11 +265,21 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
       setSending(false);
       focusComposer();
     }
-  }, [target, feed.connected, feed.busy, request, composerRef, focusComposer]);
+  }, [target, feed.connected, feed.busy, submit, composerRef, focusComposer]);
   const rows = useMemo(
     () => nativeTranscriptRows({ conversation, commandOutputs: feed.commandOutputs }, debug),
     [conversation, feed.commandOutputs, debug],
   );
+  useEffect(() => {
+    if (submittedGeneration === null || submittedGeneration !== submissionGenerationRef.current)
+      return;
+    // Jump only after our successful submit commits. LegendList's normal
+    // near-end maintenance then follows delayed output and row measurement.
+    submissionFrameRef.current = requestAnimationFrame(() => {
+      submissionFrameRef.current = null;
+      void timelineRef.current?.scrollToEnd({ animated: false });
+    });
+  }, [submittedGeneration]);
   const renderEntry = useCallback(
     ({ item }: { item: NativeTranscriptRow }) =>
       item.kind === "command" ? (
@@ -252,7 +287,7 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
           className="mx-auto w-full max-w-(--chat-max-width) px-5 py-4"
           aria-label="Command output"
         >
-          <pre className="whitespace-pre-wrap break-words text-sm">{item.text}</pre>
+          <NativeCommandOutput text={item.text} />
         </article>
       ) : (
         <article
@@ -330,7 +365,10 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => setDebug((value) => !value)}
+          onClick={() => {
+            cancelSubmissionFollow();
+            setDebug((value) => !value);
+          }}
           aria-pressed={debug}
         >
           Debug
@@ -382,8 +420,14 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
             {localError ?? error}
           </p>
         ) : null}
-        <div ref={timelineHostRef} className="flex min-h-0 flex-1 flex-col">
+        <div
+          ref={timelineHostRef}
+          className="flex min-h-0 flex-1 flex-col"
+          onWheelCapture={cancelSubmissionFollow}
+          onPointerDownCapture={cancelSubmissionFollow}
+        >
           <LegendList
+            ref={timelineRef}
             data={rows}
             keyExtractor={(entry) => entry.id}
             renderItem={renderEntry}
