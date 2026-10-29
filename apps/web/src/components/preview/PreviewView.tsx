@@ -75,6 +75,7 @@ import {
 } from "~/browser/browserRecording";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { createPortal } from "react-dom";
 
 interface Props {
   threadRef: WorkspaceRef;
@@ -175,9 +176,14 @@ export function PreviewView({
   // as "every profile".
   const activeProfileId = snapshot?.profileId ?? DEFAULT_BROWSER_PROFILE_ID;
   const activeProfileName = previewProfileName(browserDefaults.profiles, activeProfileId);
+  const browserSurfaceZIndex = placement === "sheet" ? 47 : 30;
   const panelRect = useBrowserSurfaceStore((state) =>
     runtimeTabId ? (state.byTabId[runtimeTabId]?.rect ?? null) : null,
   );
+  const browserSurfacePresented = useBrowserSurfaceStore((state) => {
+    const surface = runtimeTabId ? state.byTabId[runtimeTabId] : undefined;
+    return surface?.visible === true && surface.zIndex === browserSurfaceZIndex;
+  });
 
   const navUrl = navStatus._tag === "Success" ? navStatus.url : null;
   const navTitle = navStatus._tag === "Success" ? navStatus.title : null;
@@ -709,6 +715,22 @@ export function PreviewView({
       }
     });
   }, [handleRefresh, handleResetZoom, handleZoomIn, handleZoomOut, visible]);
+  const browserOverlays = (
+    <>
+      {snapshot && desktopOverlay ? <ZoomIndicator zoomFactor={desktopOverlay.zoomFactor} /> : null}
+      {runtimeTabId &&
+      desktopOverlay &&
+      !showEmptyState &&
+      !isUnreachable &&
+      !activeRecordingTabIds.has(runtimeTabId) ? (
+        <AgentBrowserCursor
+          tabId={runtimeTabId}
+          zoomFactor={desktopOverlay.zoomFactor}
+          controller={controller}
+        />
+      ) : null}
+    </>
+  );
 
   return (
     <div
@@ -788,7 +810,7 @@ export function PreviewView({
             tabId={runtimeTabId}
             visible={visible && !isUnreachable}
             // Global guests sit above their sheet (46), below floating players (48) and dialogs (50).
-            zIndex={placement === "sheet" ? 47 : 30}
+            zIndex={browserSurfaceZIndex}
             className="absolute inset-0 h-full w-full"
           />
         ) : null}
@@ -802,20 +824,28 @@ export function PreviewView({
             onOpenUrl={(next) => void handleOpenServerUrl(next)}
           />
         ) : null}
-        {snapshot && desktopOverlay ? (
-          <ZoomIndicator zoomFactor={desktopOverlay.zoomFactor} />
-        ) : null}
-        {runtimeTabId &&
-        desktopOverlay &&
-        !showEmptyState &&
-        !isUnreachable &&
-        !activeRecordingTabIds.has(runtimeTabId) ? (
-          <AgentBrowserCursor
-            tabId={runtimeTabId}
-            zoomFactor={desktopOverlay.zoomFactor}
-            controller={controller}
-          />
-        ) : null}
+        {previewBridge
+          ? visible &&
+            panelRect &&
+            browserSurfacePresented &&
+            // Guests live outside the panel. Follow them after the app root at
+            // the same layer, above the guest but below floating players/dialogs.
+            createPortal(
+              <div
+                className="pointer-events-none fixed overflow-hidden"
+                style={{
+                  left: panelRect.x,
+                  top: panelRect.y,
+                  width: panelRect.width,
+                  height: panelRect.height,
+                  zIndex: browserSurfaceZIndex,
+                }}
+              >
+                {browserOverlays}
+              </div>,
+              document.body,
+            )
+          : browserOverlays}
         {navStatus._tag === "LoadFailed" ? (
           <div className="absolute inset-0 z-10 bg-background">
             <PreviewUnreachable
