@@ -253,7 +253,9 @@ client's conversation view through reconnects; they are not added to the
 session's saved journal.
 
 For a native session working in a Git repository, **Diff** shows working-tree
-changes. Native sessions do not create the turn snapshots used by turn-based diffs.
+changes in that session's folder, even when it is outside the folder where
+NeoCode started. Native sessions do not create the turn snapshots used by
+turn-based diffs.
 
 The status beside the composer follows the connected native model and effort,
 output throughput, journal-wide cache hit rate, context utilization and recorded

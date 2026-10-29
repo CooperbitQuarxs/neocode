@@ -88,7 +88,10 @@ import { serverEnvironment } from "../state/server";
 import { reviewEnvironment } from "../state/review";
 import { vcsEnvironment } from "../state/vcs";
 import { buildBaseRefChoices, filterBaseRefChoices } from "../lib/baseRefChoices";
-import { createGitDiffFileContentsLoader } from "../lib/diffFileContents";
+import {
+  createGitDiffFileContentsLoader,
+  createNativeDiffFileContentsLoader,
+} from "../lib/diffFileContents";
 
 import { useReviewFilePatches } from "./diffs/useReviewFilePatches";
 import { DiffFileLoadingBoundary } from "./diffs/DiffFileLoadingBoundary";
@@ -183,6 +186,7 @@ export default function DiffPanel({
     serverConfig?.availableEditors ?? [],
   );
   const getDiffFileContents = useAtomCommand(reviewEnvironment.diffFileContents);
+  const getNativeDiffFileContents = useAtomCommand(reviewEnvironment.nativeDiffFileContents);
   const gitStatusQuery = useEnvironmentQuery(
     environmentId !== null && activeCwd != null
       ? vcsEnvironment.status({
@@ -277,15 +281,26 @@ export default function DiffPanel({
     { enabled: isGitRepo && selectedTurn !== undefined },
   );
   const primaryBranchDiffPreview = useEnvironmentQuery(
-    selectedTurnId === null && environmentId !== null && activeCwd
-      ? reviewEnvironment.diffPreview({
-          environmentId,
-          input: {
-            cwd: activeCwd,
-            ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
-            ignoreWhitespace: diffIgnoreWhitespace,
-          },
-        })
+    selectedTurnId === null && environmentId !== null
+      ? nativeWorkspace
+        ? reviewEnvironment.nativeDiffPreview({
+            environmentId,
+            input: {
+              ref: nativeWorkspace.target.ref,
+              ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
+              ignoreWhitespace: diffIgnoreWhitespace,
+            },
+          })
+        : activeCwd
+          ? reviewEnvironment.diffPreview({
+              environmentId,
+              input: {
+                cwd: activeCwd,
+                ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
+                ignoreWhitespace: diffIgnoreWhitespace,
+              },
+            })
+          : null
       : null,
   );
   const shouldRetryBranchDiffAtEnvironmentCwd =
@@ -325,6 +340,17 @@ export default function DiffPanel({
       return undefined;
     }
 
+    if (nativeWorkspace) {
+      return createNativeDiffFileContentsLoader(getNativeDiffFileContents, {
+        environmentId,
+        ref: nativeWorkspace.target.ref,
+        sourceKind: selectedGitSource.kind,
+        baseRef: selectedGitSource.baseRef,
+        headRef: selectedGitSource.headRef,
+        cacheKey: selectedGitSource.diffHash,
+      });
+    }
+
     return createGitDiffFileContentsLoader(getDiffFileContents, {
       environmentId,
       cwd: preview.cwd,
@@ -337,6 +363,8 @@ export default function DiffPanel({
     environmentId,
     branchDiffPreview.data,
     getDiffFileContents,
+    getNativeDiffFileContents,
+    nativeWorkspace,
     selectedGitSource,
     selectedTurnId,
   ]);
@@ -409,14 +437,17 @@ export default function DiffPanel({
     !selectedTurn && selectedGitSource?.truncated && selectedGitSource.files
       ? selectedGitSource
       : null;
+  const renderCacheScope = nativeWorkspace
+    ? `diff-panel:${resolvedTheme}:${collapseScopeKey}`
+    : `diff-panel:${resolvedTheme}`;
   const renderablePatch = useMemo(
     () =>
       lazySource
         ? null
-        : getRenderablePatch(selectedPatch, `diff-panel:${resolvedTheme}`, {
+        : getRenderablePatch(selectedPatch, renderCacheScope, {
             compactPartialHunkOffsets: selectedTurnId === null,
           }),
-    [lazySource, resolvedTheme, selectedPatch, selectedTurnId],
+    [lazySource, renderCacheScope, selectedPatch, selectedTurnId],
   );
   const fileStats = useMemo(
     () => new Map(lazySource?.files?.map((file) => [file.path, file])),
@@ -435,6 +466,7 @@ export default function DiffPanel({
   } = useReviewFilePatches({
     environmentId: environmentId ?? undefined,
     cwd: branchDiffPreview.data?.cwd,
+    ...(nativeWorkspace ? { nativeRef: nativeWorkspace.target.ref } : {}),
     source: lazySource,
     baseRef: lazySource?.baseRef ?? selectedBaseRef,
     ignoreWhitespace: diffIgnoreWhitespace,

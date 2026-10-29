@@ -1,4 +1,6 @@
 import * as Schema from "effect/Schema";
+import * as Struct from "effect/Struct";
+import { ReviewDiffFileContentsInput, ReviewDiffPreviewInput } from "./review.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import {
   ChatFileAttachment,
@@ -11,6 +13,19 @@ export const NeoPiNativeSessionRef = Schema.Struct({
   sessionFile: Schema.String,
 });
 export type NeoPiNativeSessionRef = typeof NeoPiNativeSessionRef.Type;
+
+export const NeoPiNativeSessionsGetDiffPreviewInput = Schema.Struct({
+  ref: NeoPiNativeSessionRef,
+  ...Struct.omit(ReviewDiffPreviewInput.fields, ["cwd"]),
+});
+export type NeoPiNativeSessionsGetDiffPreviewInput =
+  typeof NeoPiNativeSessionsGetDiffPreviewInput.Type;
+export const NeoPiNativeSessionsGetDiffFileContentsInput = Schema.Struct({
+  ref: NeoPiNativeSessionRef,
+  ...Struct.omit(ReviewDiffFileContentsInput.fields, ["cwd"]),
+});
+export type NeoPiNativeSessionsGetDiffFileContentsInput =
+  typeof NeoPiNativeSessionsGetDiffFileContentsInput.Type;
 export const NeoPiNativeSessionRecord = Schema.Record(Schema.String, Schema.Unknown);
 export const NeoPiNativeSessionCommand = Schema.StructWithRest(
   Schema.Struct({ type: Schema.String }),

@@ -114,6 +114,7 @@ import * as ProviderSessionDirectory from "./provider/Services/ProviderSessionDi
 import { ProviderInstanceRegistry } from "./provider/Services/ProviderInstanceRegistry.ts";
 import { makeNeoPiSessionCatalog } from "./provider/neopi/NeoPiSessionCatalog.ts";
 import { NeoPiNativeSessions } from "./provider/neopi/NeoPiNativeSessions.ts";
+import { makeNeoPiNativeReview } from "./provider/neopi/NeoPiNativeReview.ts";
 import { makeNeoPiSessionJournal } from "./provider/neopi/NeoPiSessionJournal.ts";
 import { makeNeoPiNativeConversation } from "./provider/neopi/NeoPiNativeConversation.ts";
 import { makeNeoPiThemes } from "./provider/neopi/NeoPiThemes.ts";
@@ -623,6 +624,7 @@ const makeWsRpcLayer = (
       >();
       const neopiSessionCatalog = yield* makeNeoPiSessionCatalog();
       const neopiNativeSessions = yield* NeoPiNativeSessions;
+      const neopiNativeReview = yield* makeNeoPiNativeReview;
       const neopiModels = yield* makeNeoPiModels(neopiNativeSessions.modelsConnection);
       const neopiSessionJournal = yield* makeNeoPiSessionJournal();
       const neopiNativeConversation = yield* makeNeoPiNativeConversation();
@@ -3131,6 +3133,18 @@ const makeWsRpcLayer = (
           observeRpcEffect(WS_METHODS.neopiNativeSessionsClose, neopiNativeSessions.close(input), {
             "rpc.aggregate": "workspace",
           }),
+        [WS_METHODS.neopiNativeSessionsGetDiffPreview]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.neopiNativeSessionsGetDiffPreview,
+            neopiNativeReview.getDiffPreview(input),
+            { "rpc.aggregate": "review" },
+          ),
+        [WS_METHODS.neopiNativeSessionsGetDiffFileContents]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.neopiNativeSessionsGetDiffFileContents,
+            neopiNativeReview.getDiffFileContents(input),
+            { "rpc.aggregate": "review" },
+          ),
         [WS_METHODS.neopiSessionsList]: (input) =>
           observeRpcEffect(WS_METHODS.neopiSessionsList, neopiSessionCatalog.list(input), {
             "rpc.aggregate": "workspace",

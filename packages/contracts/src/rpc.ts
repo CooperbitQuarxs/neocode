@@ -42,6 +42,8 @@ import {
   NeoPiNativeSessionsStreamEvent,
   NeoPiNativeSessionsCloseInput,
   NeoPiNativeSessionsCloseResult,
+  NeoPiNativeSessionsGetDiffPreviewInput,
+  NeoPiNativeSessionsGetDiffFileContentsInput,
 } from "./neopiNativeSessions.ts";
 import { NeoPiSessionJournalInput, NeoPiSessionJournalResult } from "./neopiJournal.ts";
 import {
@@ -322,6 +324,8 @@ export const WS_METHODS = {
   neopiNativeSessionsRequest: "neopiNativeSessions.request",
   neopiNativeSessionsWatch: "neopiNativeSessions.watch",
   neopiNativeSessionsClose: "neopiNativeSessions.close",
+  neopiNativeSessionsGetDiffPreview: "neopiNativeSessions.getDiffPreview",
+  neopiNativeSessionsGetDiffFileContents: "neopiNativeSessions.getDiffFileContents",
   neopiSessionsList: "neopiSessions.list",
   neopiSessionsResume: "neopiSessions.resume",
   neopiSessionsHandoff: "neopiSessions.handoff",
@@ -987,6 +991,27 @@ const WsNeoPiNativeSessionsCloseRpc = Rpc.make(WS_METHODS.neopiNativeSessionsClo
   success: NeoPiNativeSessionsCloseResult,
   error: NeoPiNativeSessionsRpcError,
 });
+const NeoPiNativeReviewRpcError = Schema.Union([
+  ReviewDiffPreviewError,
+  NeoPiNativeSessionsError,
+  EnvironmentAuthorizationError,
+]);
+const WsNeoPiNativeSessionsGetDiffPreviewRpc = Rpc.make(
+  WS_METHODS.neopiNativeSessionsGetDiffPreview,
+  {
+    payload: NeoPiNativeSessionsGetDiffPreviewInput,
+    success: ReviewDiffPreviewResult,
+    error: NeoPiNativeReviewRpcError,
+  },
+);
+const WsNeoPiNativeSessionsGetDiffFileContentsRpc = Rpc.make(
+  WS_METHODS.neopiNativeSessionsGetDiffFileContents,
+  {
+    payload: NeoPiNativeSessionsGetDiffFileContentsInput,
+    success: ReviewDiffFileContentsResult,
+    error: NeoPiNativeReviewRpcError,
+  },
+);
 
 const WsNeoPiSessionsListRpc = Rpc.make(WS_METHODS.neopiSessionsList, {
   payload: NeoPiSessionListInput,
@@ -1556,6 +1581,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsNeoPiNativeSessionsRequestRpc,
   WsNeoPiNativeSessionsWatchRpc,
   WsNeoPiNativeSessionsCloseRpc,
+  WsNeoPiNativeSessionsGetDiffPreviewRpc,
+  WsNeoPiNativeSessionsGetDiffFileContentsRpc,
   WsNeoPiSessionsListRpc,
   WsNeoPiSessionsResumeRpc,
   WsNeoPiSessionsHandoffRpc,

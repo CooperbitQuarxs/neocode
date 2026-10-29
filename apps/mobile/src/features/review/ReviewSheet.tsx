@@ -502,7 +502,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
     enabled: isEnvironmentReady,
     environmentId,
     ...(threadId ? { threadId } : {}),
-    ...("target" in params ? { cwd: params.cwd } : {}),
+    ...("target" in params ? { nativeRef: params.target.ref } : {}),
     reviewCache,
   });
   useReviewDiffPrewarming({
@@ -521,6 +521,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
     threadKey: reviewCache.threadKey,
     environmentId,
     cwd: selectedThreadCwd,
+    ...("target" in params ? { nativeRef: params.target.ref } : {}),
     selectedSection,
     revision: diffPreviewRevision,
     draftMessage,
