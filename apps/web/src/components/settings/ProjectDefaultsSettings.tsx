@@ -254,7 +254,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
         category === "general" || category === "project"
           ? "New threads"
           : category === "integrations"
-            ? "Browser"
+            ? "Browser access"
             : "Repositories"
       }
     >
