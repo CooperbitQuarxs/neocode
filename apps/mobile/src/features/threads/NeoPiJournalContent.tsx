@@ -4,7 +4,7 @@ import type {
   NeoPiNativeSessionRef,
   ScopedThreadRef,
 } from "@t3tools/contracts";
-import { journalRecord } from "@t3tools/client-runtime/neopi-journal";
+import { journalRecord, nativeJournalImageSource } from "@t3tools/client-runtime/neopi-journal";
 import { resolveMediaSource } from "@t3tools/client-runtime/media-source";
 import { resolveMarkdownLinkPresentation } from "@t3tools/mobile-markdown-text/links";
 import { useNavigation } from "@react-navigation/native";
@@ -217,13 +217,15 @@ function NativeContent({ content, ...context }: ContentContext & { content: unkn
               ) : null}
             </View>
           );
-        if (
-          block.type === "image" &&
-          typeof block.data === "string" &&
-          typeof block.mimeType === "string" &&
-          /^image\/(png|jpeg|gif|webp|avif)$/.test(block.mimeType)
-        ) {
-          const uri = `data:${block.mimeType};base64,${block.data}`;
+        if (block.type === "image") {
+          const uri = nativeJournalImageSource(block);
+          if (uri === null)
+            return (
+              <View key={index} className="gap-2">
+                <ThreadMarkdownImageUnavailable alt="Native journal attachment" />
+                <NativeJson value={block} label="Native image record" />
+              </View>
+            );
           return (
             <ThreadMarkdownImageView
               key={index}

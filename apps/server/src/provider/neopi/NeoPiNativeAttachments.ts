@@ -16,7 +16,13 @@ const Prompt = Schema.Struct({
   type: Schema.Literal("prompt"),
   message: Schema.String,
   images: Schema.optional(
-    Schema.Array(Schema.Struct({ data: Schema.String, mimeType: Schema.String })),
+    Schema.Array(
+      Schema.Struct({
+        type: Schema.Literal("image"),
+        data: Schema.String,
+        mimeType: Schema.String,
+      }),
+    ),
   ),
 });
 const decodePrompt = Schema.decodeUnknownEffect(Prompt);
@@ -80,7 +86,7 @@ export const prepareNeoPiNativePrompt = Effect.fn("NeoPiNativeSessions.preparePr
       yield* fs.copyFile(claim.currentPath, claim.finalPath);
       if (attachment.type === "image") {
         const bytes = yield* fs.readFile(claim.finalPath);
-        images.push({ data: Encoding.encodeBase64(bytes), mimeType });
+        images.push({ type: "image", data: Encoding.encodeBase64(bytes), mimeType });
       } else {
         text.push(`Attached file "${attachment.name}": "${claim.finalPath}"`);
       }

@@ -7,7 +7,7 @@ import type {
 import { useCallback, useState } from "react";
 import ChatMarkdown from "../ChatMarkdown";
 import { cn } from "../../lib/utils";
-import { journalRecord } from "@t3tools/client-runtime/neopi-journal";
+import { journalRecord, nativeJournalImageSource } from "@t3tools/client-runtime/neopi-journal";
 import { NativeMarkdownFilePreview } from "./NativeMarkdownFilePreview";
 
 export function NativeJson({
@@ -63,6 +63,29 @@ function NativeMarkdown({ text, ...context }: ContentProps & { text: string }) {
   );
 }
 
+function NativeJournalImage({ block }: { block: Record<string, unknown> }) {
+  const src = nativeJournalImageSource(block);
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  if (src === null || failedSource === src)
+    return (
+      <div className="space-y-2">
+        <p className="text-xs text-muted-foreground">Native journal image unavailable.</p>
+        <NativeJson value={block} label="Native image record" />
+      </div>
+    );
+  return (
+    <a href={src} target="_blank" rel="noreferrer">
+      <img
+        className="max-h-96 max-w-full rounded-md object-contain"
+        src={src}
+        alt="Native journal attachment"
+        loading="lazy"
+        onError={() => setFailedSource(src)}
+      />
+    </a>
+  );
+}
+
 function NativeContent({ content, ...context }: ContentProps & { content: unknown }) {
   if (typeof content === "string") return <NativeMarkdown text={content} {...context} />;
   if (!Array.isArray(content))
@@ -84,24 +107,7 @@ function NativeContent({ content, ...context }: ContentProps & { content: unknow
             </details>
           );
         }
-        if (
-          block.type === "image" &&
-          typeof block.data === "string" &&
-          typeof block.mimeType === "string" &&
-          /^image\/(png|jpeg|gif|webp|avif)$/.test(block.mimeType)
-        ) {
-          const src = `data:${block.mimeType};base64,${block.data}`;
-          return (
-            <a key={index} href={src} target="_blank" rel="noreferrer">
-              <img
-                className="max-h-96 max-w-full rounded-md object-contain"
-                src={src}
-                alt="Native journal attachment"
-                loading="lazy"
-              />
-            </a>
-          );
-        }
+        if (block.type === "image") return <NativeJournalImage key={index} block={block} />;
         if (block.type === "toolCall") {
           return (
             <section key={index} className="rounded-md border p-3">

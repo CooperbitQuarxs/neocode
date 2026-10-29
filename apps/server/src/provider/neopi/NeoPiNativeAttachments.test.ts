@@ -45,7 +45,9 @@ const fixture = Effect.gen(function* () {
   return { fs, directory, upload, prepare };
 });
 const preparedImages = Schema.decodeUnknownSync(
-  Schema.Array(Schema.Struct({ data: Schema.String, mimeType: Schema.String })),
+  Schema.Array(
+    Schema.Struct({ type: Schema.Literal("image"), data: Schema.String, mimeType: Schema.String }),
+  ),
 );
 
 // File paths are native prompt payloads, not SQL attachment records.
@@ -66,7 +68,7 @@ describe("native prompt attachments", () => {
         const file = yield* upload("file", "original notes");
         const command = yield* prepare([image.attachment, file.attachment], "Inspect these");
         expect(preparedImages(command.images)).toEqual([
-          { data: "aW1hZ2UtYnl0ZXM=", mimeType: "image/png" },
+          { type: "image", data: "aW1hZ2UtYnl0ZXM=", mimeType: "image/png" },
         ]);
         expect(command.message).toContain("Inspect these\n\nAttached file");
         const delivered = filePathFromPrompt(command.message);
@@ -74,7 +76,8 @@ describe("native prompt attachments", () => {
         expect(yield* fs.readFileString(delivered)).toBe("original notes");
         yield* fs.writeFileString(delivered, "agent edit");
         expect(yield* fs.readFileString(file.path)).toBe("original notes");
-        const retry = yield* prepare([file.attachment]);
+        const retry = yield* prepare([image.attachment, file.attachment]);
+        expect(preparedImages(retry.images)).toEqual(preparedImages(command.images));
         const retriedPath = filePathFromPrompt(retry.message);
         expect(retriedPath).not.toBe(delivered);
         yield* fs.remove(file.path);
@@ -82,6 +85,51 @@ describe("native prompt attachments", () => {
         expect(yield* fs.readFileString(retriedPath)).toBe("original notes");
         expect(yield* fs.readFileString(delivered)).toBe("agent edit");
       }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+  );
+
+  it.effect("preserves canonical inline images when appending uploaded images", () =>
+    Effect.gen(function* () {
+      const { directory, upload } = yield* fixture;
+      const image = yield* upload("image", "uploaded");
+      const inline = { type: "image", data: "aW5saW5l", mimeType: "image/webp" };
+      const command = yield* prepareNeoPiNativePrompt(
+        {
+          ref,
+          command: { type: "prompt", message: "", images: [inline] },
+          attachments: [image.attachment],
+        },
+        directory,
+      );
+      expect(preparedImages(command.images)).toEqual([
+        inline,
+        { type: "image", data: "dXBsb2FkZWQ=", mimeType: "image/png" },
+      ]);
+      expect(command.message).toBe("");
+    }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
+  );
+
+  it.effect("rejects undiscriminated prompt images before promoting any uploads", () =>
+    Effect.gen(function* () {
+      const { fs, directory, upload } = yield* fixture;
+      const image = yield* upload("image", "uploaded");
+      const before = yield* fs.readDirectory(directory);
+      const result = yield* prepareNeoPiNativePrompt(
+        {
+          ref,
+          command: {
+            type: "prompt",
+            message: "",
+            images: [{ data: "aW5saW5l", mimeType: "image/webp" }],
+          },
+          attachments: [image.attachment],
+        },
+        directory,
+      ).pipe(Effect.result);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") expect(result.failure.code).toBe("invalid_attachment");
+      expect(yield* fs.readDirectory(directory)).toEqual(before);
+      expect(yield* fs.readFileString(image.path)).toBe("uploaded");
+    }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer)),
   );
 
   it.effect("removes partial promotions on validation failure without consuming any upload", () =>

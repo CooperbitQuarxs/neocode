@@ -11,6 +11,20 @@ export const journalRecord = (value: unknown): Record<string, unknown> =>
     ? (value as Record<string, unknown>)
     : {};
 
+/** Only canonical inline image blocks are displayable; never repair malformed native history. */
+export function nativeJournalImageSource(value: unknown): string | null {
+  const block = journalRecord(value);
+  if (
+    block.type !== "image" ||
+    typeof block.data !== "string" ||
+    block.data.length === 0 ||
+    typeof block.mimeType !== "string" ||
+    !/^image\/(png|jpeg|gif|webp|avif)$/.test(block.mimeType)
+  )
+    return null;
+  return `data:${block.mimeType};base64,${block.data}`;
+}
+
 /** A page series is one pinned native snapshot, never a blend of leaves or identities. */
 export function extendNeoPiJournalSnapshot(
   previous: NeoPiJournalSnapshot | null,

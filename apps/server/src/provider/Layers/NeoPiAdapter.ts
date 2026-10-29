@@ -19,6 +19,7 @@ import { NeoPiRpcError } from "effect-neopi-rpc/errors";
 import type {
   NeoPiChatMode,
   NeoPiInteractionMode,
+  PromptImage,
   SetChatModeCommand,
   SetModeCommand,
 } from "effect-neopi-rpc/schema";
@@ -525,7 +526,7 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
     Effect.gen(function* () {
       const session = yield* requireSession(input.threadId);
       yield* Deferred.await(session.startupDone).pipe(Effect.tapError(() => stopInternal(session)));
-      const images: Array<{ data: string; mimeType: string }> = [];
+      const images: Array<PromptImage> = [];
       const text = [input.input ?? ""];
       for (const attachment of input.attachments ?? []) {
         const path = resolveAttachmentPath({ attachmentsDir: options.attachmentsDir, attachment });
@@ -540,6 +541,7 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
             .readFile(path)
             .pipe(Effect.mapError((cause) => rpcError(input.threadId, "prompt", cause)));
           images.push({
+            type: "image",
             data: Buffer.from(bytes).toString("base64"),
             mimeType: attachment.mimeType,
           });
