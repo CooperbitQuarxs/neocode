@@ -1,8 +1,8 @@
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import type { EnvironmentId, NeoPiNativeSessionRef, ProviderInstanceId } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useCallback, useState } from "react";
-import { Pressable, ScrollView, TextInput, View } from "react-native";
+import { AppState, Pressable, ScrollView, TextInput, View } from "react-native";
 import { AppText as Text } from "../../components/AppText";
 import { MaterialButton } from "../../components/MaterialButton";
 import { useEnvironments } from "../../state/environments";
@@ -164,6 +164,17 @@ function NativeSessionRows({
   query: string;
 }) {
   const result = useEnvironmentQuery(nativeSessionAtoms.list({ environmentId, input: {} }));
+  const refresh = result.refresh;
+  useFocusEffect(
+    useCallback(() => {
+      // Re-read native owners when returning from another client or terminal.
+      refresh();
+      const subscription = AppState.addEventListener("change", (state) => {
+        if (state === "active") refresh();
+      });
+      return () => subscription.remove();
+    }, [refresh]),
+  );
   const open = useOpenNativeSession();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);

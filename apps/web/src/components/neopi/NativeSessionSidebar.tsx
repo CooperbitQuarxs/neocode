@@ -5,7 +5,7 @@ import type {
   NativeSessionTarget,
 } from "@t3tools/client-runtime/neopi-native-sessions";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { PlusIcon } from "lucide-react";
 import { isElectron } from "../../env";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
@@ -181,6 +181,12 @@ export function NativeEnvironmentSessions({
   onSelect?: () => void;
 }) {
   const result = useEnvironmentQuery(nativeSessionAtoms.list({ environmentId, input: {} }));
+  const refresh = result.refresh;
+  useEffect(() => {
+    // Native terminal owners can create sessions without a NeoCode mutation.
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [refresh]);
   const open = useOpenNativeSession();
   const selected = useNativeSessionSelection((state) => state.target);
   const [pending, setPending] = useState<string | null>(null);

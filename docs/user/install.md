@@ -220,6 +220,8 @@ sidebar or command palette. Discovery reads the enabled NeoPi instances without
 starting their sessions. Each result keeps its configured profile and native
 file identity. If one instance cannot load its catalog, its error remains visible
 while sessions from healthy instances stay available.
+Return to the NeoCode window or reopen the session browser to refresh the list
+after starting a session in another terminal.
 
 Opening a session reads its native journal; it does not import a second
 conversation into NeoCode's database. Windows on the same server share the
