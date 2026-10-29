@@ -228,9 +228,18 @@ When a terminal already owns the session, NeoCode attaches through its control
 connection rather than starting a second writer. Disconnecting that attachment
 leaves the terminal running.
 
+If graphical browser or device tools are unavailable in a terminal session that
+was already running before a NeoPi update, reopen that session in the updated
+terminal runtime. Installing a new binary does not update an existing process.
+
 The conversation follows NeoPi's selected branch, including turns started from
 the terminal. While reconnecting, NeoCode retains the displayed conversation and
 requests a fresh native snapshot without resending your prompt.
+
+You can attach images and files to native messages without creating a project.
+Images reach NeoPi as image input; files remain available to the session after
+the upload draft is cleared. If a send fails, keep the draft and retry rather
+than uploading the same files again.
 
 Commands such as `/usage`, `/context`, and `/model` show NeoPi's result in the
 conversation without leaving your session. These results stay in the open
