@@ -1,110 +1,112 @@
-import type { NeoPiModelsConfiguration } from "@t3tools/contracts";
-import { getNeoPiModelsSelectorOptions } from "@t3tools/client-runtime/neopi-models";
-import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import { useMemo, useRef, useState } from "react";
-import {
-  Combobox,
-  ComboboxEmpty,
-  ComboboxItem,
-  ComboboxListVirtualized,
-  ComboboxPopup,
-  ComboboxSearchInput,
-  ComboboxTrigger,
-} from "../ui/combobox";
-import { SelectButton } from "../ui/select";
+import type {
+  EnvironmentId,
+  NeoPiModelsConfiguration,
+  NeoPiModelsTarget,
+  ServerProvider,
+} from "@t3tools/contracts";
+import { useMemo } from "react";
+import { deriveProviderInstanceEntries } from "../../providerInstances";
+import { ProviderModelPicker } from "../chat/ProviderModelPicker";
+import { SETTINGS_PICKER_TRIGGER_CLASSNAME } from "../settings/settingsLayout";
+import { modelDisplayName } from "./modelsPresentation";
 
-type Configuration = NeoPiModelsConfiguration;
-
-/** Search is never an assignment: only catalog entries or native saved selectors can be picked. */
+/** A Models assignment uses the stock native selector, scoped to the exact NeoPi connection. */
 export function NeoPiModelsSelector({
   configuration,
+  environmentId,
+  target,
+  provider,
+  scope,
   label,
   value,
   onChange,
   disabled = false,
+  open,
+  onOpenChange,
+  exactOnly = false,
+  selectionLabel,
 }: {
-  configuration: Configuration;
+  configuration: NeoPiModelsConfiguration;
+  environmentId: EnvironmentId;
+  target: NeoPiModelsTarget;
+  provider: ServerProvider;
+  scope: "global" | "project";
   label: string;
   value: string;
   onChange: (selector: string) => void;
   disabled?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  exactOnly?: boolean;
+  selectionLabel?: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const listRef = useRef<LegendListRef | null>(null);
+  const entries = useMemo(() => deriveProviderInstanceEntries([provider]), [provider]);
   const options = useMemo(
-    () => getNeoPiModelsSelectorOptions(configuration, value),
-    [configuration, value],
+    () =>
+      new Map([
+        [
+          provider.instanceId,
+          configuration.models.map((model) => ({
+            slug: `${model.provider}/${model.id}`,
+            name: modelDisplayName(model),
+            provider: "neopi" as const,
+            subProvider: model.provider,
+            isUnavailable: !model.available,
+          })),
+        ],
+      ]),
+    [configuration.models, provider.instanceId],
   );
-  const items = useMemo(() => {
-    const search = query.trim().toLocaleLowerCase();
-    return [...options.keys()].filter((selector) => {
-      const option = options.get(selector)!;
-      return `${selector} ${option.label} ${option.detail}`.toLocaleLowerCase().includes(search);
-    });
-  }, [options, query]);
+  const selected = configuration.models.find((model) => `${model.provider}/${model.id}` === value);
+  const role = configuration.roles.find((role) => role.alias === value);
+  const resolution = role?.scopedResolutions[scope];
+  const resolved =
+    resolution &&
+    configuration.models.find(
+      (model) => model.provider === resolution.provider && model.id === resolution.modelId,
+    );
+  const triggerLabel = !value
+    ? "Automatic"
+    : selected?.available
+      ? modelDisplayName(selected)
+      : resolved
+        ? modelDisplayName(resolved)
+        : "Not available";
   return (
-    <div className="flex min-w-0 flex-col gap-1 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <Combobox
-        items={items}
-        filteredItems={items}
-        virtualized
-        autoHighlight
-        disabled={disabled}
-        value={value || null}
-        open={open}
-        onOpenChange={(next) => {
-          setOpen(next);
-          if (next) setQuery("");
-        }}
-        onValueChange={(next) => {
-          if (typeof next !== "string") return;
-          onChange(next);
-          setOpen(false);
-        }}
-        onItemHighlighted={(_value, details) => {
-          if (open && details.reason === "keyboard" && details.index >= 0)
-            void listRef.current?.scrollIndexIntoView?.({ index: details.index, animated: false });
-        }}
-      >
-        <ComboboxTrigger aria-label={label} render={<SelectButton />}>
-          {options.get(value)?.label ?? "Choose a native model or saved selector…"}
-        </ComboboxTrigger>
-        <ComboboxPopup>
-          <ComboboxSearchInput
-            aria-label={`Search ${label.toLocaleLowerCase()}`}
-            placeholder="Search models, roles and saved selectors…"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          <ComboboxEmpty>No matching native models or saved selectors.</ComboboxEmpty>
-          <div className="min-h-0 max-h-72 overflow-hidden">
-            <ComboboxListVirtualized>
-              <LegendList<string>
-                ref={listRef}
-                data={items}
-                keyExtractor={(selector) => selector}
-                estimatedItemSize={56}
-                drawDistance={280}
-                style={{ height: Math.min(items.length * 56, 288) }}
-                renderItem={({ item: selector, index }) => {
-                  const option = options.get(selector)!;
-                  return (
-                    <ComboboxItem key={selector} value={selector} index={index}>
-                      <div className="min-w-0 py-1">
-                        <p className="truncate">{option.label}</p>
-                        <p className="truncate text-xs text-muted-foreground">{option.detail}</p>
-                      </div>
-                    </ComboboxItem>
-                  );
-                }}
-              />
-            </ComboboxListVirtualized>
-          </div>
-        </ComboboxPopup>
-      </Combobox>
-      {value ? <p className="break-all text-xs text-muted-foreground">{value}</p> : null}
-    </div>
+    <ProviderModelPicker
+      activeInstanceId={provider.instanceId}
+      selectorContext={{
+        environmentId,
+        ...(target.projectId ? { projectId: target.projectId } : {}),
+        ...(target.sessionFile
+          ? {
+              connectedSession: {
+                providerInstanceId: target.providerInstanceId,
+                sessionFile: target.sessionFile,
+              },
+            }
+          : {}),
+      }}
+      model={value}
+      instanceEntries={entries}
+      modelOptionsByInstance={options}
+      lockedProvider={provider.driver}
+      size="sm"
+      disabled={disabled}
+      triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+      triggerLabel={selectionLabel ?? triggerLabel}
+      triggerAriaLabel={label}
+      {...(exactOnly
+        ? {
+            getModelDisabledReason: (_: unknown, selector: string) =>
+              configuration.models.some((model) => `${model.provider}/${model.id}` === selector)
+                ? null
+                : "Choose an exact model.",
+          }
+        : {})}
+      {...(open === undefined ? {} : { open })}
+      {...(onOpenChange ? { onOpenChange } : {})}
+      onInstanceModelChange={(_, selector) => onChange(selector)}
+    />
   );
 }

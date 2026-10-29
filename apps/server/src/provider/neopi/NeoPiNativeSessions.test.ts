@@ -20,6 +20,7 @@ import {
   type NeoPiNativeSessionsDependencies,
 } from "./NeoPiNativeSessions.ts";
 import { prepareNeoPiNativePrompt } from "./NeoPiNativeAttachments.ts";
+import { updateNativeModelsConfiguration } from "./NeoPiModels.ts";
 
 const instanceId = ProviderInstanceId.make("native-profile");
 const otherId = ProviderInstanceId.make("other-profile");
@@ -52,6 +53,7 @@ const fixture = (attachment: "owned" | "terminal" = "owned") =>
       detaches: 0,
       aborts: 0,
       acceptedPrompts: 0,
+      modelRuleRequests: 0,
       profileValid: true,
       blockSnapshot: false,
       startupDialog: false,
@@ -163,6 +165,12 @@ const fixture = (attachment: "owned" | "terminal" = "owned") =>
                     native.aborts++;
                     native.streaming = false;
                     return undefined;
+                  case "set_effort_rules":
+                    native.modelRuleRequests++;
+                    return yield* new NeoPiRpcError({
+                      code: "invalid_value",
+                      message: "Invalid model selector glob",
+                    });
                   default:
                     return yield* Effect.fail(
                       new NeoPiRpcError({ message: `Unknown native command: ${command.type}` }),
@@ -207,6 +215,36 @@ const snapshot = (
   );
 
 describe("canonical native session lifecycle", () => {
+  it.effect(
+    "keeps native invalid-pattern diagnostics through the canonical connected Models path",
+    () =>
+      Effect.gen(function* () {
+        for (const attachment of ["owned", "terminal"] as const) {
+          const { native, service } = yield* fixture(attachment);
+          yield* service.open(originalRef);
+          const connection = yield* service.modelsConnection(originalRef);
+          const result = yield* Effect.result(
+            updateNativeModelsConfiguration(connection, {
+              target: originalRef,
+              change: {
+                operation: "rules",
+                scope: "project",
+                rules: [{ selector: "provider/[", allowed: ["low"] }],
+                expected: null,
+              },
+            }),
+          );
+          assert.equal(result._tag, "Failure");
+          if (result._tag === "Failure") {
+            assert.equal(result.failure.code, "invalid_value");
+            assert.equal(result.failure.message, "Invalid model selector glob");
+          }
+          assert.equal(native.modelRuleRequests, 1);
+          assert.equal(native.connections, 1);
+          assert.equal(native.aborts, 0);
+        }
+      }).pipe(Effect.scoped),
+  );
   it.effect(
     "eagerly closes invalidated native profiles while detaching terminal owners without abort",
     () =>
@@ -708,30 +746,81 @@ describe("canonical native session lifecycle", () => {
     }).pipe(Effect.scoped),
   );
 
-  it.effect(
-    "opens standalone native Models refs from an empty registry and reuses one canonical owner",
-    () =>
-      Effect.gen(function* () {
-        const { native, service } = yield* fixture();
+  it.effect("does not open disconnected native sessions for Models", () =>
+    Effect.gen(function* () {
+      for (const attachment of ["owned", "terminal"] as const) {
+        const { native, service } = yield* fixture(attachment);
+        const result = yield* service.modelsConnection(originalRef).pipe(Effect.result);
+        assert.equal(result._tag, "Failure");
+        if (result._tag === "Failure") {
+          assert.equal(result.failure.code, "closed");
+          assert.match(result.failure.message, /session is not connected/i);
+        }
+        assert.equal(native.starts, 0);
+        assert.equal(native.connections, 0);
+        assert.equal(native.running, attachment === "terminal");
+      }
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("reuses a connected canonical owner without reopening it after explicit close", () =>
+    Effect.gen(function* () {
+      for (const attachment of ["owned", "terminal"] as const) {
+        const { native, service } = yield* fixture(attachment);
+        yield* service.open(originalRef);
         const [first, second] = yield* Effect.all(
           [
             service.modelsConnection(originalRef).pipe(Effect.scoped),
-            service.modelsConnection(originalRef).pipe(Effect.scoped),
+            service
+              .modelsConnection({ ...originalRef, sessionFile: "/alias/session.jsonl" })
+              .pipe(Effect.scoped),
           ],
           { concurrency: "unbounded" },
         );
         assert.equal(native.starts, 1);
         assert.equal(native.connections, 1);
-        assert.equal(native.running, true);
-        assert.equal(native.disposals, 0);
         yield* service.close({ ref: originalRef });
         assert.equal((yield* first!.validate.pipe(Effect.result))._tag, "Failure");
         assert.equal((yield* second!.validate.pipe(Effect.result))._tag, "Failure");
-        yield* service.modelsConnection(originalRef);
-        assert.equal(native.starts, 2);
+        const result = yield* service.modelsConnection(originalRef).pipe(Effect.result);
+        assert.equal(result._tag, "Failure");
+        if (result._tag === "Failure") {
+          assert.equal(result.failure.code, "closed");
+          assert.match(result.failure.message, /session is not connected/i);
+        }
+        assert.equal(native.starts, 1);
+        assert.equal(native.connections, 0);
+        assert.equal(native.running, attachment === "terminal");
+        assert.equal(native.disposals, attachment === "owned" ? 1 : 0);
+      }
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect(
+    "rejects stale terminal Models refs without changing models or opening another owner",
+    () =>
+      Effect.gen(function* () {
+        const { native, service } = yield* fixture("terminal");
+        yield* service.open(originalRef);
+        native.sessionId = "terminal-switched";
+        native.sessionFile = "/native/terminal-switched.jsonl";
+        native.generation++;
+        const connection = yield* service.modelsConnection(originalRef);
+        const result = yield* updateNativeModelsConfiguration(connection, {
+          target: originalRef,
+          change: { operation: "rules", scope: "project", rules: [], expected: null },
+        }).pipe(Effect.result);
+        assert.equal(result._tag, "Failure");
+        if (result._tag === "Failure") assert.equal(result.failure.code, "session_changed");
+        assert.equal(native.modelRuleRequests, 0);
+        assert.equal(native.starts, 1);
         assert.equal(native.connections, 1);
         assert.equal(native.running, true);
-        assert.equal(native.disposals, 1);
+        assert.equal(
+          (yield* service.modelsConnection(originalRef).pipe(Effect.result))._tag,
+          "Failure",
+        );
+        assert.equal(native.starts, 1);
       }).pipe(Effect.scoped),
   );
 

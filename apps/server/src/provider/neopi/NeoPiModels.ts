@@ -29,7 +29,15 @@ import type { NeoPiModelsConnection } from "./NeoPiModelsConnection.ts";
 const modelError = (cause: unknown) =>
   Schema.is(NeoPiModelsError)(cause)
     ? cause
-    : new NeoPiModelsError({ message: cause instanceof Error ? cause.message : String(cause) });
+    : new NeoPiModelsError({
+        message: cause instanceof Error ? cause.message : String(cause),
+        ...(cause !== null &&
+        typeof cause === "object" &&
+        "code" in cause &&
+        typeof cause.code === "string"
+          ? { code: cause.code }
+          : {}),
+      });
 const Cursor = Schema.Struct({ sessionId: Schema.String, sessionFile: Schema.String });
 interface AuthFlow {
   readonly connection: NeoPiModelsConnection;
@@ -64,6 +72,54 @@ export const readNativeModelsConfiguration = Effect.fnUntraced(function* (
     ),
   );
 });
+
+/** One validated native mutation followed by its authoritative configuration receipt. */
+export const updateNativeModelsConfiguration = Effect.fnUntraced(function* (
+  native: NeoPiModelsConnection,
+  input: NeoPiModelsUpdate,
+) {
+  if (!native.capabilities.has("models_configuration"))
+    return yield* new NeoPiModelsError({
+      message:
+        "This NeoPi connection cannot update Models configuration. Update the configured executable. Nothing was changed.",
+    });
+  yield* native.validate;
+  const { operation, ...change } = input.change;
+  switch (operation) {
+    case "role":
+      yield* native.request({ ...change, type: "set_model_role_configuration" });
+      break;
+    case "fallbacks":
+      yield* native.request({ ...change, type: "set_model_role_fallbacks" });
+      break;
+    case "description":
+      yield* native.request({ ...change, type: "set_model_role_description" });
+      break;
+    case "deleteRole":
+      yield* native.request({ ...change, type: "delete_model_role" });
+      break;
+    case "activateAccount":
+      if (!input.target.sessionFile)
+        return yield* new NeoPiModelsError({
+          message: "Open Models from a connected thread to use an account in that session.",
+        });
+      yield* native.request({ ...change, type: "activate_account" });
+      break;
+    case "storage":
+      yield* native.request({ ...change, type: "set_model_role_storage" });
+      break;
+    case "rules":
+      yield* native.request({ ...change, type: "set_effort_rules" });
+      break;
+    case "key":
+      yield* native.request({ ...change, type: "set_provider_api_key" });
+      break;
+    case "logout":
+      yield* native.request({ ...change, type: "logout" });
+      break;
+  }
+  return yield* readNativeModelsConfiguration(native);
+}, Effect.mapError(modelError));
 
 export const queryNativeModelSelector = Effect.fnUntraced(function* (
   native: NeoPiModelsConnection,
@@ -142,6 +198,7 @@ export const makeNativeModelsAuth = Effect.fn("makeNativeModelsAuth")(function* 
           message: null,
           url: null,
           instructions: null,
+          userCode: null,
           prompt: null,
         });
         // Memoize cancellation so simultaneous button presses and watch teardown
@@ -178,6 +235,7 @@ export const makeNativeModelsAuth = Effect.fn("makeNativeModelsAuth")(function* 
                   ...current,
                   url: frame.url,
                   instructions: typeof frame.instructions === "string" ? frame.instructions : null,
+                  userCode: typeof frame.userCode === "string" ? frame.userCode : null,
                 };
               if (frame.method === "notify" && typeof frame.message === "string")
                 return { ...current, message: frame.message };
@@ -202,7 +260,7 @@ export const makeNativeModelsAuth = Effect.fn("makeNativeModelsAuth")(function* 
           .request({ type: "login", providerId: input.providerId, id: flowId })
           .pipe(
             Effect.matchEffect({
-              onSuccess: () => settleAuth(state, "complete", "Native account saved"),
+              onSuccess: () => settleAuth(state, "complete", "Account saved"),
               onFailure: (cause) =>
                 settleAuth(
                   state,
@@ -375,46 +433,9 @@ export const makeNeoPiModels = Effect.fn("makeNeoPiModels")(function* (
     ).pipe(Stream.mapError(modelError));
   const update = (input: NeoPiModelsUpdate) =>
     Effect.scoped(
-      Effect.gen(function* () {
-        const native = yield* connection(input.target);
-        if (!native.capabilities.has("models_configuration"))
-          return yield* new NeoPiModelsError({
-            message:
-              "This NeoPi connection cannot update native Models configuration. Update the configured executable. Nothing was changed.",
-          });
-        yield* native.validate;
-        const change = input.change;
-        switch (change.operation) {
-          case "role":
-            yield* native.request({ ...change, type: "set_model_role_configuration" });
-            break;
-          case "storage":
-            yield* native.request({
-              type: "set_model_role_storage",
-              value: change.value,
-              expected: change.expected,
-            });
-            break;
-          case "rules":
-            yield* native.request({ ...change, type: "set_effort_rules" });
-            break;
-          case "key":
-            yield* native.request({
-              type: "set_provider_api_key",
-              providerId: change.providerId,
-              apiKey: change.apiKey,
-            });
-            break;
-          case "logout":
-            yield* native.request({
-              type: "logout",
-              providerId: change.providerId,
-              credentialId: change.credentialId,
-            });
-            break;
-        }
-        return yield* readNativeModelsConfiguration(native);
-      }),
+      Effect.flatMap(connection(input.target), (native) =>
+        updateNativeModelsConfiguration(native, input),
+      ),
     ).pipe(Effect.mapError(modelError));
   const accounts = (input: { target: NeoPiModelsTarget; providerId: string }) =>
     Effect.scoped(

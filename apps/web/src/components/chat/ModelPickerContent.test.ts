@@ -217,6 +217,28 @@ describe("native model selector consumers", () => {
     });
   });
 
+  it("keeps canonical native session targets separate from project and legacy thread targets", () => {
+    const projectId = ProjectId.make("project");
+    const context = {
+      environmentId: EnvironmentId.make("remote"),
+      projectId,
+      connectedSession: {
+        providerInstanceId: instanceId,
+        sessionFile: "/sessions/canonical.jsonl",
+      },
+      connectedThread: { providerInstanceId: otherInstanceId, threadId: ThreadId.make("legacy") },
+    };
+    expect(nativeSelectorTarget(context, instanceId)).toEqual({
+      providerInstanceId: instanceId,
+      projectId,
+      sessionFile: "/sessions/canonical.jsonl",
+    });
+    expect(nativeSelectorTarget(context, otherInstanceId)).toEqual({
+      providerInstanceId: otherInstanceId,
+      projectId,
+    });
+  });
+
   it("queries only enabled, available native instances in the supplied scope", () => {
     const source = entries[0]!;
     const scopedEntries = [

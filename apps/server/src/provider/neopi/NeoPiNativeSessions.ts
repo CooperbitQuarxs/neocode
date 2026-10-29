@@ -778,8 +778,13 @@ export const makeNeoPiNativeSessionsWith = Effect.fn("NeoPiNativeSessions.makeWi
     ref: NeoPiNativeSessionRef,
   ): Effect.Effect<NeoPiModelsConnection, NeoPiNativeSessionsError> =>
     Effect.gen(function* () {
-      yield* open(ref);
-      const session = yield* requireSession(ref);
+      const session = yield* requireSession(ref).pipe(
+        Effect.catch((cause) =>
+          nativeError(cause).code === "closed"
+            ? fail("Native session is not connected. Open it before using Models.", "closed")
+            : Effect.fail(cause),
+        ),
+      );
       const validate = Effect.gen(function* () {
         yield* session.profile.validate;
         yield* verifyRef(session, ref);
@@ -793,7 +798,13 @@ export const makeNeoPiNativeSessionsWith = Effect.fn("NeoPiNativeSessions.makeWi
               yield* Schema.decodeUnknownEffect(NeoPiNativeSessionCommand)(command);
             return yield* requestNative({ ref, command: nativeCommand }, true);
           }).pipe(
-            Effect.mapError((cause) => new NeoPiRpcError({ message: nativeError(cause).message })),
+            Effect.mapError((cause) => {
+              const error = nativeError(cause);
+              return new NeoPiRpcError({
+                message: error.message,
+                ...(error.code ? { code: error.code } : {}),
+              });
+            }),
           ),
         respondUi: (response) =>
           request({ ref, command: { ...response, type: "extension_ui_response" } }).pipe(

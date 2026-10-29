@@ -1,86 +1,137 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
-import { LegendList } from "@legendapp/list/react";
-import { ProviderInstanceId } from "@t3tools/contracts";
 import type {
   EnvironmentId,
   NeoPiEffortRule,
   NeoPiEffortSelection,
+  NeoPiModelsAccounts,
   NeoPiModelsConfiguration,
   NeoPiModelsTarget,
   NeoPiModelsUpdate,
+  NeoPiNativeModel,
+  ServerProvider,
+  ServerProviderModel,
 } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { formatNeoPiModelTokenLimit } from "@t3tools/client-runtime/neopi-models";
+import { createModelCapabilities } from "@t3tools/shared/model";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  ArrowLeftIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  MoreHorizontalIcon,
+  XIcon,
+  ZapIcon,
+} from "lucide-react";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { formatEnvironmentQueryError } from "../../state/query";
+import { nativeSessionAtoms } from "../../state/neopiNativeSessions";
 import { useEscapeToGoBack, useNavigateBack } from "../../hooks/useNavigateBack";
-import { ArrowLeftIcon } from "lucide-react";
+import { isElectron } from "../../env";
 import { SidebarUpdatePill } from "../sidebar/SidebarUpdatePill";
 import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarInput,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarInset,
 } from "../ui/sidebar";
-import { Button } from "../ui/button";
+import { Badge } from "../ui/badge";
+import { Button, InlineButton } from "../ui/button";
+import {
+  Dialog,
+  DialogPopup,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogPanel,
+  DialogFooter,
+} from "../ui/dialog";
+import { Group } from "../ui/group";
 import { Input } from "../ui/input";
+import { InputGroup, InputGroupInput } from "../ui/input-group";
+import { Kbd } from "../ui/kbd";
+import { Textarea } from "../ui/textarea";
+import {
+  Menu,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuSub,
+  MenuSubPopup,
+  MenuSubTrigger,
+  MenuTrigger,
+} from "../ui/menu";
+import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Skeleton } from "../ui/skeleton";
+import { Spinner } from "../ui/spinner";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
+import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { toastManager } from "../ui/toast";
+import { TraitsPicker } from "../chat/TraitsPicker";
+import {
+  PolicyTooltip,
+  SETTINGS_PICKER_TRIGGER_CLASSNAME,
+  SettingResetButton,
+  SettingsPageContainer,
+  SettingsRow,
+  SettingsSection,
+} from "../settings/settingsLayout";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
-import { isElectron } from "../../env";
 import { neopiModels, useModelsPageTarget } from "./modelsPageState";
-import { Toggle } from "../ui/toggle";
 import { NeoPiModelsSelector } from "./NeoPiModelsSelector";
+import {
+  MODEL_EFFORTS,
+  isModelRulePattern,
+  isModelRuleSelectorValid,
+  modelContextLabel,
+  modelDisplayName,
+  modelEffortLabel,
+  modelProviderGroups,
+  modelRoleForScope,
+  modelsForView,
+  moveModelItem,
+} from "./modelsPresentation";
 
 type Configuration = NeoPiModelsConfiguration;
 type Role = Configuration["roles"][number];
+type Provider = Configuration["providers"][number];
 type Scope = "global" | "project";
-function Choice({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: ReadonlyArray<{ value: string; label: string }>;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <label className="flex min-w-0 flex-col gap-1 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <Select
-        value={value}
-        onValueChange={(value) => {
-          if (value !== null) onChange(value);
-        }}
-      >
-        <SelectTrigger aria-label={label}>
-          <SelectValue>{options.find((option) => option.value === value)?.label}</SelectValue>
-        </SelectTrigger>
-        <SelectPopup>
-          {options.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectPopup>
-      </Select>
-    </label>
-  );
-}
+type Save = (
+  change: NeoPiModelsUpdate["change"],
+  onFailure?: (cause: unknown) => void,
+) => Promise<boolean>;
+type PickerContext = {
+  configuration: Configuration;
+  environmentId: EnvironmentId;
+  target: NeoPiModelsTarget;
+  provider: ServerProvider;
+  scope: Scope;
+};
+
 function ErrorText({ children }: { children: ReactNode }) {
   return (
-    <p role="alert" className="text-sm text-destructive">
+    <p role="alert" className="text-xs text-destructive">
       {children}
     </p>
   );
 }
+
+function ModelsLoading() {
+  return (
+    <SettingsSection title="Models">
+      {[0, 1, 2, 3].map((row) => (
+        <Skeleton key={row} className="h-12" />
+      ))}
+    </SettingsSection>
+  );
+}
+
 function ModelsSnapshot({
   environmentId,
   target,
@@ -95,79 +146,191 @@ function ModelsSnapshot({
   const refresh = useAtomRefresh(atom);
   if (AsyncResult.isFailure(result))
     return (
-      <div className="p-4">
-        <ErrorText>{formatEnvironmentQueryError(result.cause)}</ErrorText>
-        <Button variant="outline" size="sm" onClick={refresh}>
-          Retry native connection
-        </Button>
-      </div>
+      <SettingsSection title="Models">
+        <SettingsRow
+          title="Couldn't read models from NeoPi"
+          description={formatEnvironmentQueryError(result.cause)}
+          control={
+            <Button variant="outline" size="sm" onClick={refresh}>
+              Retry
+            </Button>
+          }
+        />
+      </SettingsSection>
     );
-  if (!AsyncResult.isSuccess(result) || result.value === null)
-    return (
-      <p role="status" className="p-4 text-sm text-muted-foreground">
-        Reading the native Models configuration. If this environment is disconnected, reconnect it
-        to continue.
-      </p>
-    );
+  if (!AsyncResult.isSuccess(result) || result.value === null) return <ModelsLoading />;
   return children(result.value, refresh);
 }
-export function NeoPiModelsSidebar() {
-  const { target, environmentId, search, changeSearch } = useModelsPageTarget();
-  const back = useNavigateBack();
-  const section = search.section ?? "all";
-  const item = (id: string, label: ReactNode) => (
-    <SidebarMenuItem key={id}>
-      <SidebarMenuButton isActive={section === id} onClick={() => changeSearch({ section: id })}>
-        <span className="truncate text-sidebar-foreground">{label}</span>
+
+function ProviderRailRow({
+  provider,
+  modelCount,
+  environmentId,
+  target,
+  active,
+  select,
+}: {
+  provider: Provider;
+  modelCount: number;
+  environmentId: EnvironmentId;
+  target: NeoPiModelsTarget;
+  active: boolean;
+  select: () => void;
+}) {
+  const accountsCommand = useAtomCommand(neopiModels.accounts, { reportFailure: false });
+  const [label, setLabel] = useState<string | null>(null);
+  useEffect(() => {
+    let mounted = true;
+    setLabel(null);
+    if (provider.authenticated)
+      void accountsCommand({ environmentId, input: { target, providerId: provider.id } }).then(
+        (result) => {
+          if (mounted && result._tag === "Success")
+            setLabel(
+              result.value.accounts.find((account) => account.active)?.label ??
+                result.value.accounts[0]?.label ??
+                null,
+            );
+        },
+      );
+    return () => {
+      mounted = false;
+    };
+  }, [accountsCommand, environmentId, target, provider.id, provider.authenticated]);
+  const ready = provider.available === true;
+  const status = provider.authenticated
+    ? label
+      ? `Signed in as ${label}`
+      : "Signed in"
+    : ready
+      ? "Works without sign-in"
+      : "Not signed in";
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton isActive={active} onClick={select}>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span
+                role="img"
+                aria-label={status}
+                className={`size-1.5 shrink-0 rounded-full ${ready ? "bg-success" : "border border-muted-foreground/60"}`}
+              />
+            }
+          />
+          <TooltipPopup>{status}</TooltipPopup>
+        </Tooltip>
+        <span className="min-w-0 flex-1 truncate text-sidebar-foreground">{provider.id}</span>
+        {ready ? (
+          <span className="text-xs tabular-nums text-muted-foreground/55">{modelCount}</span>
+        ) : null}
       </SidebarMenuButton>
     </SidebarMenuItem>
   );
+}
+
+function ModelsRail({
+  environmentId,
+  target,
+  section,
+  query,
+  select,
+}: {
+  environmentId: EnvironmentId;
+  target: NeoPiModelsTarget;
+  section: string;
+  query: string;
+  select: (section: string) => void;
+}) {
+  const result = useAtomValue(neopiModels.changes({ environmentId, input: target }));
+  const configuration = AsyncResult.isSuccess(result) ? result.value : null;
+  const item = (id: string, label: string, count?: number) => (
+    <SidebarMenuItem key={id}>
+      <SidebarMenuButton isActive={section === id} onClick={() => select(id)}>
+        <span className="min-w-0 flex-1 truncate text-sidebar-foreground">{label}</span>
+        {count === undefined ? null : (
+          <span className="text-xs tabular-nums text-muted-foreground/55">{count}</span>
+        )}
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+  const groups = useMemo(
+    () => modelProviderGroups(configuration?.providers ?? [], query),
+    [configuration?.providers, query],
+  );
+  const counts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const model of configuration?.models ?? [])
+      counts.set(model.provider, (counts.get(model.provider) ?? 0) + 1);
+    return counts;
+  }, [configuration?.models]);
+  return (
+    <>
+      <SidebarGroup>
+        <SidebarMenu>
+          {item("roles", "Roles")}
+          {item(
+            "all",
+            "All models",
+            configuration?.providers.reduce(
+              (total, provider) =>
+                total + (provider.available === true ? (counts.get(provider.id) ?? 0) : 0),
+              0,
+            ),
+          )}
+          {item("effort", "Effort rules", configuration?.effortRules.length)}
+        </SidebarMenu>
+      </SidebarGroup>
+      {configuration
+        ? [
+            { label: "Ready", providers: groups.ready },
+            { label: "Not set up", providers: groups.notSetUp },
+          ].map((group) => (
+            <SidebarGroup key={group.label}>
+              <p className="mb-2 text-xs text-muted-foreground">{group.label}</p>
+              <SidebarMenu>
+                {group.providers.map((provider) => (
+                  <ProviderRailRow
+                    key={provider.id}
+                    provider={provider}
+                    modelCount={counts.get(provider.id) ?? 0}
+                    environmentId={environmentId}
+                    target={target}
+                    active={section === `provider:${provider.id}`}
+                    select={() => select(`provider:${provider.id}`)}
+                  />
+                ))}
+              </SidebarMenu>
+            </SidebarGroup>
+          ))
+        : null}
+    </>
+  );
+}
+
+export function NeoPiModelsSidebar() {
+  const { target, environmentId, search, changeSearch } = useModelsPageTarget();
+  const [query, setQuery] = useState("");
+  const back = useNavigateBack();
   return (
     <>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarMenu>{item("effort", "Effort rules")}</SidebarMenu>
-        </SidebarGroup>
-        <SidebarGroup>
-          <SidebarMenu>
-            {item("all", "All models")}
-            {item("roles", "Roles")}
-          </SidebarMenu>
+          <SidebarInput
+            placeholder="Filter providers"
+            aria-label="Filter providers"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
         </SidebarGroup>
         {target && environmentId ? (
-          <ModelsSnapshot environmentId={environmentId} target={target}>
-            {(configuration) => (
-              <SidebarGroup>
-                <SidebarMenu>
-                  {[...configuration.providers]
-                    .sort(
-                      (a, b) =>
-                        Number(b.authenticated) - Number(a.authenticated) ||
-                        a.id.localeCompare(b.id),
-                    )
-                    .map((provider) =>
-                      item(
-                        `provider:${provider.id}`,
-                        <span className="flex items-center gap-2">
-                          <span
-                            role="img"
-                            aria-label={provider.authenticated ? "Signed in" : "Not signed in"}
-                            className={
-                              provider.authenticated
-                                ? "shrink-0 text-success"
-                                : "shrink-0 text-muted-foreground"
-                            }
-                          >
-                            {provider.authenticated ? "●" : "○"}
-                          </span>
-                          <span className="truncate">{provider.id}</span>
-                        </span>,
-                      ),
-                    )}
-                </SidebarMenu>
-              </SidebarGroup>
-            )}
-          </ModelsSnapshot>
+          <ModelsRail
+            environmentId={environmentId}
+            target={target}
+            section={search.section ?? "roles"}
+            query={query}
+            select={(section) => changeSearch({ section })}
+          />
         ) : null}
       </SidebarContent>
       <SidebarFooter>
@@ -184,666 +347,1381 @@ export function NeoPiModelsSidebar() {
     </>
   );
 }
+
 export function NeoPiModelsPage() {
   const state = useModelsPageTarget();
+  const [scope, setScope] = useState<Scope>("global");
   const back = useNavigateBack();
   useEscapeToGoBack(back);
+  const providerId = state.search.section?.startsWith("provider:")
+    ? state.search.section.slice(9)
+    : null;
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">
       <div className="flex min-h-0 flex-1 flex-col bg-background text-foreground">
         <WorkspacePageHeader electron={isElectron}>
           <h1 className="text-sm font-semibold">Models</h1>
+          {providerId ? <span className="text-sm text-muted-foreground">{providerId}</span> : null}
         </WorkspacePageHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-5">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Choice
-                label="Environment"
-                value={state.environmentId ?? ""}
-                options={state.environments.map((environment) => ({
-                  value: environment.environmentId,
-                  label: environment.label,
-                }))}
-                onChange={(environment) =>
-                  state.changeSearch({
-                    environment,
-                    instance: undefined,
-                    project: undefined,
-                    sessionFile: undefined,
-                  })
-                }
+        <SettingsPageContainer>
+          {state.target && state.environmentId && state.provider ? (
+            <ModelsSnapshot environmentId={state.environmentId} target={state.target}>
+              {(configuration, refresh) => (
+                <ModelsContent
+                  key={JSON.stringify([state.environmentId, state.target])}
+                  state={state}
+                  environmentId={state.environmentId!}
+                  target={state.target!}
+                  provider={state.provider!}
+                  configuration={configuration}
+                  refresh={refresh}
+                  scope={scope}
+                  setScope={setScope}
+                />
+              )}
+            </ModelsSnapshot>
+          ) : (
+            <SettingsSection title="Models">
+              <SettingsRow
+                title="No NeoPi connection"
+                description="Enable a NeoPi connection in Settings → NeoCore to choose models."
               />
-              <Choice
-                label="NeoPi connection"
-                value={state.provider?.instanceId ?? ""}
-                options={state.providers.map((provider) => ({
-                  value: provider.instanceId,
-                  label: provider.displayName ?? provider.instanceId,
-                }))}
-                onChange={(instance) => state.changeSearch({ instance, sessionFile: undefined })}
-              />
-              <Choice
-                label="Project settings"
-                value={state.projectId ?? ""}
-                options={[
-                  { value: "", label: "Server working directory" },
-                  ...state.projects.map((project) => ({ value: project.id, label: project.title })),
-                ]}
-                onChange={(project) =>
-                  state.changeSearch({ project: project || undefined, sessionFile: undefined })
-                }
-              />
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {state.search.sessionFile
-                ? "Using this thread's connected native session. Choosing another project or connection leaves session-bound configuration."
-                : "Configuration belongs to NeoPi. Changes use its saved scopes and update connected native clients."}
-            </p>
-            <div>
-              <Button
-                variant="outline"
-                render={
-                  <Link
-                    to="/settings/neocore"
-                    search={{
-                      machine: state.environmentId ?? undefined,
-                      ...(state.provider
-                        ? { instanceId: state.provider.instanceId }
-                        : state.selectedInstanceId
-                          ? { instanceId: ProviderInstanceId.make(state.selectedInstanceId) }
-                          : {}),
-                    }}
-                  />
-                }
-              >
-                Configure NeoPi runtime
-              </Button>
-            </div>
-            {state.target && state.environmentId ? (
-              <ModelsSnapshot environmentId={state.environmentId} target={state.target}>
-                {(configuration, refresh) => (
-                  <ModelsContent
-                    key={JSON.stringify([state.environmentId, state.target])}
-                    environmentId={state.environmentId!}
-                    target={state.target!}
-                    section={state.search.section ?? "all"}
-                    configuration={configuration}
-                    refresh={refresh}
-                  />
-                )}
-              </ModelsSnapshot>
-            ) : (
-              <ErrorText>
-                No enabled NeoPi connection is available in this environment. Configure its
-                executable and profile in NeoCore.
-              </ErrorText>
-            )}
-          </div>
-        </div>
+            </SettingsSection>
+          )}
+        </SettingsPageContainer>
       </div>
     </SidebarInset>
   );
 }
+
+function ModelsScope({
+  state,
+  scope,
+  selectScope,
+  pending,
+}: {
+  state: ReturnType<typeof useModelsPageTarget>;
+  scope: Scope;
+  selectScope: (scope: Scope, project?: string) => void;
+  pending: boolean;
+}) {
+  const connected = state.environments.filter(
+    (environment) => environment.connection.phase === "connected",
+  );
+  const project = state.projects.find((project) => project.id === state.projectId);
+  const environment = state.environments.find(
+    (environment) => environment.environmentId === state.environmentId,
+  );
+  return (
+    <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 px-3 text-base text-muted-foreground sm:px-4">
+      <span>Editing</span>
+      <Menu>
+        <MenuTrigger render={<InlineButton tone="picker" disabled={pending} />}>
+          {scope === "global" ? "global" : (project?.title ?? "this project")}
+          <ChevronDownIcon className="size-3" />
+        </MenuTrigger>
+        <MenuPopup>
+          <MenuItem onClick={() => selectScope("global")}>Global</MenuItem>
+          {state.projects.map((project) => (
+            <MenuItem key={project.id} onClick={() => selectScope("project", project.id)}>
+              This project · {project.title}
+            </MenuItem>
+          ))}
+        </MenuPopup>
+      </Menu>
+      <span>settings</span>
+      {connected.length > 1 ? (
+        <>
+          <span>on</span>
+          <Menu>
+            <MenuTrigger render={<InlineButton tone="picker" disabled={pending} />}>
+              {environment?.label ?? "Choose environment"}
+              <ChevronDownIcon className="size-3" />
+            </MenuTrigger>
+            <MenuPopup>
+              {connected.map((environment) => (
+                <MenuItem
+                  key={environment.environmentId}
+                  onClick={() => {
+                    selectScope("global");
+                    state.changeSearch({
+                      environment: environment.environmentId,
+                      instance: undefined,
+                      project: undefined,
+                      sessionFile: undefined,
+                    });
+                  }}
+                >
+                  {environment.label}
+                </MenuItem>
+              ))}
+            </MenuPopup>
+          </Menu>
+        </>
+      ) : null}
+      {state.providers.length > 1 ? (
+        <>
+          <span>using</span>
+          <Menu>
+            <MenuTrigger render={<InlineButton tone="picker" disabled={pending} />}>
+              {state.provider?.displayName ?? "NeoPi"}
+              <ChevronDownIcon className="size-3" />
+            </MenuTrigger>
+            <MenuPopup>
+              {state.providers.map((provider) => (
+                <MenuItem
+                  key={provider.instanceId}
+                  onClick={() =>
+                    state.changeSearch({ instance: provider.instanceId, sessionFile: undefined })
+                  }
+                >
+                  {provider.displayName ?? "NeoPi"}
+                </MenuItem>
+              ))}
+            </MenuPopup>
+          </Menu>
+        </>
+      ) : null}
+    </p>
+  );
+}
+
 function ModelsContent({
+  state,
   environmentId,
   target,
-  section,
-  configuration,
+  provider: connection,
+  configuration: snapshot,
   refresh,
+  scope,
+  setScope,
 }: {
+  state: ReturnType<typeof useModelsPageTarget>;
   environmentId: EnvironmentId;
   target: NeoPiModelsTarget;
-  section: string;
+  provider: ServerProvider;
   configuration: Configuration;
   refresh: () => void;
+  scope: Scope;
+  setScope: (scope: Scope) => void;
 }) {
   const update = useAtomCommand(neopiModels.update, { reportFailure: false });
+  const request = useAtomCommand(nativeSessionAtoms.request, { reportFailure: false });
+  const [configuration, setConfiguration] = useState(snapshot);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [assignment, setAssignment] = useState<{ role: Role | null; selector: string } | null>(
-    null,
-  );
+  const saving = useRef(false);
   const [query, setQuery] = useState("");
-  const [rulesRevision, setRulesRevision] = useState(0);
-  const save = async (change: NeoPiModelsUpdate["change"]) => {
+  const section = state.search.section ?? "roles";
+  useEffect(() => {
+    setConfiguration(snapshot);
+  }, [snapshot]);
+  const save: Save = async (change, onFailure) => {
+    if (saving.current) return false;
+    saving.current = true;
     setPending(true);
-    setError(null);
     try {
       const result = await update({ environmentId, input: { target, change } });
       if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+      setConfiguration(result.value);
       refresh();
       return true;
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "NeoPi rejected this configuration change.",
-      );
+      onFailure?.(cause);
+      toastManager.add({
+        type: "error",
+        title: "Couldn't save Models settings",
+        description: cause instanceof Error ? cause.message : String(cause),
+      });
       return false;
     } finally {
+      saving.current = false;
       setPending(false);
     }
+  };
+  const selectScope = (next: Scope, project?: string) => {
+    if (pending) return;
+    setScope(next);
+    if (project && project !== state.projectId)
+      state.changeSearch({ project, sessionFile: undefined });
+  };
+  const picker: PickerContext = {
+    configuration,
+    environmentId,
+    target,
+    provider: connection,
+    scope,
   };
   const provider = section.startsWith("provider:")
     ? configuration.providers.find((provider) => provider.id === section.slice(9))
     : null;
-  const models = configuration.models.filter(
-    (model) =>
-      (!provider || model.provider === provider.id) &&
-      `${model.provider}/${model.id} ${model.name}`.toLowerCase().includes(query.toLowerCase()),
+  const models = useMemo(
+    () =>
+      section === "all" || provider
+        ? modelsForView(configuration, provider?.id ?? null, query)
+        : [],
+    [configuration, provider, query, section],
   );
+  const assign = (role: Role, selector: string) =>
+    save({
+      operation: "role",
+      role: role.id,
+      scope,
+      selector,
+      ...(role[scope].effort ? { effort: role[scope].effort } : {}),
+      expected: role[scope],
+    });
+  const setThreadModel = target.sessionFile
+    ? async (model: NeoPiNativeModel) => {
+        const result = await request({
+          environmentId,
+          input: {
+            ref: {
+              providerInstanceId: target.providerInstanceId,
+              sessionFile: target.sessionFile!,
+            },
+            command: { type: "set_model", provider: model.provider, modelId: model.id },
+          },
+        });
+        if (result._tag === "Failure")
+          toastManager.add({
+            type: "error",
+            title: "Couldn't change this thread's model",
+            description: String(squashAtomCommandFailure(result)),
+          });
+      }
+    : undefined;
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold">
-          {section === "roles"
-            ? "Roles"
-            : section === "effort"
-              ? "Effort rules"
-              : (provider?.id ?? "All models")}
-        </h2>
-        <Button variant="outline" onClick={refresh}>
-          Refresh native state
-        </Button>
-      </div>
-      {error ? <ErrorText>{error}</ErrorText> : null}
-      {provider ? (
-        <ProviderAccounts
-          key={provider.id}
-          environmentId={environmentId}
-          target={target}
-          provider={provider}
-          refresh={refresh}
-          save={save}
-          pending={pending}
-        />
-      ) : null}
-      {assignment ? (
-        <RoleEditor
-          key={`${assignment.role?.id ?? "new"}:${assignment.selector}`}
-          configuration={configuration}
-          initial={assignment}
-          pending={pending}
-          save={async (change) => {
-            if (await save(change)) setAssignment(null);
-          }}
-          close={() => setAssignment(null)}
-        />
-      ) : null}
-      {section === "effort" ? (
-        <RulesEditor
-          key={rulesRevision}
-          configuration={configuration}
-          pending={pending}
-          save={async (change) => {
-            if (await save(change)) setRulesRevision((value) => value + 1);
-          }}
-        />
-      ) : section === "roles" ? (
-        <>
-          <Choice
-            label="Native role storage"
-            value={configuration.roleStorage}
-            options={[
-              { value: "global", label: "Global" },
-              { value: "project", label: "Project with global fallback" },
-            ]}
-            onChange={(value) => {
-              if (!pending)
-                void save({
-                  operation: "storage",
-                  value: value as Scope,
-                  expected: configuration.roleStorage,
-                });
-            }}
-          />
-          <div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setAssignment({ role: null, selector: "" })}
-            >
-              Create role
-            </Button>
-          </div>
-          <div className="divide-y divide-border">
-            {configuration.roles.map((role) => (
-              <div key={role.id} className="flex items-start justify-between gap-4 py-3">
-                <div className="min-w-0">
-                  <p className="font-medium">{role.alias}</p>
-                  {role.description ? (
-                    <p className="mt-1 text-sm text-muted-foreground">{role.description}</p>
-                  ) : null}
-                  <p className="break-all text-sm">
-                    {role.configured ?? "Native automatic selection"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {role.provenance}
-                    {role.resolved
-                      ? ` • ${role.resolved.provider}/${role.resolved.modelId}${role.resolved.thinkingLevel ? ` • ${role.resolved.thinkingLevel}` : ""}`
-                      : " • Unresolved"}
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setAssignment({ role, selector: role.configured ?? "" })}
-                >
-                  Configure
-                </Button>
-              </div>
-            ))}
-          </div>
-        </>
+    <>
+      <ModelsScope
+        state={state}
+        scope={scope}
+        pending={pending}
+        selectScope={(next, project) => {
+          void selectScope(next, project);
+        }}
+      />
+      {section === "roles" ? (
+        <RolesView key={scope} picker={picker} scope={scope} pending={pending} save={save} />
+      ) : section === "effort" ? (
+        <RulesView key={scope} picker={picker} scope={scope} pending={pending} save={save} />
       ) : section.startsWith("provider:") && !provider ? (
-        <ErrorText>
-          This provider is no longer in the native catalog. Choose another provider or All models.
-        </ErrorText>
+        <SettingsSection title="Models">
+          <SettingsRow
+            title="Provider not available"
+            description="Choose another provider or All models."
+          />
+        </SettingsSection>
       ) : (
         <>
-          <Input
-            aria-label="Filter native models"
-            placeholder="Filter models"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          <div className="overflow-x-auto">
-            <div
-              role="table"
-              aria-label="Native models"
-              aria-rowcount={models.length + 1}
-              className="min-w-[48rem] text-sm"
-            >
-              <div
-                role="row"
-                className="grid grid-cols-[2fr_1fr_1fr_1fr_auto] gap-4 pb-2 text-xs text-muted-foreground"
-              >
-                <span role="columnheader">Native model</span>
-                <span role="columnheader">Effective / native context / output</span>
-                <span role="columnheader">Input / output per million</span>
-                <span role="columnheader">Efforts</span>
-                <span role="columnheader">Role</span>
-              </div>
-              <LegendList
-                data={models}
-                keyExtractor={(model) => `${model.provider}/${model.id}`}
-                estimatedItemSize={88}
-                drawDistance={200}
-                recycleItems={false}
-                maintainVisibleContentPosition={false}
-                style={{ height: Math.min(models.length * 88, 600) }}
-                renderItem={({ item: model, index }) => (
-                  <div
-                    role="row"
-                    aria-rowindex={index + 2}
-                    className="grid grid-cols-[2fr_1fr_1fr_1fr_auto] items-center gap-4 border-t border-border py-3"
-                  >
-                    <div role="cell" className="min-w-0">
-                      <p className="font-medium">{model.name}</p>
-                      <p className="break-all text-xs text-muted-foreground">
-                        {model.provider}/{model.id}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {model.kind}
-                        {!model.available ? " • Not available" : ""}
-                        {model.supportsFastMode ? " • Native fast mode" : ""}
-                      </p>
-                    </div>
-                    <div role="cell" className="tabular-nums">
-                      {model.effectiveContextWindow.toLocaleString()} /{" "}
-                      {formatNeoPiModelTokenLimit(model.contextWindow)} /{" "}
-                      {formatNeoPiModelTokenLimit(model.maxTokens)}
-                    </div>
-                    <div role="cell" className="tabular-nums">
-                      ${model.cost.input} / ${model.cost.output}
-                    </div>
-                    <div role="cell" className="text-xs">
-                      {model.permittedEfforts.join(", ") || "No controllable effort"}
-                    </div>
-                    <div role="cell">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          setAssignment({ role: null, selector: `${model.provider}/${model.id}` })
-                        }
-                      >
-                        Assign role
-                      </Button>
-                    </div>
-                  </div>
-                )}
+          {provider ? (
+            <ProviderAccounts
+              key={provider.id}
+              environmentId={environmentId}
+              target={target}
+              connectedOwner={state.connectedOwner}
+              provider={provider}
+              refresh={refresh}
+              save={save}
+              pending={pending}
+            />
+          ) : null}
+          <SettingsSection
+            title="Models"
+            headerAction={
+              <Input
+                aria-label="Filter models"
+                placeholder="Filter models"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
               />
-            </div>
-            {models.length === 0 ? (
-              <p className="py-5 text-sm text-muted-foreground">
-                No native models match this view.
-              </p>
-            ) : null}
-          </div>
+            }
+          >
+            <Table aria-label={provider ? `${provider.id} models` : "All models"}>
+              <colgroup>
+                <col style={{ minWidth: "16rem" }} />
+                <col style={{ width: "6rem" }} />
+                <col style={{ width: "8rem" }} />
+                <col style={{ width: "9rem" }} />
+              </colgroup>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Model</TableHead>
+                  <TableHead className="text-right">Context</TableHead>
+                  <TableHead className="text-right">
+                    <Tooltip>
+                      <TooltipTrigger render={<span />}>Price</TooltipTrigger>
+                      <TooltipPopup>Per million input / output tokens</TooltipPopup>
+                    </Tooltip>
+                  </TableHead>
+                  <TableHead>Effort</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {models.map((model) => (
+                  <ModelRow
+                    key={`${model.provider}/${model.id}`}
+                    model={model}
+                    models={configuration.models}
+                    roles={configuration.roles}
+                    scope={scope}
+                    pending={pending}
+                    assign={assign}
+                    {...(setThreadModel ? { setThreadModel: setThreadModel } : {})}
+                  />
+                ))}
+                {models.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4}>No models match “{query}”.</TableCell>
+                  </TableRow>
+                ) : null}
+              </TableBody>
+            </Table>
+          </SettingsSection>
         </>
       )}
-    </div>
+    </>
   );
 }
-function EffortChoices({
-  choices,
+
+function ModelRow({
+  model,
+  models,
+  roles,
+  scope,
+  pending,
+  assign,
+  setThreadModel: setThreadModel,
+}: {
+  model: NeoPiNativeModel;
+  models: ReadonlyArray<NeoPiNativeModel>;
+  roles: ReadonlyArray<Role>;
+  scope: Scope;
+  pending: boolean;
+  assign: (role: Role, selector: string) => Promise<boolean>;
+  setThreadModel?: (model: NeoPiNativeModel) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [details, setDetails] = useState(false);
+  const selector = `${model.provider}/${model.id}`;
+  const number = (value: number | null) => value?.toLocaleString() ?? "Not reported";
+  return (
+    <>
+      <Menu open={open} onOpenChange={setOpen}>
+        <MenuTrigger
+          nativeButton={false}
+          render={
+            <TableRow
+              tabIndex={0}
+              className="cursor-pointer"
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setOpen(true);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  setOpen(true);
+                }
+              }}
+            />
+          }
+        >
+          <TableCell>
+            <div className="min-w-64 max-w-xl">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate font-medium">{modelDisplayName(model)}</span>
+                {model.supportsFastMode ? (
+                  <Tooltip>
+                    <TooltipTrigger render={<span />}>
+                      <ZapIcon className="size-3" />
+                    </TooltipTrigger>
+                    <TooltipPopup>Fast mode available</TooltipPopup>
+                  </Tooltip>
+                ) : null}
+                {model.kind !== "chat" ? (
+                  <Badge size="sm" variant="outline">
+                    {model.kind}
+                  </Badge>
+                ) : null}
+              </div>
+              <div className="truncate font-mono text-xs text-muted-foreground">{model.id}</div>
+            </div>
+          </TableCell>
+          <TableCell className="text-right">
+            <Tooltip>
+              <TooltipTrigger render={<span className="tabular-nums" />}>
+                {modelContextLabel(model.contextWindow)}
+              </TooltipTrigger>
+              <TooltipPopup>
+                {number(model.effectiveContextWindow)} usable · {number(model.contextWindow)} window
+                · {number(model.maxTokens)} max output
+              </TooltipPopup>
+            </Tooltip>
+          </TableCell>
+          <TableCell className="text-right">
+            <span className="tabular-nums">
+              {model.cost.input === 0 && model.cost.output === 0 ? (
+                <Tooltip>
+                  <TooltipTrigger render={<span />}>—</TooltipTrigger>
+                  <TooltipPopup>No per-token price reported</TooltipPopup>
+                </Tooltip>
+              ) : (
+                `$${model.cost.input} / $${model.cost.output}`
+              )}
+            </span>
+          </TableCell>
+          <TableCell className="whitespace-nowrap">
+            {modelEffortLabel(model.permittedEfforts)}
+          </TableCell>
+        </MenuTrigger>
+        <MenuPopup align="start">
+          <MenuSub>
+            <MenuSubTrigger>Assign to role</MenuSubTrigger>
+            <MenuSubPopup>
+              {roles.map((role) => {
+                const resolution = role.scopedResolutions[scope];
+                const using =
+                  resolution?.provider === model.provider && resolution.modelId === model.id;
+                const currentModel =
+                  resolution &&
+                  models.find(
+                    (candidate) =>
+                      candidate.provider === resolution.provider &&
+                      candidate.id === resolution.modelId,
+                  );
+                const current = currentModel ? modelDisplayName(currentModel) : resolution?.modelId;
+                return (
+                  <MenuItem
+                    key={role.id}
+                    disabled={pending}
+                    onClick={() => {
+                      void assign(role, selector);
+                    }}
+                  >
+                    {using ? <CheckIcon className="size-3" /> : null}
+                    <span>{role.id}</span>
+                    <span className="ml-auto max-w-48 truncate text-xs text-muted-foreground">
+                      {current ??
+                        (modelRoleForScope(role, scope).selector ? "Not available" : "Automatic")}
+                    </span>
+                  </MenuItem>
+                );
+              })}
+            </MenuSubPopup>
+          </MenuSub>
+          {setThreadModel ? (
+            <MenuItem
+              onClick={() => {
+                void setThreadModel(model);
+              }}
+            >
+              Use in this thread
+            </MenuItem>
+          ) : null}
+          <MenuSeparator />
+          <MenuItem onClick={() => setDetails(true)}>Details…</MenuItem>
+        </MenuPopup>
+      </Menu>
+      <Dialog open={details} onOpenChange={setDetails}>
+        <DialogPopup>
+          <DialogHeader>
+            <DialogTitle>{modelDisplayName(model)}</DialogTitle>
+            <DialogDescription>{model.description ?? model.name ?? model.id}</DialogDescription>
+          </DialogHeader>
+          <DialogPanel>
+            <SettingsRow title="ID" description={selector} />
+            <SettingsRow
+              title="Context"
+              description={`${number(model.effectiveContextWindow)} usable · ${number(model.contextWindow)} window · ${number(model.maxTokens)} max output`}
+            />
+            <SettingsRow
+              title="Price per million tokens"
+              description={`$${model.cost.input} input / $${model.cost.output} output · $${model.cost.cacheRead} cache read / $${model.cost.cacheWrite} cache write`}
+            />
+            <SettingsRow
+              title="Efforts"
+              description={model.permittedEfforts.join(", ") || "No controllable effort"}
+            />
+          </DialogPanel>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDetails(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+    </>
+  );
+}
+
+function EffortToggles({
   selected,
+  disabled,
   onChange,
 }: {
-  choices: ReadonlyArray<string>;
   selected: ReadonlyArray<string>;
+  disabled: boolean;
   onChange: (next: string[]) => void;
 }) {
   return (
-    <div className="flex flex-wrap gap-x-4 gap-y-2">
-      {choices.map((choice) => (
-        <Toggle
-          key={choice}
-          variant="outline"
-          pressed={selected.includes(choice)}
-          aria-label={`Allow ${choice} effort`}
-          onPressedChange={(pressed) =>
-            onChange(pressed ? [...selected, choice] : selected.filter((value) => value !== choice))
-          }
-        >
-          {choice}
-        </Toggle>
+    <ToggleGroup
+      multiple
+      size="sm"
+      value={[...selected]}
+      disabled={disabled}
+      onValueChange={(value) => {
+        if (value.length > 0) onChange(value);
+        else toastManager.add({ type: "error", title: "Choose at least one effort" });
+      }}
+      aria-label="Allowed efforts"
+    >
+      {MODEL_EFFORTS.map((effort) => (
+        <ToggleGroupItem key={effort} value={effort} aria-label={`Allow ${effort} effort`}>
+          {effort}
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
   );
 }
-function RoleEditor({
-  configuration,
-  initial,
+
+function RolesView({
+  picker,
+  scope,
   pending,
   save,
-  close,
 }: {
-  configuration: Configuration;
-  initial: { role: Role | null; selector: string };
+  picker: PickerContext;
+  scope: Scope;
   pending: boolean;
-  save: (change: NeoPiModelsUpdate["change"]) => Promise<void>;
-  close: () => void;
+  save: Save;
 }) {
-  const [roleId, setRoleId] = useState(initial.role?.id ?? "");
-  const [scope, setScope] = useState<Scope>("global");
-  const role = configuration.roles.find((role) => role.id === roleId);
-  const [expected, setExpected] = useState(
-    initial.role?.global ?? { selector: null, effort: null },
-  );
-  const [selector, setSelector] = useState(
-    initial.role ? (initial.role.global.selector ?? "") : initial.selector,
-  );
-  const [mode, setMode] = useState(initial.role?.global.effort?.mode ?? "selector");
-  const [level, setLevel] = useState(
-    initial.role?.global.effort?.mode === "fixed"
-      ? initial.role.global.effort.level
-      : (configuration.effortChoices[0] ?? "off"),
-  );
-  const [allowed, setAllowed] = useState<ReadonlyArray<string>>(
-    initial.role?.global.effort?.mode === "auto"
-      ? (initial.role.global.effort.allowed ?? configuration.effortChoices)
-      : configuration.effortChoices,
-  );
-  const load = (id: string, nextScope: Scope) => {
-    const value = configuration.roles.find((role) => role.id === id)?.[nextScope] ?? {
-      selector: null,
-      effort: null,
-    };
-    setRoleId(id);
-    setScope(nextScope);
-    setExpected(value);
-    setSelector(initial.role ? (value.selector ?? "") : initial.selector || value.selector || "");
-    setMode(value.effort?.mode ?? "selector");
-    if (value.effort?.mode === "fixed") setLevel(value.effort.level);
-    setAllowed(
-      value.effort?.mode === "auto"
-        ? (value.effort.allowed ?? configuration.effortChoices)
-        : configuration.effortChoices,
-    );
-  };
-  const effort: NeoPiEffortSelection | undefined =
-    mode === "fixed"
-      ? { mode: "fixed", level }
-      : mode === "auto"
-        ? { mode: "auto", allowed, selector }
-        : mode === "inherit"
-          ? { mode: "inherit" }
-          : undefined;
+  const [creating, setCreating] = useState(false);
+  const isMedia = (role: Role) => role.section === "kind";
+  const roles = picker.configuration.roles;
   return (
-    <section className="flex flex-col gap-4 border-y border-border py-5">
-      <h3 className="font-medium">Assign a native role</h3>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="flex min-w-0 flex-col gap-2">
-          <Choice
-            label="Native role"
-            value={role ? roleId : ""}
-            options={[
-              { value: "", label: "New role…" },
-              ...configuration.roles.map((role) => ({ value: role.id, label: role.alias })),
-            ]}
-            onChange={(value) => load(value, scope)}
+    <>
+      <SettingsSection
+        title="Roles"
+        headerAction={
+          <Button size="xs" variant="outline" onClick={() => setCreating(true)}>
+            New role
+          </Button>
+        }
+      >
+        {roles
+          .filter((role) => !isMedia(role))
+          .map((role) => (
+            <RoleRow
+              key={`${scope}:${role.id}`}
+              role={role}
+              picker={picker}
+              scope={scope}
+              pending={pending}
+              save={save}
+            />
+          ))}
+      </SettingsSection>
+      <SettingsSection title="Media">
+        {roles.filter(isMedia).map((role) => (
+          <RoleRow
+            key={`${scope}:${role.id}`}
+            role={role}
+            picker={picker}
+            scope={scope}
+            pending={pending}
+            save={save}
           />
-          {!role ? (
-            <label className="flex flex-col gap-1 text-sm">
-              New role name
-              <Input
-                aria-label="New role name"
-                value={roleId}
+        ))}
+      </SettingsSection>
+      <NewRoleDialog
+        open={creating}
+        setOpen={setCreating}
+        picker={picker}
+        scope={scope}
+        pending={pending}
+        save={save}
+      />
+    </>
+  );
+}
+
+function RoleRow({
+  role,
+  picker,
+  scope,
+  pending,
+  save,
+}: {
+  role: Role;
+  picker: PickerContext;
+  scope: Scope;
+  pending: boolean;
+  save: Save;
+}) {
+  const [effortOpen, setEffortOpen] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState<HTMLButtonElement | null>(null);
+  const scoped = role[scope];
+  const { selector, effort, resolution } = modelRoleForScope(role, scope);
+  const resolved = resolution
+    ? picker.configuration.models.find(
+        (model) => resolution.provider === model.provider && resolution.modelId === model.id,
+      )
+    : undefined;
+  const traitsModel = resolved ? `${resolved.provider}/${resolved.id}` : selector;
+  const traits: ReadonlyArray<ServerProviderModel> = useMemo(
+    () =>
+      resolved
+        ? [
+            {
+              slug: traitsModel,
+              name: modelDisplayName(resolved),
+              isCustom: false,
+              capabilities: createModelCapabilities({
+                reasoning: resolved.reasoning,
+                optionDescriptors: [
+                  {
+                    id: "reasoningEffort",
+                    label: "Effort",
+                    type: "select",
+                    options: [
+                      { id: "automatic", label: "Automatic" },
+                      ...resolved.supportedThinkingLevels.map((level) => ({
+                        id: level,
+                        label: level,
+                      })),
+                    ],
+                    currentValue: effort?.mode === "fixed" ? effort.level : "automatic",
+                  },
+                ],
+              }),
+            },
+          ]
+        : [],
+    [resolved, traitsModel, effort],
+  );
+  const setRole = (
+    nextSelector: string | null,
+    nextEffort: NeoPiEffortSelection | null = scoped.effort,
+  ) =>
+    save({
+      operation: "role",
+      role: role.id,
+      scope,
+      ...(nextSelector ? { selector: nextSelector } : {}),
+      ...(nextEffort ? { effort: nextEffort } : {}),
+      expected: scoped,
+    });
+  const unavailable = selector !== "" && !resolution;
+  return (
+    <SettingsRow
+      title={<span className="font-medium">{role.id}</span>}
+      description={role.description}
+      status={
+        unavailable ? (
+          <span className="text-xs text-warning">
+            {selector} isn't available. Sign in to its provider or choose another model.
+          </span>
+        ) : undefined
+      }
+      resetAction={
+        (scoped.selector !== null || scoped.effort !== null) &&
+        (role.source === "builtin" ||
+          (scope === "project" &&
+            (role.global.selector !== null || role.global.effort !== null))) ? (
+          <SettingResetButton
+            label={role.id}
+            tooltip="Reset to inherited value"
+            disabled={pending}
+            onClick={() => {
+              void save({ operation: "role", role: role.id, scope, expected: scoped });
+            }}
+          />
+        ) : null
+      }
+      control={
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
+          <NeoPiModelsSelector
+            {...picker}
+            label={`Model for ${role.id}`}
+            value={selector}
+            selectionLabel={
+              !selector ? "Automatic" : resolved ? modelDisplayName(resolved) : "Not available"
+            }
+            onChange={(selector) => {
+              void setRole(selector);
+            }}
+            disabled={pending}
+          />
+          <RoleFallbacks role={role} picker={picker} scope={scope} pending={pending} save={save} />
+          <fieldset disabled={pending}>
+            <TraitsPicker
+              provider={picker.provider.driver}
+              instanceId={picker.target.providerInstanceId}
+              models={traits}
+              model={traitsModel}
+              modelOptions={[
+                {
+                  id: "reasoningEffort",
+                  value: effort?.mode === "fixed" ? effort.level : "automatic",
+                },
+              ]}
+              triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+              onModelOptionsChange={(options) => {
+                const level = options?.find((option) => option.id === "reasoningEffort")?.value;
+                if (typeof level === "string")
+                  void setRole(
+                    scoped.selector,
+                    level === "automatic"
+                      ? { mode: "auto", allowed: [...MODEL_EFFORTS] }
+                      : { mode: "fixed", level },
+                  );
+              }}
+            />
+          </fieldset>
+          <Menu>
+            <MenuTrigger
+              render={
+                <Button
+                  ref={setMenuAnchor}
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label={`Actions for ${role.id}`}
+                  disabled={pending}
+                />
+              }
+            >
+              <MoreHorizontalIcon />
+            </MenuTrigger>
+            <MenuPopup>
+              <MenuItem onClick={() => setEffortOpen(true)}>Effort options…</MenuItem>
+              {role.source === "configured" ? (
+                <MenuItem
+                  variant="destructive"
+                  onClick={() => {
+                    void save({ operation: "deleteRole", role: role.id, scope, expected: scoped });
+                  }}
+                >
+                  Delete role
+                </MenuItem>
+              ) : null}
+            </MenuPopup>
+          </Menu>
+          <Popover open={effortOpen} onOpenChange={setEffortOpen}>
+            <PopoverPopup anchor={menuAnchor} align="end">
+              <Select
                 disabled={pending}
-                onChange={(event) => load(event.target.value, scope)}
-              />
-            </label>
-          ) : null}
+                value={effort?.mode === "fixed" ? "fixed" : "auto"}
+                onValueChange={(mode) => {
+                  if (mode === "auto")
+                    void setRole(scoped.selector, { mode: "auto", allowed: [...MODEL_EFFORTS] });
+                  if (mode === "fixed")
+                    void setRole(scoped.selector, {
+                      mode: "fixed",
+                      level: resolved?.supportedThinkingLevels[0] ?? "off",
+                    });
+                }}
+              >
+                <SelectTrigger size="sm" aria-label="Effort options">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectPopup>
+                  <SelectItem value="auto">Automatic</SelectItem>
+                  <SelectItem value="fixed">Fixed</SelectItem>
+                </SelectPopup>
+              </Select>
+              {effort?.mode === "fixed" ? (
+                <Select
+                  disabled={pending}
+                  value={effort.level}
+                  onValueChange={(level) => {
+                    if (level) void setRole(scoped.selector, { mode: "fixed", level });
+                  }}
+                >
+                  <SelectTrigger size="sm" aria-label="Fixed effort">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectPopup>
+                    {(resolved?.supportedThinkingLevels ?? MODEL_EFFORTS).map((level) => (
+                      <SelectItem key={level} value={level}>
+                        {level}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+              ) : (
+                <EffortToggles
+                  selected={
+                    effort?.mode === "auto" ? (effort.allowed ?? MODEL_EFFORTS) : MODEL_EFFORTS
+                  }
+                  disabled={pending}
+                  onChange={(allowed) => {
+                    void setRole(scoped.selector, { mode: "auto", allowed });
+                  }}
+                />
+              )}
+            </PopoverPopup>
+          </Popover>
         </div>
-        <Choice
-          label="Save scope"
-          value={scope}
-          options={[
-            { value: "global", label: "Global" },
-            ...(configuration.roleStorage === "project"
-              ? [{ value: "project", label: "Project" }]
-              : []),
-          ]}
-          onChange={(value) => load(roleId, value as Scope)}
-        />
-      </div>
-      {role?.description ? (
-        <p className="text-sm text-muted-foreground">{role.description}</p>
-      ) : null}
-      <NeoPiModelsSelector
-        configuration={configuration}
-        label="Model or native selector"
-        value={selector}
-        onChange={setSelector}
-        disabled={pending}
-      />
-      <p className="text-xs text-muted-foreground">
-        Native NeoPi validates and resolves this single selector. Clearing this scope restores its
-        inherited selection.
-      </p>
-      <Choice
-        label="Effort policy"
-        value={mode}
-        options={[
-          { value: "selector", label: "From selector or native default" },
-          { value: "inherit", label: "Inherit" },
-          { value: "fixed", label: "Fixed effort" },
-          { value: "auto", label: "Auto within allowed efforts" },
-        ]}
-        onChange={setMode}
-      />
-      {mode === "fixed" ? (
-        <Choice
-          label="Fixed effort"
-          value={level}
-          options={configuration.effortChoices.map((value) => ({ value, label: value }))}
-          onChange={setLevel}
-        />
-      ) : mode === "auto" ? (
-        <EffortChoices
-          choices={configuration.effortChoices}
-          selected={allowed}
-          onChange={setAllowed}
-        />
-      ) : null}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          disabled={
-            pending ||
-            !roleId.trim() ||
-            !selector.trim() ||
-            (mode === "auto" && allowed.length === 0)
-          }
-          onClick={() =>
-            void save({
-              operation: "role",
-              role: roleId,
-              scope,
-              selector,
-              ...(effort ? { effort } : {}),
-              expected,
-            })
-          }
-        >
-          Save role
-        </Button>
-        <Button
-          variant="outline"
-          disabled={pending || !roleId.trim()}
-          onClick={() => void save({ operation: "role", role: roleId, scope, expected })}
-        >
-          Clear this scope
-        </Button>
-        <Button variant="ghost" onClick={close}>
-          Cancel
-        </Button>
-      </div>
-    </section>
+      }
+    />
   );
 }
-function RulesEditor({
-  configuration,
+
+function RoleFallbacks({
+  role,
+  picker,
+  scope,
   pending,
   save,
 }: {
-  configuration: Configuration;
+  role: Role;
+  picker: PickerContext;
+  scope: Scope;
   pending: boolean;
-  save: (change: NeoPiModelsUpdate["change"]) => Promise<void>;
+  save: Save;
 }) {
-  const [scope, setScope] = useState<Scope>("global");
-  const [expected, setExpected] = useState(configuration.effortRuleScopes.global);
-  const [rules, setRules] = useState<ReadonlyArray<NeoPiEffortRule>>(
-    configuration.effortRuleScopes.global ?? [],
-  );
-  const replace = (index: number, rule: NeoPiEffortRule) =>
-    setRules((current) => current.map((value, at) => (at === index ? rule : value)));
+  const [adding, setAdding] = useState(false);
+  const fallbacks = scope === "global" ? role.fallbacksGlobal : role.fallbacks;
+  const saveChain = (chain: ReadonlyArray<string>) =>
+    save({
+      operation: "fallbacks",
+      role: role.id,
+      scope,
+      chain,
+      efforts: Object.fromEntries(
+        Object.entries(fallbacks.efforts).filter(([selector]) => chain.includes(selector)),
+      ),
+      expected: role.fallbacksGlobal,
+    });
   return (
-    <div className="flex flex-col gap-4">
-      <p className="text-sm text-muted-foreground">
-        Native policy: {configuration.effortMode}. Effective rules come from{" "}
-        {configuration.effortRulesProvenance}. Exact matches take precedence over regular
-        expressions, then globs. Native order decides ties.
-      </p>
-      <Choice
-        label="Rule save scope"
-        value={scope}
-        options={[
-          { value: "global", label: "Global" },
-          { value: "project", label: "Project" },
-        ]}
-        onChange={(value) => {
-          const next = value as Scope;
-          setScope(next);
-          setExpected(configuration.effortRuleScopes[next]);
-          setRules(configuration.effortRuleScopes[next] ?? []);
-        }}
-      />
-      {rules.map((rule, index) => (
-        <div key={index} className="flex flex-col gap-3 border-b border-border py-4">
-          <Input
-            aria-label={`Rule ${index + 1} selector`}
-            value={rule.selector}
-            placeholder="provider/model, glob or re:expression"
-            onChange={(event) => replace(index, { ...rule, selector: event.target.value })}
+    <Popover>
+      <PopoverTrigger render={<InlineButton tone="picker" disabled={pending} />}>
+        {fallbacks.chain.length > 0 ? (
+          <Badge size="sm" variant="outline">
+            +{fallbacks.chain.length} fallbacks
+          </Badge>
+        ) : (
+          "Add fallback"
+        )}
+      </PopoverTrigger>
+      <PopoverPopup align="end">
+        {scope === "project" ? (
+          <p className="text-sm text-muted-foreground">
+            Fallbacks are stored globally. Choose Global in the editing scope to change them.
+          </p>
+        ) : null}
+        <ol>
+          {fallbacks.chain.map((selector, index) => (
+            <li key={`${index}:${selector}`} className="flex items-center gap-1.5">
+              <NeoPiModelsSelector
+                {...picker}
+                label={`Fallback ${index + 1} for ${role.id}`}
+                value={selector}
+                disabled={pending || scope !== "global"}
+                onChange={(next) => {
+                  void saveChain(fallbacks.chain.map((value, at) => (at === index ? next : value)));
+                }}
+              />
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label={`Remove fallback ${index + 1}`}
+                disabled={pending || scope !== "global"}
+                onClick={() => {
+                  void saveChain(fallbacks.chain.filter((_, at) => at !== index));
+                }}
+              >
+                <XIcon />
+              </Button>
+              <Menu>
+                <MenuTrigger
+                  render={
+                    <Button
+                      size="icon-xs"
+                      variant="ghost"
+                      aria-label={`Fallback ${index + 1} actions`}
+                      disabled={pending || scope !== "global"}
+                    />
+                  }
+                >
+                  <MoreHorizontalIcon />
+                </MenuTrigger>
+                <MenuPopup>
+                  <MenuItem
+                    disabled={index === 0}
+                    onClick={() => {
+                      void saveChain(moveModelItem(fallbacks.chain, index, -1));
+                    }}
+                  >
+                    Move up
+                  </MenuItem>
+                  <MenuItem
+                    disabled={index === fallbacks.chain.length - 1}
+                    onClick={() => {
+                      void saveChain(moveModelItem(fallbacks.chain, index, 1));
+                    }}
+                  >
+                    Move down
+                  </MenuItem>
+                </MenuPopup>
+              </Menu>
+            </li>
+          ))}
+        </ol>
+        {adding ? (
+          <NeoPiModelsSelector
+            {...picker}
+            label={`New fallback for ${role.id}`}
+            value=""
+            open={adding}
+            onOpenChange={setAdding}
+            disabled={pending || scope !== "global"}
+            onChange={(selector) => {
+              setAdding(false);
+              void saveChain([...fallbacks.chain, selector]);
+            }}
           />
-          <EffortChoices
-            choices={configuration.effortChoices}
-            selected={rule.allowed}
-            onChange={(allowed) => replace(index, { ...rule, allowed })}
-          />
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={index === 0}
-              onClick={() =>
-                setRules((current) => {
-                  const next = [...current];
-                  [next[index - 1], next[index]] = [next[index]!, next[index - 1]!];
-                  return next;
-                })
-              }
-            >
-              Move up
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={index === rules.length - 1}
-              onClick={() =>
-                setRules((current) => {
-                  const next = [...current];
-                  [next[index], next[index + 1]] = [next[index + 1]!, next[index]!];
-                  return next;
-                })
-              }
-            >
-              Move down
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setRules((current) => current.filter((_, at) => at !== index))}
-            >
-              Remove
-            </Button>
-          </div>
-        </div>
-      ))}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          variant="outline"
-          onClick={() =>
-            setRules((current) => [
-              ...current,
-              { selector: "", allowed: [...configuration.effortChoices] },
-            ])
-          }
-        >
-          Add rule
-        </Button>
-        <Button
-          disabled={
-            pending || rules.some((rule) => !rule.selector.trim() || rule.allowed.length === 0)
-          }
-          onClick={() => void save({ operation: "rules", scope, rules, expected })}
-        >
-          Save rules
-        </Button>
-        <Button
-          variant="outline"
-          disabled={pending}
-          onClick={() => void save({ operation: "rules", scope, expected })}
-        >
-          Clear this scope
-        </Button>
-      </div>
-    </div>
+        ) : null}
+        <InlineButton disabled={pending || scope !== "global"} onClick={() => setAdding(true)}>
+          Add fallback
+        </InlineButton>
+      </PopoverPopup>
+    </Popover>
   );
 }
+
+function NewRoleDialog({
+  open,
+  setOpen,
+  picker,
+  scope,
+  pending,
+  save,
+}: {
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  picker: PickerContext;
+  scope: Scope;
+  pending: boolean;
+  save: Save;
+}) {
+  const [name, setName] = useState("");
+  const [selector, setSelector] = useState("");
+  const [description, setDescription] = useState("");
+  const [created, setCreated] = useState(false);
+  const close = () => {
+    if (pending) return;
+    setOpen(false);
+    setName("");
+    setSelector("");
+    setDescription("");
+    setCreated(false);
+  };
+  const create = async () => {
+    const role = name.trim();
+    if (!created) {
+      if (
+        !(await save({
+          operation: "role",
+          scope,
+          role,
+          selector,
+          expected: { selector: null, effort: null },
+        }))
+      )
+        return;
+      setCreated(true);
+    }
+    if (
+      scope === "global" &&
+      description &&
+      !(await save({ operation: "description", role, scope, description, expected: null }))
+    )
+      return;
+    close();
+  };
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) close();
+      }}
+    >
+      <DialogPopup>
+        <DialogHeader>
+          <DialogTitle>New role</DialogTitle>
+          {created ? (
+            <DialogDescription>
+              The role was created. Its description hasn't been saved yet.
+            </DialogDescription>
+          ) : null}
+        </DialogHeader>
+        <DialogPanel>
+          <SettingsRow
+            title="Name"
+            control={
+              <Input
+                aria-label="Name"
+                autoFocus
+                disabled={pending || created}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            }
+          />
+          <SettingsRow
+            title="Description"
+            description={
+              scope === "project"
+                ? "Descriptions are stored globally. Choose Global in the editing scope to add a description."
+                : undefined
+            }
+            control={
+              <Textarea
+                aria-label="Description"
+                disabled={pending || scope !== "global"}
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            }
+          />
+          <SettingsRow
+            title="Model"
+            control={
+              <NeoPiModelsSelector
+                {...picker}
+                value={selector}
+                label="New role model"
+                disabled={pending || created}
+                onChange={setSelector}
+              />
+            }
+          />
+        </DialogPanel>
+        <DialogFooter>
+          <Button variant="outline" disabled={pending} onClick={close}>
+            {created ? "Close" : "Cancel"}
+          </Button>
+          <Button
+            disabled={
+              pending ||
+              !name.trim() ||
+              !selector ||
+              (!created && picker.configuration.roles.some((role) => role.id === name.trim()))
+            }
+            onClick={() => {
+              void create();
+            }}
+          >
+            {created ? "Save description" : "Create"}
+          </Button>
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
+function RulesView({
+  picker,
+  scope,
+  pending,
+  save,
+}: {
+  picker: PickerContext;
+  scope: Scope;
+  pending: boolean;
+  save: Save;
+}) {
+  const expected = picker.configuration.effortRuleScopes[scope];
+  const rules =
+    expected ?? (scope === "project" ? (picker.configuration.effortRuleScopes.global ?? []) : []);
+  type PatternDraft = {
+    index: number | null;
+    selector: string;
+    allowed: ReadonlyArray<string>;
+    base: ReadonlyArray<NeoPiEffortRule>;
+    expected: typeof expected;
+  };
+  const [exactOpen, setExactOpen] = useState(false);
+  const [pattern, setPattern] = useState<PatternDraft | null>(null);
+  const [invalid, setInvalid] = useState(false);
+  const persist = (next: ReadonlyArray<NeoPiEffortRule>) =>
+    save({ operation: "rules", scope, rules: next, expected });
+  const editPattern = (index: number | null) => {
+    const rule = index === null ? null : rules[index];
+    setPattern({
+      index,
+      selector: rule?.selector ?? "",
+      allowed: rule?.allowed ?? MODEL_EFFORTS,
+      base: rules,
+      expected,
+    });
+    setInvalid(false);
+  };
+  const savePattern = async (draft: PatternDraft) => {
+    if (pending) return;
+    const selector = draft.selector.trim();
+    if (
+      !isModelRulePattern(selector) ||
+      !isModelRuleSelectorValid(selector) ||
+      draft.base.some(
+        (rule, index) =>
+          index !== draft.index &&
+          rule.selector.toLocaleLowerCase() === selector.toLocaleLowerCase(),
+      )
+    ) {
+      setInvalid(true);
+      return;
+    }
+    const next =
+      draft.index === null
+        ? [...draft.base, { selector, allowed: draft.allowed }]
+        : draft.base.map((rule, index) =>
+            index === draft.index ? { selector, allowed: draft.allowed } : rule,
+          );
+    // Keep the edit's original compare-and-swap snapshot through live configuration changes.
+    let invalidValue = false;
+    const saved = await save(
+      { operation: "rules", scope, rules: next, expected: draft.expected },
+      (cause) => {
+        invalidValue =
+          cause !== null &&
+          typeof cause === "object" &&
+          "code" in cause &&
+          cause.code === "invalid_value";
+      },
+    );
+    if (!saved && invalidValue) {
+      setInvalid(true);
+      return;
+    }
+    setPattern(null);
+    setInvalid(false);
+  };
+  const patternInput = (draft: PatternDraft, label: string) => (
+    <Input
+      autoFocus
+      disabled={pending}
+      aria-label={label}
+      placeholder="anthropic/* or re:^gpt-6"
+      value={draft.selector}
+      onChange={(event) => {
+        setPattern({ ...draft, selector: event.target.value });
+        setInvalid(false);
+      }}
+      onBlur={() => {
+        void savePattern(draft);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+      }}
+    />
+  );
+  const createExact = (selector: string) => {
+    if (
+      isModelRulePattern(selector) ||
+      !picker.configuration.models.some((model) => `${model.provider}/${model.id}` === selector)
+    )
+      return;
+    setExactOpen(false);
+    if (!rules.some((rule) => rule.selector === selector))
+      void persist([...rules, { selector, allowed: [...MODEL_EFFORTS] }]);
+  };
+  return (
+    <SettingsSection
+      title="Effort rules"
+      headerAction={
+        <Menu>
+          <MenuTrigger render={<Button size="xs" variant="outline" disabled={pending} />}>
+            Add rule
+          </MenuTrigger>
+          <MenuPopup>
+            <MenuItem disabled={pattern !== null} onClick={() => setExactOpen(true)}>
+              Exact model…
+            </MenuItem>
+            <MenuItem disabled={pattern !== null} onClick={() => editPattern(null)}>
+              Pattern…
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
+      }
+    >
+      <p className="px-3 py-3 text-sm text-muted-foreground sm:px-4">
+        The first rule that matches a model limits which efforts it can use automatically. Exact
+        models win over patterns.{" "}
+        <PolicyTooltip>
+          Exact models first, then regular expressions, then globs, each in list order. Efforts you
+          pick by hand ignore these rules.
+        </PolicyTooltip>
+      </p>
+      {exactOpen ? (
+        <SettingsRow
+          title="Exact model"
+          control={
+            <NeoPiModelsSelector
+              {...picker}
+              exactOnly
+              label="Exact model for effort rule"
+              value=""
+              onChange={createExact}
+              open={exactOpen}
+              onOpenChange={setExactOpen}
+              disabled={pending}
+            />
+          }
+        />
+      ) : null}
+      {rules.length === 0 && !pattern ? (
+        <SettingsRow title="No rules" description="Models can use every effort they support." />
+      ) : null}
+      {rules.map((rule, index) => {
+        const model = picker.configuration.models.find(
+          (model) => `${model.provider}/${model.id}` === rule.selector,
+        );
+        const draft = pattern?.index === index ? pattern : null;
+        return (
+          <SettingsRow
+            key={`${scope}:${index}:${rule.selector}`}
+            title={
+              draft ? (
+                patternInput(draft, "Rule pattern")
+              ) : isModelRulePattern(rule.selector) ? (
+                <span className="flex items-center gap-1.5">
+                  <span className="font-mono">{rule.selector}</span>
+                  <Badge size="sm" variant="outline">
+                    pattern
+                  </Badge>
+                </span>
+              ) : model ? (
+                modelDisplayName(model)
+              ) : (
+                rule.selector
+              )
+            }
+            status={draft && invalid ? <ErrorText>That pattern isn't valid.</ErrorText> : undefined}
+            control={
+              <div className="flex items-center gap-1.5">
+                <EffortToggles
+                  selected={draft?.allowed ?? rule.allowed}
+                  disabled={pending || (pattern !== null && draft === null)}
+                  onChange={(allowed) => {
+                    if (draft) {
+                      const next = { ...draft, allowed };
+                      setPattern(next);
+                      void savePattern(next);
+                    } else
+                      void persist(
+                        rules.map((rule, at) => (at === index ? { ...rule, allowed } : rule)),
+                      );
+                  }}
+                />
+                <Menu>
+                  <MenuTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={`Rule ${index + 1} actions`}
+                        disabled={pending}
+                      />
+                    }
+                  >
+                    <MoreHorizontalIcon />
+                  </MenuTrigger>
+                  <MenuPopup>
+                    <MenuItem
+                      disabled={index === 0 || pattern !== null}
+                      onClick={() => {
+                        void persist(moveModelItem(rules, index, -1));
+                      }}
+                    >
+                      Move up
+                    </MenuItem>
+                    <MenuItem
+                      disabled={index === rules.length - 1 || pattern !== null}
+                      onClick={() => {
+                        void persist(moveModelItem(rules, index, 1));
+                      }}
+                    >
+                      Move down
+                    </MenuItem>
+                    {isModelRulePattern(rule.selector) ? (
+                      <MenuItem disabled={pattern !== null} onClick={() => editPattern(index)}>
+                        Edit pattern
+                      </MenuItem>
+                    ) : null}
+                    <MenuItem
+                      variant="destructive"
+                      onClick={() => {
+                        setPattern(null);
+                        setInvalid(false);
+                        void persist(rules.filter((_, at) => at !== index));
+                      }}
+                    >
+                      Remove
+                    </MenuItem>
+                  </MenuPopup>
+                </Menu>
+              </div>
+            }
+          />
+        );
+      })}
+      {pattern?.index === null ? (
+        <SettingsRow
+          title={patternInput(pattern, "New rule pattern")}
+          status={invalid ? <ErrorText>That pattern isn't valid.</ErrorText> : undefined}
+          control={
+            <div className="flex items-center gap-1.5">
+              <EffortToggles
+                selected={pattern.allowed}
+                disabled={pending}
+                onChange={(allowed) => {
+                  const next = { ...pattern, allowed };
+                  setPattern(next);
+                  if (next.selector.trim()) void savePattern(next);
+                }}
+              />
+              <Menu>
+                <MenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label="New rule actions"
+                      disabled={pending}
+                    />
+                  }
+                >
+                  <MoreHorizontalIcon />
+                </MenuTrigger>
+                <MenuPopup>
+                  <MenuItem
+                    variant="destructive"
+                    onClick={() => {
+                      setPattern(null);
+                      setInvalid(false);
+                    }}
+                  >
+                    Remove
+                  </MenuItem>
+                </MenuPopup>
+              </Menu>
+            </div>
+          }
+        />
+      ) : null}
+    </SettingsSection>
+  );
+}
+
 function ProviderAccounts({
   environmentId,
   target,
+  connectedOwner,
   provider,
   pending,
   refresh,
@@ -851,217 +1729,417 @@ function ProviderAccounts({
 }: {
   environmentId: EnvironmentId;
   target: NeoPiModelsTarget;
-  provider: Configuration["providers"][number];
+  connectedOwner: boolean;
+  provider: Provider;
   pending: boolean;
   refresh: () => void;
-  save: (change: NeoPiModelsUpdate["change"]) => Promise<boolean>;
+  save: Save;
 }) {
   const accountsCommand = useAtomCommand(neopiModels.accounts, { reportFailure: false });
   const startAuth = useAtomCommand(neopiModels.startAuth, { reportFailure: false });
   const cancelAuth = useAtomCommand(neopiModels.cancelAuth, { reportFailure: false });
-  const [accounts, setAccounts] = useState<
-    ReadonlyArray<{ credentialId: number; label: string; detail: string; active: boolean }>
-  >([]);
+  const [accounts, setAccounts] = useState<NeoPiModelsAccounts["accounts"]>([]);
+  const [accountsReady, setAccountsReady] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [key, setKey] = useState("");
   const [flowId, setFlowId] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-  const loadAccounts = async () => {
+  const mounted = useRef(false);
+  const loadAccounts = useCallback(async () => {
     const result = await accountsCommand({
       environmentId,
       input: { target, providerId: provider.id },
     });
-    if (!mounted.current) return;
-    if (result._tag === "Failure") setError(String(squashAtomCommandFailure(result)));
-    else setAccounts(result.value.accounts);
-  };
+    if (!mounted.current) return null;
+    setLoading(false);
+    if (result._tag === "Failure") {
+      setError(String(squashAtomCommandFailure(result)));
+      return null;
+    }
+    setAccounts(result.value.accounts);
+    setAccountsReady(true);
+    setError(null);
+    return result.value.accounts;
+  }, [accountsCommand, environmentId, target, provider.id]);
+  useEffect(() => {
+    mounted.current = true;
+    void loadAccounts();
+    return () => {
+      mounted.current = false;
+    };
+  }, [loadAccounts]);
   const login = async (providerId: string) => {
+    setStarting(true);
     setError(null);
     const result = await startAuth({ environmentId, input: { target, providerId } });
-    if (result._tag === "Failure") {
-      if (mounted.current) setError(String(squashAtomCommandFailure(result)));
-      return;
-    }
     if (!mounted.current) {
-      void cancelAuth({ environmentId, input: result.value });
+      if (result._tag === "Success") void cancelAuth({ environmentId, input: result.value });
       return;
     }
-    setFlowId(result.value.flowId);
+    setStarting(false);
+    if (result._tag === "Failure") setError(String(squashAtomCommandFailure(result)));
+    else setFlowId(result.value.flowId);
   };
-  return (
-    <section className="flex flex-col gap-3 border-b border-border pb-5">
-      <p className="flex items-center gap-2 text-sm">
-        <span aria-hidden="true">{provider.authenticated ? "●" : "○"}</span>
-        {provider.authenticated ? "Signed in" : "Not signed in"}
-      </p>
-      <p className="text-sm">
-        {provider.disabled
-          ? "Disabled in native NeoPi settings"
-          : (provider.authSource ??
-            (provider.available
-              ? "Native models available without stored credentials"
-              : "No models available"))}
-      </p>
-      {provider.envVars.length ? (
-        <p className="text-xs text-muted-foreground">
-          Native environment keys: {provider.envVars.join(", ")}
-        </p>
-      ) : null}
-      {error ? <ErrorText>{error}</ErrorText> : null}
-      <div className="flex flex-wrap gap-2">
-        {provider.loginProviders.map((loginProvider) => (
-          <Button
-            key={loginProvider.id}
-            variant="outline"
-            disabled={!loginProvider.available || flowId !== null}
-            onClick={() => void login(loginProvider.id)}
-          >
-            Log in to {loginProvider.name}
-          </Button>
-        ))}
-        <Button variant="outline" onClick={() => void loadAccounts()}>
-          Show native accounts
-        </Button>
-      </div>
-      {flowId ? (
-        <NativeLogin
-          key={flowId}
-          environmentId={environmentId}
-          flowId={flowId}
-          refresh={refresh}
-          close={() => {
-            setFlowId(null);
-            void loadAccounts();
-          }}
-        />
-      ) : null}
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <div className="min-w-0 flex-1">
-          <Input
-            aria-label={`Native ${provider.id} API key`}
-            type="password"
-            autoComplete="off"
-            value={key}
-            placeholder="API key stored by NeoPi"
-            onChange={(event) => setKey(event.target.value)}
-          />
-        </div>
-        <Button
-          variant="outline"
-          disabled={pending || !key.trim()}
-          onClick={() => {
-            const apiKey = key;
-            setKey("");
-            void save({ operation: "key", providerId: provider.id, apiKey });
-          }}
-        >
-          Save native key
-        </Button>
-      </div>
-      {accounts.map((account) => (
-        <div key={account.credentialId} className="flex items-center justify-between gap-3 text-sm">
-          <div>
-            <p>
-              {account.label}
-              {account.active ? " • Active in native session" : ""}
-            </p>
-            <p className="text-xs text-muted-foreground">{account.detail}</p>
-          </div>
-          <Button
-            variant="outline"
-            disabled={pending}
-            onClick={() =>
-              void save({
-                operation: "logout",
-                providerId: provider.id,
-                credentialId: account.credentialId,
-              }).then((saved) => {
-                if (saved) void loadAccounts();
-              })
+  const methods = provider.loginProviders.filter((method) => method.available);
+  const signIn = methods[0] ? (
+    <Group>
+      <Button
+        size="sm"
+        disabled={pending || starting}
+        onClick={() => {
+          void login(methods[0]!.id);
+        }}
+      >
+        {starting ? <Spinner /> : null}Sign in
+      </Button>
+      {methods.length > 1 ? (
+        <Menu>
+          <MenuTrigger
+            render={
+              <Button size="sm" disabled={pending || starting} aria-label="Other sign-in methods" />
             }
           >
-            Remove this account
-          </Button>
-        </div>
-      ))}
-    </section>
+            <ChevronDownIcon />
+          </MenuTrigger>
+          <MenuPopup>
+            {methods.slice(1).map((method) => (
+              <MenuItem
+                key={method.id}
+                onClick={() => {
+                  void login(method.id);
+                }}
+              >
+                {method.deviceCode || method.loginKind === "device-code"
+                  ? "Use a device code"
+                  : method.name}
+              </MenuItem>
+            ))}
+          </MenuPopup>
+        </Menu>
+      ) : null}
+    </Group>
+  ) : null;
+  const keyControl = (
+    <div className="flex items-center gap-1.5">
+      <InputGroup>
+        <InputGroupInput
+          type="password"
+          aria-label={`${provider.id} API key`}
+          placeholder="Paste key"
+          autoComplete="off"
+          value={key}
+          onChange={(event) => setKey(event.target.value)}
+        />
+      </InputGroup>
+      <Button
+        size="sm"
+        disabled={pending || !key.trim()}
+        onClick={() => {
+          void save({ operation: "key", providerId: provider.id, apiKey: key }).then((saved) => {
+            if (saved) {
+              setKey("");
+              void loadAccounts();
+            }
+          });
+        }}
+      >
+        Save
+      </Button>
+    </div>
+  );
+  return (
+    <SettingsSection
+      title="Account"
+      icon={
+        <PolicyTooltip>{`Stored in NeoPi. Environment variables: ${provider.envVars.join(", ") || "none"}.`}</PolicyTooltip>
+      }
+      headerAction={
+        accounts.length > 0 && methods.length > 0 ? (
+          <Menu>
+            <MenuTrigger
+              render={
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={pending || starting || flowId !== null}
+                />
+              }
+            >
+              Add account
+            </MenuTrigger>
+            <MenuPopup>
+              {methods.map((method) => (
+                <MenuItem
+                  key={method.id}
+                  onClick={() => {
+                    void login(method.id);
+                  }}
+                >
+                  {method.deviceCode || method.loginKind === "device-code"
+                    ? "Use a device code"
+                    : method.name}
+                </MenuItem>
+              ))}
+            </MenuPopup>
+          </Menu>
+        ) : undefined
+      }
+    >
+      {loading ? (
+        [0, 1, 2, 3].map((row) => <Skeleton key={row} className="h-12" />)
+      ) : accountsReady ? (
+        <>
+          {accounts.map((account) => (
+            <SettingsRow
+              key={account.credentialId}
+              title={account.label || "API key"}
+              status={
+                <span className="flex items-center gap-1.5">
+                  <span className="size-1.5 rounded-full bg-success" />
+                  Signed in
+                  {account.active ? (
+                    <Badge size="sm" variant="secondary">
+                      In use
+                    </Badge>
+                  ) : null}
+                </span>
+              }
+              control={
+                <Menu>
+                  <MenuTrigger
+                    render={
+                      <Button
+                        size="icon-xs"
+                        variant="ghost"
+                        aria-label={`Account actions for ${account.label || "API key"}`}
+                        disabled={pending || flowId !== null}
+                      />
+                    }
+                  >
+                    <MoreHorizontalIcon />
+                  </MenuTrigger>
+                  <MenuPopup>
+                    {!account.active && account.type === "oauth" ? (
+                      <MenuItem
+                        disabled={!connectedOwner}
+                        onClick={() => {
+                          void save({
+                            operation: "activateAccount",
+                            providerId: provider.id,
+                            credentialId: account.credentialId,
+                          }).then((saved) => {
+                            if (saved) void loadAccounts();
+                          });
+                        }}
+                      >
+                        Use this account
+                        {!connectedOwner ? (
+                          <span className="text-xs text-muted-foreground">
+                            Open from a connected thread
+                          </span>
+                        ) : null}
+                      </MenuItem>
+                    ) : null}
+                    <MenuItem
+                      variant="destructive"
+                      onClick={() => {
+                        void save({
+                          operation: "logout",
+                          providerId: provider.id,
+                          credentialId: account.credentialId,
+                        }).then((saved) => {
+                          if (saved) void loadAccounts();
+                        });
+                      }}
+                    >
+                      Sign out
+                    </MenuItem>
+                  </MenuPopup>
+                </Menu>
+              }
+            />
+          ))}
+          {accounts.length === 0 && !flowId ? (
+            <SettingsRow
+              title={provider.authenticated ? "API key" : "Not signed in"}
+              description={
+                provider.authenticated ? undefined : `Sign in to use ${provider.id} models.`
+              }
+              status={
+                provider.authenticated ? (
+                  <span className="flex items-center gap-1.5">
+                    <span className="size-1.5 rounded-full bg-success" />
+                    Signed in
+                  </span>
+                ) : undefined
+              }
+              control={signIn}
+            />
+          ) : null}
+          {flowId ? (
+            <NativeLogin
+              environmentId={environmentId}
+              flowId={flowId}
+              title={
+                accounts.length === 0
+                  ? provider.authenticated
+                    ? "API key"
+                    : "Not signed in"
+                  : "Sign in"
+              }
+              description={
+                accounts.length === 0 && !provider.authenticated
+                  ? `Sign in to use ${provider.id} models.`
+                  : undefined
+              }
+              finish={async (status, message) => {
+                setFlowId(null);
+                if (status === "complete") {
+                  const next = await loadAccounts();
+                  if (mounted.current) {
+                    const label =
+                      next?.find(
+                        (account) =>
+                          !accounts.some(
+                            (previous) => previous.credentialId === account.credentialId,
+                          ),
+                      )?.label ??
+                      next?.find((account) => account.active)?.label ??
+                      next?.[0]?.label;
+                    if (label)
+                      toastManager.add({ type: "success", title: `Signed in as ${label}` });
+                    refresh();
+                  }
+                } else if (status === "cancelled")
+                  toastManager.add({ type: "info", title: "Sign-in cancelled" });
+                else setError(message ?? "Sign-in failed. Try again.");
+              }}
+            />
+          ) : null}
+          {!provider.authenticated && accounts.length === 0 && provider.acceptsKeys ? (
+            <SettingsRow
+              title="API key"
+              description={`Paste a key from your ${provider.id} account.`}
+              control={keyControl}
+            />
+          ) : null}
+        </>
+      ) : null}
+      {error ? (
+        <SettingsRow
+          title={<ErrorText>{error}</ErrorText>}
+          control={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setError(null);
+                if (!accountsReady) setLoading(true);
+                void loadAccounts();
+              }}
+            >
+              Retry
+            </Button>
+          }
+        />
+      ) : null}
+    </SettingsSection>
   );
 }
+
 function NativeLogin({
   environmentId,
   flowId,
-  refresh,
-  close,
+  title,
+  description,
+  finish,
 }: {
   environmentId: EnvironmentId;
   flowId: string;
-  refresh: () => void;
-  close: () => void;
+  title: string;
+  description?: string | undefined;
+  finish: (status: "complete" | "cancelled" | "failed", message: string | null) => void;
 }) {
   const state = useAtomValue(neopiModels.authChanges({ environmentId, input: { flowId } }));
   const respond = useAtomCommand(neopiModels.respondAuth, { reportFailure: false });
   const cancel = useAtomCommand(neopiModels.cancelAuth, { reportFailure: false });
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const finished = useRef(false);
   const result = AsyncResult.isSuccess(state) ? state.value : null;
   useEffect(() => {
     setValue("");
   }, [result?.prompt?.id]);
   useEffect(() => {
-    if (result?.status === "complete") refresh();
-  }, [result?.status, refresh]);
-  if (AsyncResult.isFailure(state))
-    return (
-      <div>
-        <ErrorText>{formatEnvironmentQueryError(state.cause)}</ErrorText>
-        <Button variant="outline" onClick={close}>
-          Close login
-        </Button>
-      </div>
-    );
+    if (finished.current) return;
+    if (AsyncResult.isFailure(state)) {
+      finished.current = true;
+      finish("failed", formatEnvironmentQueryError(state.cause));
+    } else if (result && result.status !== "running") {
+      finished.current = true;
+      finish(result.status, result.message);
+    }
+  }, [state, result, finish]);
   const url = result?.url && /^https?:\/\//i.test(result.url) ? result.url : null;
   return (
-    <div className="flex flex-col gap-3 border-y border-border py-4">
-      <p className="text-sm">{result?.message ?? "Waiting for native login"}</p>
+    <SettingsRow
+      title={title}
+      description={description}
+      status={error ? <ErrorText>{error}</ErrorText> : (result?.message ?? undefined)}
+      control={
+        <div className="flex items-center gap-1.5">
+          <Spinner size="sm" />
+          <span className="text-xs">Waiting for browser…</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={cancelling}
+            onClick={() => {
+              setCancelling(true);
+              void cancel({ environmentId, input: { flowId } }).then((response) => {
+                if (response._tag === "Failure") {
+                  const cause = squashAtomCommandFailure(response);
+                  setError(cause instanceof Error ? cause.message : String(cause));
+                  setCancelling(false);
+                }
+              });
+            }}
+          >
+            Cancel
+          </Button>
+        </div>
+      }
+    >
       {url ? (
-        <a
-          className="break-all text-sm underline"
-          href={url}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          Open native authorization page
-        </a>
+        <InlineButton render={<a href={url} target="_blank" rel="noreferrer noopener" />}>
+          Open sign-in page
+        </InlineButton>
       ) : null}
+      {result?.userCode ? <Kbd>{result.userCode}</Kbd> : null}
       {result?.instructions ? (
-        <p className="whitespace-pre-wrap text-sm text-muted-foreground">{result.instructions}</p>
+        <p className="whitespace-pre-wrap text-xs text-muted-foreground">{result.instructions}</p>
       ) : null}
-      {error ? <ErrorText>{error}</ErrorText> : null}
       {result?.prompt ? (
         <form
-          className="flex flex-col gap-2"
           onSubmit={(event) => {
             event.preventDefault();
             const prompt = result.prompt!;
-            const answer = value;
-            setValue("");
-            void respond({
-              environmentId,
-              input: { flowId, requestId: prompt.id, value: answer },
-            }).then((response) => {
-              if (response._tag === "Failure") setError(String(squashAtomCommandFailure(response)));
-            });
+            void respond({ environmentId, input: { flowId, requestId: prompt.id, value } }).then(
+              (response) => {
+                if (response._tag === "Failure") {
+                  const cause = squashAtomCommandFailure(response);
+                  setError(cause instanceof Error ? cause.message : String(cause));
+                } else setValue("");
+              },
+            );
           }}
         >
           <label className="text-sm">
             {result.prompt.title}
             <Input
+              aria-label={result.prompt.title}
               autoComplete="off"
               type={result.prompt.secret ? "password" : "text"}
               value={value}
@@ -1069,26 +2147,11 @@ function NativeLogin({
               onChange={(event) => setValue(event.target.value)}
             />
           </label>
-          <div>
-            <Button type="submit">Send to native login</Button>
-          </div>
+          <Button type="submit" size="sm">
+            Continue
+          </Button>
         </form>
       ) : null}
-      <div>
-        <Button
-          variant="outline"
-          onClick={() => {
-            if (!result || result.status === "running")
-              void cancel({ environmentId, input: { flowId } }).then((response) => {
-                if (response._tag === "Failure")
-                  setError(String(squashAtomCommandFailure(response)));
-              });
-            else close();
-          }}
-        >
-          {!result || result.status === "running" ? "Cancel login" : "Close login"}
-        </Button>
-      </div>
-    </div>
+    </SettingsRow>
   );
 }

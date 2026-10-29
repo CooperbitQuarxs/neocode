@@ -81,6 +81,35 @@ const fixture = Effect.fnUntraced(function* (
 });
 
 describe("native Models login lifecycle", () => {
+  it.effect("preserves the public device verification code from the native challenge", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { auth, flow, loginId, ui } = yield* fixture();
+        const observed = yield* Deferred.make<void>();
+        const watch = yield* auth.watchAuth(flow).pipe(
+          Stream.filter((state) => state.userCode !== null),
+          Stream.take(1),
+          Stream.tap((state) => {
+            expect(state.userCode).toBe("ABCD-EFGH");
+            expect(state.url).toBe("https://example.com/device");
+            return Deferred.succeed(observed, undefined);
+          }),
+          Stream.runDrain,
+          Effect.forkScoped,
+        );
+        yield* PubSub.publish(ui, {
+          type: "extension_ui_request",
+          id: "device-challenge",
+          method: "open_url",
+          loginId: yield* Deferred.await(loginId),
+          url: "https://example.com/device",
+          userCode: "ABCD-EFGH",
+        });
+        yield* Deferred.await(observed);
+        yield* Fiber.join(watch);
+      }),
+    ),
+  );
   it.effect("reports native cancellation as cancelled rather than failed", () =>
     Effect.scoped(
       Effect.gen(function* () {

@@ -61,10 +61,20 @@ export const NeoPiRoleConfigurationValue = Schema.Struct({
   selector: Schema.NullOr(Schema.String),
   effort: Schema.NullOr(NeoPiEffortSelection),
 });
+const NeoPiRoleResolution = Schema.Struct({
+  provider: Schema.String,
+  modelId: Schema.String,
+  thinkingLevel: Schema.optional(Schema.String),
+});
+const NeoPiRoleFallbacks = Schema.Struct({
+  chain: Schema.Array(Schema.String),
+  efforts: Schema.Record(Schema.String, NeoPiEffortSelection),
+});
 export const NeoPiNativeModel = Schema.Struct({
   provider: Schema.String,
   id: Schema.String,
   name: Schema.String,
+  description: Schema.optional(Schema.String),
   kind: Schema.String,
   available: Schema.Boolean,
   contextWindow: Schema.NullOr(Schema.Number),
@@ -92,8 +102,16 @@ export const NeoPiModelsConfiguration = Schema.Struct({
       authSource: Schema.NullOr(Schema.String),
       available: Schema.Boolean,
       disabled: Schema.Boolean,
+      acceptsKeys: Schema.Boolean,
       loginProviders: Schema.Array(
-        Schema.Struct({ id: Schema.String, name: Schema.String, available: Schema.Boolean }),
+        Schema.Struct({
+          id: Schema.String,
+          name: Schema.String,
+          available: Schema.Boolean,
+          loginKind: Schema.Literals(["api-key", "oauth-code", "device-code", "custom"]),
+          deviceCode: Schema.Boolean,
+          storeCredentialsAs: Schema.optional(Schema.String),
+        }),
       ),
       envVars: Schema.Array(Schema.String),
     }),
@@ -106,15 +124,18 @@ export const NeoPiModelsConfiguration = Schema.Struct({
       alias: Schema.String,
       hidden: Schema.Boolean,
       configured: Schema.NullOr(Schema.String),
+      source: Schema.Literals(["builtin", "configured"]),
+      section: Schema.Literals(["chat", "kind"]),
+      patterns: Schema.Array(Schema.String),
+      fallbacks: NeoPiRoleFallbacks,
+      fallbacksGlobal: NeoPiRoleFallbacks,
+      scopedResolutions: Schema.Struct({
+        global: Schema.NullOr(NeoPiRoleResolution),
+        project: Schema.NullOr(NeoPiRoleResolution),
+      }),
       provenance: Schema.String,
       description: Schema.optional(Schema.String),
-      resolved: Schema.NullOr(
-        Schema.Struct({
-          provider: Schema.String,
-          modelId: Schema.String,
-          thinkingLevel: Schema.optional(Schema.String),
-        }),
-      ),
+      resolved: Schema.NullOr(NeoPiRoleResolution),
       effort: Schema.NullOr(NeoPiEffortSelection),
       global: NeoPiRoleConfigurationValue,
       project: NeoPiRoleConfigurationValue,
@@ -141,6 +162,32 @@ export const NeoPiModelsUpdate = Schema.Struct({
       selector: Schema.optional(Schema.String),
       effort: Schema.optional(NeoPiEffortSelection),
       expected: NeoPiRoleConfigurationValue,
+    }),
+    Schema.Struct({
+      operation: Schema.Literal("fallbacks"),
+      role: Schema.String,
+      scope: NeoPiModelsScope,
+      chain: Schema.Array(Schema.String),
+      efforts: Schema.Record(Schema.String, NeoPiEffortSelection),
+      expected: NeoPiRoleFallbacks,
+    }),
+    Schema.Struct({
+      operation: Schema.Literal("description"),
+      role: Schema.String,
+      scope: NeoPiModelsScope,
+      description: Schema.String,
+      expected: Schema.NullOr(Schema.String),
+    }),
+    Schema.Struct({
+      operation: Schema.Literal("deleteRole"),
+      role: Schema.String,
+      scope: NeoPiModelsScope,
+      expected: NeoPiRoleConfigurationValue,
+    }),
+    Schema.Struct({
+      operation: Schema.Literal("activateAccount"),
+      providerId: Schema.String,
+      credentialId: Schema.Number,
     }),
     Schema.Struct({
       operation: Schema.Literal("storage"),
@@ -199,6 +246,7 @@ export const NeoPiModelsAuthState = Schema.Struct({
   message: Schema.NullOr(Schema.String),
   url: Schema.NullOr(Schema.String),
   instructions: Schema.NullOr(Schema.String),
+  userCode: Schema.NullOr(Schema.String),
   prompt: Schema.NullOr(
     Schema.Struct({
       id: Schema.String,
@@ -211,4 +259,5 @@ export const NeoPiModelsAuthState = Schema.Struct({
 export type NeoPiModelsAuthState = typeof NeoPiModelsAuthState.Type;
 export class NeoPiModelsError extends Schema.TaggedError<NeoPiModelsError>()("NeoPiModelsError", {
   message: Schema.String,
+  code: Schema.optional(Schema.String),
 }) {}

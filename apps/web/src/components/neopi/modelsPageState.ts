@@ -1,11 +1,12 @@
 import { EnvironmentId, ProjectId, type NeoPiModelsTarget } from "@t3tools/contracts";
 import { makeNeoPiModelsClientState } from "@t3tools/client-runtime/neopi-models";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { connectionAtomRuntime } from "../../connection/runtime";
 import { useActiveEnvironmentId, useProjects, useServerConfigs } from "../../state/entities";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { nativeSessionAtoms, useNativeSessionSelection } from "../../state/neopiNativeSessions";
+import { useEnvironmentQuery } from "../../state/query";
 
 export const neopiModels = makeNeoPiModelsClientState(connectionAtomRuntime);
 export interface ModelsSearch {
@@ -45,19 +46,49 @@ export function useModelsPageTarget() {
     ? providers.find((provider) => provider.instanceId === selectedInstanceId)
     : providers[0];
   const projects = useProjects().filter((project) => project.environmentId === environmentId);
-  const nativeCwd = selected ? nativeSessionAtoms.cached(selected)?.session?.cwd : undefined;
+  const matchingSession =
+    selected?.environmentId === environmentId &&
+    selected.ref.providerInstanceId === provider?.instanceId &&
+    selected.ref.sessionFile === search.sessionFile
+      ? selected
+      : null;
+  const nativeCwd = matchingSession
+    ? nativeSessionAtoms.cached(matchingSession)?.session?.cwd
+    : undefined;
   const projectId = search.project
     ? ProjectId.make(search.project)
-    : search.sessionFile && selected?.ref.sessionFile === search.sessionFile
+    : matchingSession
       ? projects.find((project) => project.workspaceRoot === nativeCwd)?.id
       : undefined;
-  const target: NeoPiModelsTarget | null = provider
-    ? {
-        providerInstanceId: provider.instanceId,
-        ...(projectId ? { projectId } : {}),
-        ...(search.sessionFile ? { sessionFile: search.sessionFile } : {}),
-      }
-    : null;
+  const providerInstanceId = provider?.instanceId;
+  const target = useMemo<NeoPiModelsTarget | null>(
+    () =>
+      providerInstanceId
+        ? {
+            providerInstanceId,
+            ...(projectId ? { projectId } : {}),
+            ...(search.sessionFile ? { sessionFile: search.sessionFile } : {}),
+          }
+        : null,
+    [providerInstanceId, projectId, search.sessionFile],
+  );
+  const inventory = useEnvironmentQuery(
+    environmentId && target?.sessionFile
+      ? nativeSessionAtoms.list({ environmentId, input: {} })
+      : null,
+  );
+  const connectedOwner =
+    inventory.isSuccess &&
+    environments.some(
+      (environment) =>
+        environment.environmentId === environmentId && environment.connection.phase === "connected",
+    ) &&
+    inventory.data?.sessions.some(
+      (session) =>
+        session.owner.kind === "neocode" &&
+        session.ref.providerInstanceId === target?.providerInstanceId &&
+        session.ref.sessionFile === target?.sessionFile,
+    ) === true;
   const changeSearch = (patch: ModelsSearchUpdate) =>
     void navigate({
       to: "/models",
@@ -80,6 +111,7 @@ export function useModelsPageTarget() {
     projects,
     projectId,
     target,
+    connectedOwner,
     changeSearch,
   };
 }

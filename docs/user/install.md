@@ -32,14 +32,18 @@ when you want to work with the same local sessions.
 Open **Models** from the sidebar or press **Alt-M** to configure NeoPi's native
 inference providers, model roles and effort rules. Choose the environment and
 project whose settings you want to change. Opening Models from a connected
-thread uses that native session instead. Changes go through NeoPi and retain
-its global/project scope rules; an edit made elsewhere can require a refresh
-before you save.
+thread uses that native session instead. If that session has disconnected,
+reopen it before using Models; the page does not reconnect it or silently switch
+to another settings target. Changes go through NeoPi and retain its
+global/project scope rules; an edit made elsewhere can require a refresh before
+you save.
 
 Provider login, API keys and saved-account removal are handled by NeoPi.
-NeoCode does not keep another credential vault. Models requires a native
-executable advertising the Models configuration contract; an older executable
-shows an update error rather than pretending a save worked.
+NeoCode does not keep another credential vault. **Use this account** activates
+an OAuth account for the connected session; it is unavailable without that
+connection and does not apply to API keys. Models requires a native executable
+advertising the Models configuration contract; an older executable shows an
+update error rather than pretending a save worked.
 
 The composer model picker searches through NeoPi's native selector, using the
 connected thread's enabled model scope or the selected project's configuration.

@@ -146,4 +146,42 @@ describe("native selector query lifetime", () => {
       "second-project",
     ]);
   });
+
+  it("invalidates same-project results when the canonical native session changes", async () => {
+    const first = deferred();
+    const second = deferred();
+    mocks.read.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const environmentId = EnvironmentId.make("remote");
+    const projectId = ProjectId.make("project");
+    const context = (sessionFile: string): NativeSelectorContext => ({
+      environmentId,
+      projectId,
+      connectedSession: { providerInstanceId: instanceId, sessionFile },
+    });
+    await act(async () => {
+      renderer = create(
+        createElement(Probe, { context: context("/sessions/first.jsonl"), query: "" }),
+      );
+    });
+    await act(async () => {
+      renderer!.update(
+        createElement(Probe, { context: context("/sessions/second.jsonl"), query: "" }),
+      );
+    });
+    expect(latest?.pending).toBe(true);
+    expect(latest?.results.size).toBe(0);
+    await act(async () => {
+      second.resolve({ _tag: "Success", value: result("future/second-session") });
+    });
+    await act(async () => {
+      first.resolve({ _tag: "Success", value: result("future/stale-first-session") });
+    });
+    expect(latest?.results.get(instanceId)?.items.map((item) => item.selector)).toEqual([
+      "future/second-session",
+    ]);
+    expect(mocks.read.mock.calls.map((call) => call[0].input.target)).toEqual([
+      { providerInstanceId: instanceId, projectId, sessionFile: "/sessions/first.jsonl" },
+      { providerInstanceId: instanceId, projectId, sessionFile: "/sessions/second.jsonl" },
+    ]);
+  });
 });

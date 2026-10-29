@@ -14,6 +14,7 @@ export interface NativeSelectorContext {
   environmentId: EnvironmentId | null;
   projectId?: ProjectId;
   connectedThread?: { threadId: ThreadId; providerInstanceId: ProviderInstanceId };
+  connectedSession?: { sessionFile: string; providerInstanceId: ProviderInstanceId };
 }
 
 export function nativeSelectorTarget(
@@ -23,9 +24,13 @@ export function nativeSelectorTarget(
   return {
     providerInstanceId,
     ...(context.projectId ? { projectId: context.projectId } : {}),
-    ...(context.connectedThread?.providerInstanceId === providerInstanceId
-      ? { threadId: context.connectedThread.threadId }
-      : {}),
+    ...(context.connectedSession
+      ? context.connectedSession.providerInstanceId === providerInstanceId
+        ? { sessionFile: context.connectedSession.sessionFile }
+        : {}
+      : context.connectedThread?.providerInstanceId === providerInstanceId
+        ? { threadId: context.connectedThread.threadId }
+        : {}),
   };
 }
 
