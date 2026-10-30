@@ -233,9 +233,10 @@ connection to that file. Closing a window does not stop its running turn.
 When a terminal already owns the session, NeoCode attaches through its control
 connection rather than starting a second writer. Disconnecting that attachment
 leaves the terminal running.
-After **Disconnect**, select the same session again to reconnect. Switching to
-another thread without disconnecting keeps the session's updates flowing in the
-background.
+After **Disconnect**, select the same session again to reconnect. If observing a
+session fails while the environment is still connected, switch away and reopen
+that session to resume its updates. Switching to another thread without
+disconnecting keeps a healthy session's updates flowing in the background.
 
 If graphical browser or device tools are unavailable in a terminal session that
 was already running before a NeoPi update, reopen that session in the updated

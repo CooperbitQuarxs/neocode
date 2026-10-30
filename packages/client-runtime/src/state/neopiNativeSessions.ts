@@ -188,7 +188,7 @@ export function createNativeSessionAtoms<R, E>(
 ) {
   const cache = new Map<string, NativeSessionFeed>();
   const updates = new Map<string, Queue.Queue<NativeSessionUpdate>>();
-  const closedObservations = new Set<string>();
+  const endedObservations = new Set<string>();
   const publish = (key: string, update: NativeSessionUpdate) =>
     Effect.sync(() => {
       const queue = updates.get(key);
@@ -238,12 +238,13 @@ export function createNativeSessionAtoms<R, E>(
                   Effect.as(subscribe(WS_METHODS.neopiNativeSessionsWatch, input)),
                 ),
               ).pipe(
-                Stream.catch((error) =>
-                  Stream.fromIterable<NativeSessionUpdate>([
+                Stream.catch((error) => {
+                  endedObservations.add(key);
+                  return Stream.fromIterable<NativeSessionUpdate>([
                     { type: "disconnected" },
                     { type: "reconciliation", operation: "state", error: error.message },
-                  ]),
-                ),
+                  ]);
+                }),
               );
               return reconcileNativeSessionFeed(
                 Stream.merge(
@@ -258,10 +259,10 @@ export function createNativeSessionAtoms<R, E>(
                 ).pipe(
                   Stream.takeUntil((event) => {
                     if (event.type === "closed") {
-                      closedObservations.add(key);
+                      endedObservations.add(key);
                       return true;
                     }
-                    if (event.type === "snapshot") closedObservations.delete(key);
+                    if (event.type === "snapshot") endedObservations.delete(key);
                     return (
                       event.type === "event" &&
                       event.frame.type === "journal_state" &&
@@ -291,11 +292,11 @@ export function createNativeSessionAtoms<R, E>(
     });
     return Atom.make((get) => {
       const current = get.once(source);
-      // Forward updates without recalculating this mount boundary: delivering
-      // `closed` must not itself reopen the native owner.
+      // Forward updates without recalculating this mount boundary: a close or
+      // failure must not itself reopen the native owner.
       get.subscribe(source, (value) => get.setSelf(value));
       if (
-        closedObservations.has(sessionKey) &&
+        endedObservations.has(sessionKey) &&
         AsyncResult.isSuccess(current) &&
         !current.value.connected
       )
@@ -304,7 +305,7 @@ export function createNativeSessionAtoms<R, E>(
     }).pipe(Atom.setIdleTTL(0));
   });
   // Only the mount boundary expires immediately. The observation stays warm
-  // for ordinary workspace switching and is restarted on remount if closed.
+  // for ordinary workspace switching; closed or failed sources restart on remount.
   const watch = (target: Parameters<typeof observation>[0]) => mountedWatch(JSON.stringify(target));
   const request = createEnvironmentRpcCommand(runtime, {
     label: "native-sessions:request",
