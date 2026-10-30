@@ -1,11 +1,7 @@
 import { APP_BASE_NAME } from "~/branding";
 import { useAuth } from "@clerk/react";
 import { useAtomValue } from "@effect/atom-react";
-import type {
-  EnvironmentId,
-  ScopedProjectRef,
-  ServerProvider,
-} from "@t3tools/contracts";
+import type { EnvironmentId, ProviderInstanceId, ServerProvider } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -38,6 +34,7 @@ import { connectPairing } from "../../connection/onboarding";
 import { getProviderSummary } from "../settings/providerStatus";
 import { getDriverOption } from "../settings/providerDriverMeta";
 import { CloudEnvironmentConnectRows } from "../cloud/CloudEnvironmentConnectList";
+import { NeoPiInstallHelp } from "../neopi/NeoPiInstallHelp";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
@@ -57,13 +54,21 @@ import { cn } from "../../lib/utils";
 type WizardStep = "connection" | "agents";
 const ONBOARDING_STAGES = ["Connect", "NeoPi"] as const;
 
+export type WelcomeWizardDestination =
+  | { readonly kind: "workspace" }
+  | {
+      readonly kind: "neocore";
+      readonly environmentId: EnvironmentId;
+      readonly instanceId?: ProviderInstanceId;
+    };
+
 export function WelcomeWizard({
   localAvailable,
   onDone,
 }: {
   /** Whether this client is authenticated to the server serving the app. */
   readonly localAvailable: boolean;
-  readonly onDone: (projectRef?: ScopedProjectRef) => void;
+  readonly onDone: (destination: WelcomeWizardDestination) => void;
 }) {
   const completeOnboarding = useCompleteOnboarding();
   const [step, setStep] = useState<WizardStep>("connection");
@@ -99,7 +104,7 @@ export function WelcomeWizard({
   };
   const stageIndex = step === "agents" ? 1 : 0;
   const finish = useCallback(
-    (projectRef?: ScopedProjectRef) => {
+    (destination: WelcomeWizardDestination) => {
       if (finishingPromiseRef.current !== null) return finishingPromiseRef.current;
       if (completionErrorToastIdRef.current !== null) {
         toastManager.close(completionErrorToastIdRef.current);
@@ -112,7 +117,7 @@ export function WelcomeWizard({
             toastManager.close(completionErrorToastIdRef.current);
             completionErrorToastIdRef.current = null;
           }
-          onDone(projectRef);
+          onDone(destination);
           return true;
         })
         .catch(() => {
@@ -194,7 +199,17 @@ export function WelcomeWizard({
               }}
             />
           ) : (
-            <AgentsStep environmentIds={setupIds} onContinue={() => void finish()} />
+            <AgentsStep
+              environmentIds={setupIds}
+              onContinue={() => void finish({ kind: "workspace" })}
+              onOpenSettings={(environmentId, instanceId) =>
+                void finish({
+                  kind: "neocore",
+                  environmentId,
+                  ...(instanceId ? { instanceId } : {}),
+                })
+              }
+            />
           )}
         </WizardPanel>
       </WizardPopup>
@@ -252,7 +267,7 @@ function ConnectionStep({
         Connect your computers
       </h1>
       <p className="mt-2.5 text-sm leading-relaxed text-muted-foreground">
-        Choose one or more computers. We’ll set up agents and projects on each.
+        Choose one or more computers. We’ll check NeoPi on each.
       </p>
       {directEnvironments.length > 0 ? (
         <fieldset className="mt-5 space-y-2">
@@ -551,13 +566,18 @@ function PairingForm({
 function AgentsStep({
   environmentIds,
   onContinue,
+  onOpenSettings,
 }: {
   readonly environmentIds: readonly EnvironmentId[];
   readonly onContinue: () => void;
+  readonly onOpenSettings: (environmentId: EnvironmentId, instanceId?: ProviderInstanceId) => void;
 }) {
   const { environments } = useEnvironments();
   return (
-    <StepShell title="NeoPi" description="NeoPi runs your sessions. Choose a project folder after setup, or resume a NeoPi session from the workspace.">
+    <StepShell
+      title="NeoPi"
+      description="NeoPi runs your sessions. Choose a project folder after setup, or resume a NeoPi session from the workspace."
+    >
       <ScrollArea scrollFade className="mt-5 h-auto max-h-96">
         <div className="space-y-5 pr-3">
           {environmentIds.map((environmentId) => (
@@ -568,6 +588,7 @@ function AgentsStep({
                 environments.find((environment) => environment.environmentId === environmentId)
                   ?.label ?? "Computer"
               }
+              onOpenSettings={(instanceId) => onOpenSettings(environmentId, instanceId)}
             />
           ))}
         </div>
@@ -585,9 +606,11 @@ function AgentsStep({
 function ConnectedAgentsStep({
   environmentId,
   machineLabel,
+  onOpenSettings,
 }: {
   readonly environmentId: EnvironmentId;
   readonly machineLabel: string;
+  readonly onOpenSettings: (instanceId?: ProviderInstanceId) => void;
 }) {
   const providers = useAtomValue(serverEnvironment.providersValueAtom(environmentId));
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
@@ -605,43 +628,63 @@ function ConnectedAgentsStep({
   return (
     <section>
       <h2 className="mb-2 text-sm font-medium">{machineLabel}</h2>
-      <AgentCard provider={byDriver.get("neopi")} />
+      <AgentCard
+        provider={byDriver.get("neopi")}
+        environmentLabel={machineLabel}
+        onOpenSettings={onOpenSettings}
+      />
     </section>
   );
 }
 
-function AgentCard({ provider }: { readonly provider: ServerProvider | undefined }) {
+function AgentCard({
+  provider,
+  environmentLabel,
+  onOpenSettings,
+}: {
+  readonly provider: ServerProvider | undefined;
+  readonly environmentLabel: string;
+  readonly onOpenSettings: (instanceId?: ProviderInstanceId) => void;
+}) {
   const meta = getDriverOption(ProviderDriverKind.make("neopi"));
   const Icon = meta?.icon;
   const summary = getProviderSummary(provider);
   const providerState = getOnboardingProviderState(provider);
 
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5">
-      {Icon ? (
-        <Icon className="size-5 shrink-0 fill-foreground" />
+    <div className="space-y-3 rounded-lg border border-border bg-background px-3 py-2.5">
+      <div className="flex items-center gap-3">
+        {Icon ? <Icon className="size-5 shrink-0 fill-foreground" /> : null}
+        <div className="min-w-0 flex-1">
+          <span className="block text-sm font-medium text-foreground">NeoPi</span>
+          <p className="mt-0.5 text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
+            {summary.headline}
+            {summary.detail ? ` · ${summary.detail}` : ""}
+          </p>
+        </div>
+        <div className="shrink-0">
+          {providerState === "ready" ? (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-success-foreground">
+              <CheckIcon className="size-3.5" />
+              Ready
+            </span>
+          ) : providerState === "checking" ? (
+            <span className="text-xs text-muted-foreground">Checking...</span>
+          ) : providerState === "disabled" ? (
+            <span className="text-xs text-muted-foreground">Disabled</span>
+          ) : (
+            <span className="text-xs text-muted-foreground">{summary.headline}</span>
+          )}
+        </div>
+      </div>
+      {providerState !== "ready" ? (
+        <>
+          <NeoPiInstallHelp environmentLabel={environmentLabel} />
+          <Button variant="outline" size="sm" onClick={() => onOpenSettings(provider?.instanceId)}>
+            Open NeoPi settings
+          </Button>
+        </>
       ) : null}
-      <div className="min-w-0 flex-1">
-        <span className="block text-sm font-medium text-foreground">NeoPi</span>
-        <p className="mt-0.5 text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
-          {summary.headline}
-          {summary.detail ? ` · ${summary.detail}` : ""}
-        </p>
-      </div>
-      <div className="shrink-0">
-        {providerState === "ready" ? (
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-success-foreground">
-            <CheckIcon className="size-3.5" />
-            Ready
-          </span>
-        ) : providerState === "checking" ? (
-          <span className="text-xs text-muted-foreground">Checking...</span>
-        ) : providerState === "disabled" ? (
-          <span className="text-xs text-muted-foreground">Disabled</span>
-        ) : (
-          <span className="text-xs text-muted-foreground">{summary.headline}</span>
-        )}
-      </div>
     </div>
   );
 }

@@ -3,8 +3,6 @@ import { useState } from "react";
 
 import { NoProjectsHero } from "../components/NoProjectsHero";
 import { WelcomeWizard } from "../components/onboarding/WelcomeWizard";
-import { useCreateNativeSession } from "../components/neopi/NativeSessionSidebar";
-import { readProjects } from "../state/entities";
 
 /** Onboarding overlays the workspace. Visiting /welcome reopens setup. */
 export const Route = createFileRoute("/welcome")({
@@ -24,7 +22,6 @@ function WelcomeRouteView() {
   // Never reopen setup while the destination route is still loading.
   const isWelcomeRoute = useLocation({ select: (location) => location.pathname === "/welcome" });
   const [dismissed, setDismissed] = useState(false);
-  const createSession = useCreateNativeSession();
   // An authenticated gate means a primary server is serving this app —
   // desktop, `npx t3`, or a dev server — and that server is "this machine"
   // no matter what hostname the browser used. Only hosted-static has no
@@ -36,16 +33,16 @@ function WelcomeRouteView() {
       {isWelcomeRoute && !dismissed ? (
         <WelcomeWizard
           localAvailable={localAvailable}
-          onDone={(projectRef) => {
+          onDone={(destination) => {
             setDismissed(true);
-            if (projectRef !== undefined) {
-              const cwd = readProjects().find(
-                (project) =>
-                  project.environmentId === projectRef.environmentId &&
-                  project.id === projectRef.projectId,
-              )?.workspaceRoot;
-              void createSession(projectRef.environmentId, cwd).catch(() => {
-                void navigate({ to: "/", replace: true });
+            if (destination.kind === "neocore") {
+              void navigate({
+                to: "/settings/neocore",
+                search: {
+                  machine: destination.environmentId,
+                  ...(destination.instanceId ? { instanceId: destination.instanceId } : {}),
+                },
+                replace: true,
               });
               return;
             }

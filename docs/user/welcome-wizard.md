@@ -23,9 +23,17 @@ available. Setup does not replace unreadable settings with defaults.
 
 ## Check NeoPi
 
-Setup shows NeoPi's readiness on each selected computer. Install, authenticate,
-and configure inference providers in NeoPi on that computer. NeoCode does not
-launch another agent's installer or sign-in flow.
+Setup shows NeoPi's readiness on each selected computer. If it is unavailable,
+choose **Open NeoPi settings** to configure that computer in **Settings → NeoCore**.
+Download [NeoPi](https://github.com/PsychedelicShayna/neopi/releases) onto that
+computer, then make `npi` available on its PATH or set **Binary path** to the
+executable. Correct or clear an invalid explicit path; enable a disabled runtime
+profile with **Enable NeoPi**. Existing launch settings are preserved.
+
+You can continue without finishing NeoPi setup. Starting a new thread without
+an available runtime opens the same computer's NeoCore settings. Configure
+inference-provider accounts through **Models** after NeoPi is available; setup
+does not start an installer or sign-in flow.
 
 Continue to the workspace when ready. Add a project by choosing its folder, or
 use **Resume NeoPi session** to open native history. Setup does not scan Claude

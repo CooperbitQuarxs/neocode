@@ -39,6 +39,7 @@ import {
 } from "../../hooks/useSettings";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { NeoPiBinarySelectionNote } from "../neopi/NeoPiBinarySelectionNote";
+import { NeoPiInstallHelp } from "../neopi/NeoPiInstallHelp";
 import { cn } from "../../lib/utils";
 import { resolveAppModelSelectionState } from "../../modelSelection";
 import {
@@ -833,7 +834,10 @@ export function EnvironmentProviderSettings({
         setup={
           mode === "editor" ? (
             neoCore ? (
-              <NeoPiBinarySelectionNote config={row.instance.config} />
+              <div className="space-y-3">
+                <NeoPiInstallHelp environmentLabel={environmentLabel} />
+                <NeoPiBinarySelectionNote config={row.instance.config} />
+              </div>
             ) : (
               <Link
                 to="/settings/neocore"

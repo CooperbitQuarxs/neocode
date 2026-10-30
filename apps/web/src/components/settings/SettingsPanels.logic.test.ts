@@ -242,6 +242,37 @@ describe("buildProviderInstanceUpdatePatch", () => {
     expect(patch.providerInstances?.[instanceId]).toEqual(nextInstance);
     expect(patch.providers).toBeUndefined();
   });
+
+  it("enables one NeoPi profile without replacing its configuration or sibling profiles", () => {
+    const instanceId = ProviderInstanceId.make("neopi_work");
+    const siblingId = ProviderInstanceId.make("neopi_personal");
+    const instance = {
+      driver: ProviderDriverKind.make("neopi"),
+      enabled: false,
+      config: { binaryPath: "/opt/work/npi", profile: "work", launchArgs: "--no-extensions" },
+      environment: [{ name: "API_KEY", value: "", sensitive: true, valueRedacted: true }],
+    } satisfies ProviderInstanceConfig;
+    const sibling = {
+      driver: ProviderDriverKind.make("neopi"),
+      enabled: true,
+      config: { binaryPath: "/opt/personal/npi", profile: "personal" },
+    } satisfies ProviderInstanceConfig;
+    const providerInstances = { [instanceId]: instance, [siblingId]: sibling };
+    const patch = buildProviderInstanceUpdatePatch({
+      settings: { ...DEFAULT_SERVER_SETTINGS, providerInstances },
+      instanceId,
+      instance: { ...instance, enabled: true },
+      driver: ProviderDriverKind.make("neopi"),
+      isDefault: false,
+    });
+
+    expect(patch.providerInstances).toEqual({
+      [instanceId]: { ...instance, enabled: true },
+      [siblingId]: sibling,
+    });
+    expect(providerInstances[instanceId]?.enabled).toBe(false);
+    expect(patch.providers).toBeUndefined();
+  });
 });
 
 describe("getChangedBrowserSettingLabels", () => {

@@ -52,28 +52,41 @@ export function useCreateNativeSession() {
   const primary = usePrimaryEnvironmentId();
   const selected = useNativeSessionSelection((state) => state.target);
   const open = useOpenNativeSession();
+  const navigate = useNavigate();
   return useCallback(
     async (environmentId = selected?.environmentId ?? primary, cwd?: string) => {
       if (!environmentId) throw new Error("Connect an environment to start a session.");
-      const providers =
-        configs
-          .get(environmentId)
-          ?.providers.filter(
-            (provider) =>
-              provider.driver === "neopi" &&
-              provider.enabled &&
-              provider.availability !== "unavailable",
-          ) ?? [];
+      const config = configs.get(environmentId);
+      if (!config) throw new Error("Connect to this computer before starting a NeoPi session.");
+      const providers = config.providers.filter((provider) => provider.driver === "neopi");
+      const selectedProvider =
+        selected?.environmentId === environmentId
+          ? providers.find((candidate) => candidate.instanceId === selected.ref.providerInstanceId)
+          : undefined;
+      const availableProviders = providers.filter(
+        (provider) =>
+          provider.enabled && provider.installed && provider.availability !== "unavailable",
+      );
       const provider =
-        providers.find((candidate) => candidate.instanceId === selected?.ref.providerInstanceId) ??
-        providers[0];
-      if (!provider) throw new Error("Enable a NeoPi instance in Settings → NeoCore.");
+        availableProviders.find((candidate) => candidate === selectedProvider) ??
+        availableProviders[0];
+      if (!provider) {
+        const setupProvider = selectedProvider ?? providers[0];
+        await navigate({
+          to: "/settings/neocore",
+          search: {
+            machine: environmentId,
+            ...(setupProvider ? { instanceId: setupProvider.instanceId } : {}),
+          },
+        });
+        return;
+      }
       return open(environmentId, {
         providerInstanceId: provider.instanceId,
         ...(cwd ? { cwd } : {}),
       });
     },
-    [configs, open, primary, selected],
+    [configs, navigate, open, primary, selected],
   );
 }
 
