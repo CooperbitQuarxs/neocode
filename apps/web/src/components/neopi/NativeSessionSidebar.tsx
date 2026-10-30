@@ -8,6 +8,7 @@ import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime"
 import { useCallback, useEffect, useState } from "react";
 import { PlusIcon } from "lucide-react";
 import { isElectron } from "../../env";
+import { selectOnboardingProvidersByDriver } from "../../onboarding/providerReadiness.logic";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { useServerConfigs, useThreadShells } from "../../state/entities";
 import {
@@ -71,7 +72,8 @@ export function useCreateNativeSession() {
         availableProviders.find((candidate) => candidate === selectedProvider) ??
         availableProviders[0];
       if (!provider) {
-        const setupProvider = selectedProvider ?? providers[0];
+        const setupProvider =
+          selectedProvider ?? selectOnboardingProvidersByDriver(providers).get("neopi");
         await navigate({
           to: "/settings/neocore",
           search: {

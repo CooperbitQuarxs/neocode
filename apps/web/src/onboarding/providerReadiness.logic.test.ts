@@ -1,8 +1,4 @@
-import {
-  ProviderDriverKind,
-  ProviderInstanceId,
-  type ServerProvider,
-} from "@t3tools/contracts";
+import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -119,6 +115,25 @@ describe("selectOnboardingProvidersByDriver", () => {
     expect(
       selectOnboardingProvidersByDriver([disabledNeoPi, missingNeoPi, readyNeoPi]).get("neopi"),
     ).toBe(readyNeoPi);
+  });
+
+  it("prefers an enabled missing instance to a disabled installed instance", () => {
+    const disabledNeoPi: ServerProvider = {
+      ...readyNeoPi,
+      instanceId: ProviderInstanceId.make("neopi_backup"),
+      enabled: false,
+      status: "disabled",
+    };
+    const missingNeoPi: ServerProvider = {
+      ...readyNeoPi,
+      installed: false,
+      version: null,
+      status: "error",
+    };
+
+    expect(selectOnboardingProvidersByDriver([disabledNeoPi, missingNeoPi]).get("neopi")).toBe(
+      missingNeoPi,
+    );
   });
 
   it("handles provider snapshots that have not arrived", () => {
