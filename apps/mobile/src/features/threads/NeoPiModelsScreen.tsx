@@ -842,8 +842,10 @@ function ProviderAccounts({
       accounts.length > 0 &&
       !hasAvailableCatalogModels ? (
         <Text className="text-sm text-foreground-muted">
-          Connected, but no models are available to this member. Ask your administrator to grant
-          access, then refresh.
+          No NeoProxy models are available in this configuration. Check the connection, model
+          discovery and selected scope in NeoPi, then refresh. If the server returned an empty
+          catalog after a successful connection, ask your administrator to grant models to this
+          member.
         </Text>
       ) : null}
       {!isNeoProxy ? (

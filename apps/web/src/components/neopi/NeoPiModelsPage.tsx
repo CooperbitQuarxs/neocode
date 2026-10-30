@@ -2086,8 +2086,8 @@ function ProviderAccounts({
           !loading &&
           error === null ? (
             <SettingsRow
-              title="Connected, no models yet"
-              description="Connected, but no models are available to this member. Ask your administrator to grant access, then refresh."
+              title="No NeoProxy models available here"
+              description="Check the connection, model discovery and selected scope in NeoPi, then refresh. If the server returned an empty catalog after a successful connection, ask your administrator to grant models to this member."
               control={
                 <Button
                   size="sm"

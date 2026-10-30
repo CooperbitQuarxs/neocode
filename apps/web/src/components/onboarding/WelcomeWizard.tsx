@@ -803,7 +803,11 @@ function NeoProxyOnboardingConnection({
         />
       ) : (
         <>
-          {connected ? (
+          {neoProxy?.disabled ? (
+            <p role="status" className="text-xs text-muted-foreground">
+              NeoProxy is disabled in NeoPi. Open its settings to enable it.
+            </p>
+          ) : connected ? (
             <p role="status" className="flex items-center gap-1.5 text-xs text-success-foreground">
               <CheckIcon className="size-3.5" />
               Connected
@@ -819,8 +823,10 @@ function NeoProxyOnboardingConnection({
           ) : null}
           {connectedEmpty ? (
             <p className="text-xs text-muted-foreground">
-              Connected, but no models are available to this member. Ask your administrator to grant
-              access, then refresh.
+              No NeoProxy models are available in this configuration. Check the connection, model
+              discovery and selected scope in NeoPi, then refresh. If the server returned an empty
+              catalog after a successful connection, ask your administrator to grant models to this
+              member.
             </p>
           ) : null}
           {error || catalog.error ? (

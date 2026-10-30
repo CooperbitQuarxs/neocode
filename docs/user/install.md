@@ -69,9 +69,11 @@ match or you cannot verify them. NeoPi keeps the member key and any accepted
 certificate trust with that provider credential, not in a separate NeoCode vault
 or your system-wide trust store.
 
-A successful connection can have no available models yet. Ask your administrator
-to grant models to your member, then refresh Providers; do not sign in to an
-upstream provider to resolve missing grants.
+If models are unavailable, first check that NeoProxy is enabled, its connection
+and model discovery succeeded, and you are using the intended configuration.
+If the server returns an empty model catalog after a successful connection, ask
+your administrator to grant models to your member, then refresh Providers.
+An upstream-provider login is not needed to resolve missing member grants.
 
 ## Upstream command line
 
