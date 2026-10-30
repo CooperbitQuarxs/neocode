@@ -1,4 +1,3 @@
-import type { ThreadId } from "@t3tools/contracts";
 import { formatComposerContextReference } from "@t3tools/shared/composerContextReferences";
 import { toKindScopedComposerContextId } from "./composerContextReferences";
 
@@ -12,7 +11,8 @@ export interface TerminalContextSelection {
 
 export interface TerminalContextDraft extends TerminalContextSelection {
   id: string;
-  threadId: ThreadId;
+  /** Terminal resource namespace, not a SQL conversation identity. */
+  threadId: string;
   createdAt: string;
 }
 

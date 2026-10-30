@@ -1,7 +1,8 @@
 "use client";
 
 import { APP_BASE_NAME } from "~/branding";
-import type { PreviewAnnotationPayload, ScopedThreadRef } from "@t3tools/contracts";
+import type { PreviewAnnotationPayload } from "@t3tools/contracts";
+import type { WorkspaceRef } from "@t3tools/client-runtime/environment";
 
 import type { ComposerImageAttachment } from "~/composerDraftStore";
 import { isPreviewSupportedInRuntime } from "~/previewStateStore";
@@ -11,7 +12,8 @@ import { PreviewView } from "./PreviewView";
 
 interface Props {
   mode: PreviewPanelMode;
-  threadRef: ScopedThreadRef;
+  placement?: "inline" | "sheet";
+  threadRef: WorkspaceRef;
   tabId?: string | null;
   configuredUrls?: ReadonlyArray<string> | undefined;
   visible: boolean;
@@ -23,6 +25,7 @@ interface Props {
 
 export function PreviewPanel({
   mode,
+  placement = "inline",
   threadRef,
   tabId,
   configuredUrls,
@@ -45,6 +48,7 @@ export function PreviewPanel({
     <PreviewPanelShell mode={mode}>
       <PreviewView
         threadRef={threadRef}
+        placement={placement}
         {...(tabId !== undefined ? { tabId } : {})}
         configuredUrls={configuredUrls}
         visible={visible}

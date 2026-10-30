@@ -1,4 +1,10 @@
-import { ThreadId, type DeviceServiceState } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProviderInstanceId,
+  ThreadId,
+  type DeviceServiceState,
+} from "@t3tools/contracts";
+import { workspaceResourceId } from "@t3tools/client-runtime/environment";
 import { describe, expect, it } from "vite-plus/test";
 
 import { selectedThreadDevicePreview, threadDevicePreviews } from "./threadDevicePreviews";
@@ -102,5 +108,42 @@ describe("thread device previews", () => {
   it("offers no devices before state arrives or in a thread without sessions", () => {
     expect(threadDevicePreviews(null, threadId)).toEqual([]);
     expect(threadDevicePreviews(state, ThreadId.make("empty-thread"))).toEqual([]);
+  });
+
+  it("selects native device resources without a SQL thread and isolates profiles and files", () => {
+    const target = {
+      environmentId: EnvironmentId.make("environment"),
+      ref: {
+        providerInstanceId: ProviderInstanceId.make("neopi"),
+        sessionFile: "/sessions/one.jsonl",
+      },
+    };
+    const namespace = workspaceResourceId(target);
+    const nativeState = {
+      ...state,
+      sessions: [...state.sessions, { ...state.sessions[0]!, threadId: namespace }],
+    };
+    expect(threadDevicePreviews(nativeState, namespace).map((preview) => preview.name)).toEqual([
+      "Pixel 9",
+    ]);
+    expect(
+      threadDevicePreviews(
+        nativeState,
+        workspaceResourceId({
+          ...target,
+          ref: { ...target.ref, providerInstanceId: ProviderInstanceId.make("other") },
+        }),
+      ),
+    ).toEqual([]);
+    expect(
+      threadDevicePreviews(
+        nativeState,
+        workspaceResourceId({
+          ...target,
+          ref: { ...target.ref, sessionFile: "/sessions/two.jsonl" },
+        }),
+      ),
+    ).toEqual([]);
+    expect(threadDevicePreviews(nativeState, threadId)).toHaveLength(2);
   });
 });

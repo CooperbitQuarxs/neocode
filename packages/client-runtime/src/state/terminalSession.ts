@@ -4,7 +4,6 @@ import type {
   TerminalMetadataStreamEvent,
   TerminalSessionSnapshot,
   TerminalSummary,
-  ThreadId,
 } from "@t3tools/contracts";
 import {
   appendOutput,
@@ -46,7 +45,8 @@ export interface TerminalBufferState {
 
 export interface KnownTerminalSessionTarget {
   readonly environmentId: EnvironmentId;
-  readonly threadId: ThreadId;
+  /** Backend terminal resource namespace; not an orchestration thread identity. */
+  readonly threadId: string;
   readonly terminalId: string;
 }
 

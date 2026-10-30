@@ -138,8 +138,15 @@ let snapshotStale = true;
 let lastDesktopTheme: "light" | "dark" | "system" | null = null;
 let lastAppliedTheme: Omit<ThemeSnapshot, "resolvedTheme"> | null = null;
 let themeStorageReadFailure: ThemeStorageError | null = null;
+let themeRevision = 0;
+
+/** Async palette reads must not replace a newer graphical choice or refresh. */
+export function readThemeRevision(): number {
+  return themeRevision;
+}
 
 function emitChange() {
+  themeRevision++;
   snapshotStale = true;
   for (const listener of listeners) listener();
 }

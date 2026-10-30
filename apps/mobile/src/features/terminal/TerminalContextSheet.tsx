@@ -1,9 +1,5 @@
-import {
-  ComposerContextId,
-  COMPOSER_CONTEXT_TERMINAL_TEXT_MAX_CHARS,
-  type EnvironmentId,
-  type ThreadId,
-} from "@t3tools/contracts";
+import { ComposerContextId, COMPOSER_CONTEXT_TERMINAL_TEXT_MAX_CHARS } from "@t3tools/contracts";
+import { workspaceKey, type WorkspaceRef } from "@t3tools/client-runtime/environment";
 import { formatComposerContextReference } from "@t3tools/shared/composerContextReferences";
 import { useState } from "react";
 import { Alert, Modal, Platform, Pressable, ScrollView, View } from "react-native";
@@ -16,8 +12,7 @@ import { insertComposerDraftContext } from "../../state/use-composer-drafts";
 /** Line numbers are relative to this frozen viewport, not the terminal's scrollback. */
 export function TerminalContextSheet(props: {
   text: string;
-  environmentId: EnvironmentId;
-  threadId: ThreadId;
+  workspaceRef: WorkspaceRef;
   terminalId: string;
   terminalLabel: string;
   onClose: () => void;
@@ -43,7 +38,7 @@ export function TerminalContextSheet(props: {
       text: selectedText,
     };
     if (
-      !insertComposerDraftContext(`${props.environmentId}:${props.threadId}`, {
+      !insertComposerDraftContext(workspaceKey(props.workspaceRef), {
         text: formatComposerContextReference(record),
         context: { version: 1, records: [record] },
       })

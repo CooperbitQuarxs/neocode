@@ -8,7 +8,6 @@ import {
   PreviewAutomationRecordingDesktopUpdateRequiredError,
   PreviewAutomationRecordingArtifact,
   type ToolActivityIcon,
-  type ThreadId,
   type PreviewAutomationOperation,
   type PreviewAutomationOpenInput,
   type PreviewAutomationRecordingStatus,
@@ -120,7 +119,7 @@ const UploadedRecordingArtifact = Schema.Struct({
 const decodeUploadedRecordingArtifact = Schema.decodeUnknownEffect(UploadedRecordingArtifact);
 
 export const claimPreviewRecording = Effect.fn("PreviewToolkit.claimRecording")(function* (
-  threadId: ThreadId,
+  threadId: string,
   response: unknown,
 ) {
   const artifact = yield* decodeUploadedRecordingArtifact(response).pipe(

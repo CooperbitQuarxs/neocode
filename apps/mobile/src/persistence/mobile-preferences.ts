@@ -7,7 +7,14 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import type { ProviderInstanceId, SidebarProjectGroupingMode } from "@t3tools/contracts";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
-import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
+import {
+  MOBILE_THEME_IDS,
+  MOBILE_THEME_VARIABLE_NAMES,
+  type MobileNeoPiTheme,
+  type MobileThemeId,
+  type MobileThemeMode,
+  type MobileThemeVariables,
+} from "../lib/mobileTheme";
 import * as MobileDatabase from "./mobile-database";
 import * as MobileSecureStorage from "./mobile-secure-storage";
 import { MobileStorageDecodeError, MobileStorageEncodeError } from "./mobile-storage";
@@ -21,6 +28,10 @@ export interface Preferences {
   readonly lightThemeId?: MobileThemeId;
   readonly darkThemeId?: MobileThemeId;
   readonly themeMode?: MobileThemeMode;
+  readonly nativeThemeCatalogEnabled?: boolean;
+  readonly nativeLightTheme?: MobileNeoPiTheme | null;
+  readonly nativeDarkTheme?: MobileNeoPiTheme | null;
+  readonly nativeThemeTarget?: string;
   readonly baseFontSize?: number;
   readonly terminalFontSize?: number | null;
   readonly markdownFontSize?: number;
@@ -89,6 +100,10 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     lightThemeId?: MobileThemeId;
     darkThemeId?: MobileThemeId;
     themeMode?: MobileThemeMode;
+    nativeThemeCatalogEnabled?: boolean;
+    nativeLightTheme?: MobileNeoPiTheme | null;
+    nativeDarkTheme?: MobileNeoPiTheme | null;
+    nativeThemeTarget?: string;
     baseFontSize?: number;
     terminalFontSize?: number | null;
     markdownFontSize?: number;
@@ -105,6 +120,32 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     threadListSnoozedShelfExpanded?: boolean;
   } = {};
 
+  // The retired follow preference is deliberately ignored, including `true`.
+  if (typeof parsed.nativeThemeCatalogEnabled === "boolean") {
+    preferences.nativeThemeCatalogEnabled = parsed.nativeThemeCatalogEnabled;
+  }
+  for (const key of ["nativeLightTheme", "nativeDarkTheme"] as const) {
+    const theme = parsed[key];
+    if (theme === null) {
+      preferences[key] = null;
+    } else if (
+      typeof theme === "object" &&
+      theme !== null &&
+      typeof theme.name === "string" &&
+      typeof theme.variables === "object" &&
+      theme.variables !== null &&
+      MOBILE_THEME_VARIABLE_NAMES.every((variable) => typeof theme.variables[variable] === "string")
+    ) {
+      preferences[key] = {
+        name: theme.name,
+        variables: Object.fromEntries(
+          MOBILE_THEME_VARIABLE_NAMES.map((variable) => [variable, theme.variables[variable]]),
+        ) as MobileThemeVariables,
+      };
+    }
+  }
+  if (typeof parsed.nativeThemeTarget === "string")
+    preferences.nativeThemeTarget = parsed.nativeThemeTarget;
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
     preferences.liveActivitiesEnabled = parsed.liveActivitiesEnabled;
   }

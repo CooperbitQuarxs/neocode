@@ -1,11 +1,11 @@
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { WorkspaceRef } from "@t3tools/client-runtime/environment";
 import { DiscoveryListRow } from "../ui/discovery-list";
 
 import { PreviewFaviconIcon } from "./PreviewFaviconIcon";
 import type { PreviewableServer } from "./useDiscoveredLocalServers";
 
 interface Props {
-  threadRef: ScopedThreadRef;
+  threadRef: WorkspaceRef;
   server: PreviewableServer;
   onOpen: () => void;
 }

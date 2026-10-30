@@ -1,8 +1,13 @@
-import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  scopedThreadKey,
+  scopeThreadRef,
+  workspaceResourceId,
+} from "@t3tools/client-runtime/environment";
 import {
   type EnvironmentId,
   type PreviewEvent,
   type PreviewSessionSnapshot,
+  ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
@@ -607,5 +612,45 @@ describe("previewStateStore (single-tab)", () => {
     expect(state.recentlySeenUrls[0]).toBe(
       `http://localhost:${5000 + __testing.RECENT_URL_LIMIT + 4}/`,
     );
+  });
+});
+
+describe("native preview state isolation", () => {
+  it("does not import another canonical session's tab or viewport through snapshots or events", () => {
+    const target = {
+      environmentId,
+      ref: {
+        providerInstanceId: ProviderInstanceId.make("profile-a"),
+        sessionFile: "/sessions/a.jsonl",
+      },
+    };
+    const other = { ...target, ref: { ...target.ref, sessionFile: "/sessions/b.jsonl" } };
+    const ownSnapshot = makeSnapshot({ threadId: workspaceResourceId(target) });
+    const otherSnapshot = makeSnapshot({
+      threadId: workspaceResourceId(other),
+      viewport: { _tag: "freeform", width: 400, height: 300 },
+    });
+    applyPreviewServerSnapshot(target, ownSnapshot);
+    applyPreviewServerSnapshot(other, otherSnapshot);
+    updatePreviewServerSnapshot(target, otherSnapshot);
+    applyPreviewServerEventImpl(target, {
+      type: "resized",
+      threadId: workspaceResourceId(other),
+      tabId: otherSnapshot.tabId,
+      snapshot: otherSnapshot,
+      createdAt: otherSnapshot.updatedAt,
+      serverEpoch,
+      revision: 1,
+    });
+    reconcilePreviewServerSessions(target, {
+      serverEpoch,
+      revision: 2,
+      sessions: [ownSnapshot, { ...otherSnapshot, tabId: "foreign-tab" }],
+    });
+    expect(readThreadPreviewState(target).sessions).toEqual({ tab_a: ownSnapshot });
+    expect(readThreadPreviewState(other).sessions).toEqual({ tab_a: otherSnapshot });
+    beginPreviewSessionClose(target, ownSnapshot.tabId);
+    expect(readThreadPreviewState(target).snapshot).toBeNull();
+    expect(readThreadPreviewState(other).snapshot).toEqual(otherSnapshot);
   });
 });

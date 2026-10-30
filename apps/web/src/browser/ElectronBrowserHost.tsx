@@ -1,6 +1,6 @@
 "use client";
 
-import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
+import { parseWorkspaceKey } from "@t3tools/client-runtime/environment";
 import { FILL_PREVIEW_VIEWPORT } from "@t3tools/contracts";
 import { useEffect, useMemo } from "react";
 
@@ -19,7 +19,7 @@ export function ElectronBrowserHost() {
   const sessions = useMemo(
     () =>
       Object.entries(previewByThreadKey).flatMap(([threadKey, previewState]) => {
-        const threadRef = parseScopedThreadKey(threadKey);
+        const threadRef = parseWorkspaceKey(threadKey);
         return threadRef
           ? Object.values(previewState.sessions).map((snapshot) => ({
               threadRef,

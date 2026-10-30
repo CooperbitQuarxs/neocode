@@ -2,7 +2,14 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeHttpPlatform from "@effect/platform-node/NodeHttpPlatform";
 import * as NodeFSP from "node:fs/promises";
-import { AssetAccessError, AssetPreviewTypeValidationError, ThreadId } from "@t3tools/contracts";
+import {
+  AssetAccessError,
+  AssetPreviewTypeValidationError,
+  NeoPiNativeSessionsError,
+  ProviderInstanceId,
+  ThreadId,
+  type NeoPiNativeSessionRef,
+} from "@t3tools/contracts";
 import { PROJECT_FAVICON_FALLBACK_MARKER } from "@t3tools/shared/projectFavicon";
 import { describe, expect, it } from "@effect/vitest";
 import * as Crypto from "effect/Crypto";
@@ -29,6 +36,10 @@ import { openMediaFile } from "./MediaFile.ts";
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
 import * as GitHubCli from "../sourceControl/GitHubCli.ts";
 import { githubMediaResponse } from "./GitHubMediaFetch.ts";
+import {
+  makeNeoPiNativeSessionsWith,
+  NeoPiNativeSessions,
+} from "../provider/neopi/NeoPiNativeSessions.ts";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof NodeFSP>();
@@ -39,6 +50,7 @@ const configLayer = ServerConfig.ServerConfig.layerTest(process.cwd(), {
   prefix: "t3-asset-access-test-",
 });
 const testLayer = Layer.mergeAll(
+  Layer.mock(NeoPiNativeSessions)({}),
   NodeHttpPlatform.layer,
   configLayer,
   WorkspacePaths.layer,
@@ -50,7 +62,137 @@ const testLayer = Layer.mergeAll(
   ServerSecretStore.layer.pipe(Layer.provide(configLayer)),
 ).pipe(Layer.provideMerge(NodeServices.layer));
 
+const assetNativeSessions = (ref: NeoPiNativeSessionRef, cwd: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    return yield* makeNeoPiNativeSessionsWith({
+      profileIds: Effect.succeed([ref.providerInstanceId]),
+      profile: (providerInstanceId) =>
+        Effect.succeed({
+          providerInstanceId,
+          source: {
+            binary: "/fixture/npi",
+            env: {},
+            profile: String(providerInstanceId),
+            capabilities: new Set(["session_catalog"]),
+            probe: { status: "compatible", version: "fixture" },
+          },
+          validate: Effect.void,
+        }),
+      canonicalize: (file) =>
+        fs
+          .realPath(file)
+          .pipe(
+            Effect.mapError((cause) => new NeoPiNativeSessionsError({ message: cause.message })),
+          ),
+      preparePrompt: () =>
+        Effect.fail(
+          new NeoPiNativeSessionsError({ message: "Asset reads must not prepare native prompts." }),
+        ),
+      catalog: () =>
+        Effect.succeed([
+          {
+            path: ref.sessionFile,
+            id: "real-native-session",
+            cwd,
+            title: null,
+            firstMessage: "",
+            modified: "2026-10-28T00:00:00Z",
+            inUse: null,
+            control: null,
+          },
+        ]),
+      connect: () =>
+        Effect.fail(
+          new NeoPiNativeSessionsError({ message: "Asset reads must not start a native session." }),
+        ),
+    });
+  });
+
 describe("AssetAccess", () => {
+  it.effect(
+    "serves native relative media from canonical native cwd, not a supplied workspace",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const root = yield* fs.makeTempDirectoryScoped({ prefix: "native-assets-" });
+        const decoy = yield* fs.makeTempDirectoryScoped({ prefix: "native-assets-decoy-" });
+        const sessionFile = path.join(root, "session.jsonl");
+        yield* fs.writeFileString(sessionFile, "native session");
+        yield* fs.writeFileString(path.join(root, "shot.png"), "canonical media");
+        yield* fs.writeFileString(path.join(decoy, "shot.png"), "wrong media");
+        const ref = { providerInstanceId: ProviderInstanceId.make("native-assets"), sessionFile };
+        const sessions = yield* assetNativeSessions(ref, root);
+        const result = yield* issueAssetUrl({
+          resource: { _tag: "native-media-file", ref, path: "shot.png" },
+          workspaceRoot: decoy,
+        }).pipe(Effect.provideService(NeoPiNativeSessions, sessions));
+        const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+        const separator = suffix.indexOf("/");
+        const token = suffix.slice(0, separator);
+        expect(yield* resolveAsset(token, suffix.slice(separator + 1))).toMatchObject({
+          kind: "file",
+          path: yield* fs.realPath(path.join(root, "shot.png")),
+        });
+        expect(result.sourcePath).toBe(yield* fs.realPath(path.join(root, "shot.png")));
+        expect(yield* resolveAsset(token, "sibling.png")).toBeNull();
+        expect(yield* resolveAsset(token, "../shot.png")).toBeNull();
+        expect(yield* resolveAsset(`${token}tampered`, "shot.png")).toBeNull();
+        const unavailable = yield* issueAssetUrl({
+          resource: {
+            _tag: "native-media-file",
+            ref: { ...ref, sessionFile: path.join(root, "missing.jsonl") },
+            path: "shot.png",
+          },
+        }).pipe(Effect.provideService(NeoPiNativeSessions, sessions), Effect.flip);
+        expect(unavailable._tag).toBe("AssetWorkspaceContextResolutionError");
+      }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect.skipIf(!symlinksSupported)(
+    "keeps native workspace traversal and symlink boundaries while rejecting disguised media",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const base = yield* fs.makeTempDirectoryScoped({ prefix: "native-assets-boundary-" });
+        const root = path.join(base, "workspace");
+        yield* fs.makeDirectory(root);
+        const sessionFile = path.join(base, "session.jsonl");
+        yield* fs.writeFileString(sessionFile, "native session");
+        yield* fs.writeFileString(path.join(base, "outside.html"), "<p>outside</p>");
+        yield* fs.writeFileString(path.join(base, "secret.txt"), "not previewable");
+        yield* fs.symlink(path.join(base, "outside.html"), path.join(root, "escaped.html"));
+        yield* fs.symlink(path.join(base, "secret.txt"), path.join(root, "disguised.png"));
+        const ref = { providerInstanceId: ProviderInstanceId.make("native-assets"), sessionFile };
+        const sessions = yield* assetNativeSessions(ref, root);
+        const issue = (resource: Parameters<typeof issueAssetUrl>[0]["resource"]) =>
+          issueAssetUrl({ resource }).pipe(Effect.provideService(NeoPiNativeSessions, sessions));
+        expect(
+          (yield* issue({ _tag: "native-workspace-file", ref, path: "../outside.html" }).pipe(
+            Effect.flip,
+          ))._tag,
+        ).toBe("AssetWorkspacePathValidationError");
+        expect(
+          (yield* issue({ _tag: "native-workspace-file", ref, path: "escaped.html" }).pipe(
+            Effect.flip,
+          ))._tag,
+        ).toBe("AssetWorkspaceAssetNotFoundError");
+        expect(
+          (yield* issue({ _tag: "native-media-file", ref, path: "disguised.png" }).pipe(
+            Effect.flip,
+          ))._tag,
+        ).toBe("AssetPreviewTypeValidationError");
+        // Host media intentionally permits an outside path, but signs only that exact file.
+        const outside = yield* issue({ _tag: "native-media-file", ref, path: "../outside.html" });
+        const suffix = outside.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+        const separator = suffix.indexOf("/");
+        expect(
+          yield* resolveAsset(suffix.slice(0, separator), suffix.slice(separator + 1)),
+        ).toMatchObject({ path: yield* fs.realPath(path.join(base, "outside.html")) });
+      }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
   it.effect("loads private media immediately after login and reuses the found credential", () => {
     let lookups = 0;
     const authorizations: Array<string | undefined> = [];
