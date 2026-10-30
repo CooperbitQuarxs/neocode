@@ -5,7 +5,9 @@ import {
 } from "@t3tools/client-runtime/state/device";
 import { useIsFocused, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId } from "@t3tools/contracts";
+import { workspaceResourceId } from "@t3tools/client-runtime/environment";
+import type { NativeSessionTarget } from "@t3tools/client-runtime/neopi-native-sessions";
 import * as Cause from "effect/Cause";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { ActivityIndicator, Alert, AppState, Platform, Pressable, View } from "react-native";
@@ -27,10 +29,10 @@ import {
 
 const DevicePreviewStack = createNativeStackNavigator<{ DevicePreview: undefined }>();
 
-type DevicePreviewRouteScreenProps = StaticScreenProps<{
-  readonly environmentId: string;
-  readonly threadId: string;
-}>;
+type DevicePreviewRouteScreenProps = StaticScreenProps<
+  | { readonly environmentId: string; readonly threadId: string }
+  | { readonly target: NativeSessionTarget }
+>;
 
 /** The nested native stack supplies the navigation bar inside the modal. */
 export function DevicePreviewRouteScreen({ route }: DevicePreviewRouteScreenProps) {
@@ -50,8 +52,16 @@ export function DevicePreviewRouteScreen({ route }: DevicePreviewRouteScreenProp
         <DevicePreviewStack.Screen name="DevicePreview">
           {() => (
             <DevicePreviewScreen
-              environmentId={EnvironmentId.make(route.params.environmentId)}
-              threadId={ThreadId.make(route.params.threadId)}
+              environmentId={
+                "target" in route.params
+                  ? route.params.target.environmentId
+                  : EnvironmentId.make(route.params.environmentId)
+              }
+              threadId={
+                "target" in route.params
+                  ? workspaceResourceId(route.params.target)
+                  : route.params.threadId
+              }
               onClose={onClose}
             />
           )}
@@ -67,7 +77,7 @@ function DevicePreviewScreen({
   onClose,
 }: {
   readonly environmentId: EnvironmentId;
-  readonly threadId: ThreadId;
+  readonly threadId: string;
   readonly onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();

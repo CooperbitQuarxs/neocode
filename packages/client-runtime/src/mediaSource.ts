@@ -1,4 +1,4 @@
-import type { AssetResource, ThreadId } from "@t3tools/contracts";
+import type { AssetResource, NeoPiNativeSessionRef, ThreadId } from "@t3tools/contracts";
 import { mediaMimeType, mediaMimeTypeFromExtension } from "@t3tools/shared/filePreview";
 
 import {
@@ -18,7 +18,10 @@ import {
   type MediaReference,
 } from "./mediaReference.ts";
 
-export type MediaSourceResource = Extract<AssetResource, { readonly _tag: "media-file" }>;
+export type MediaSourceResource = Extract<
+  AssetResource,
+  { readonly _tag: "media-file" | "native-media-file" }
+>;
 
 /** What a piece of authored media is and how its bytes can be reached. */
 export type ResolvedMediaSource = {
@@ -42,7 +45,8 @@ export type ResolvedMediaSource = {
 );
 
 export interface ResolveMediaSourceInput {
-  readonly threadId: ThreadId | undefined;
+  readonly threadId?: ThreadId | undefined;
+  readonly nativeRef?: NeoPiNativeSessionRef | undefined;
   readonly workspaceRoot?: string | null | undefined;
   readonly resolvedFilePath?: string | undefined;
   /** Image syntax can target an endpoint without a recognizable extension. */
@@ -51,7 +55,10 @@ export interface ResolveMediaSourceInput {
 
 function classify(source: string, input: ResolveMediaSourceInput): MarkdownImageSource {
   return input.resolvedFilePath === undefined
-    ? classifyMarkdownImageSource(source, input.workspaceRoot)
+    ? classifyMarkdownImageSource(
+        source,
+        input.workspaceRoot ?? (input.nativeRef ? "." : undefined),
+      )
     : { _tag: "WorkspaceFile", path: input.resolvedFilePath };
 }
 
@@ -94,6 +101,22 @@ export function resolveMediaSource(
 
   if (classified._tag === "Direct") {
     return { ...common, access: "direct", uri: classified.uri };
+  }
+  if (input.nativeRef) {
+    // Keep authored relative paths relative: only the server's canonical session
+    // cwd may anchor access. The client root is display metadata, not authority.
+    const authored =
+      input.resolvedFilePath === undefined ? classifyMarkdownImageSource(source, ".") : classified;
+    if (authored._tag !== "WorkspaceFile") return { ...common, access: "unavailable" };
+    return {
+      ...common,
+      access: "environment",
+      resource: {
+        _tag: "native-media-file",
+        ref: input.nativeRef,
+        path: splitFilePathPosition(authored.path).path.replace(/^\.[\\/]/, ""),
+      },
+    };
   }
   if (input.threadId === undefined) return { ...common, access: "unavailable" };
   return {

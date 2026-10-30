@@ -9,7 +9,7 @@
  * @module Preview
  */
 import { Schema } from "effect";
-import { NonNegativeInt, PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { NonNegativeInt, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { BrowserProfileId } from "./browserProfile.ts";
 
 export const PREVIEW_URL_MAX_LENGTH = 2_048;
@@ -181,7 +181,7 @@ export const PreviewSessionSnapshot = Schema.Struct({
 export type PreviewSessionSnapshot = typeof PreviewSessionSnapshot.Type;
 
 export const PreviewOpenInput = Schema.Struct({
-  threadId: ThreadId,
+  threadId: TrimmedNonEmptyString,
   /** Omit to create an empty (Idle) tab the user can type into. */
   url: Schema.optional(Url),
   /**
@@ -197,7 +197,7 @@ export const PreviewOpenInput = Schema.Struct({
 export type PreviewOpenInput = typeof PreviewOpenInput.Type;
 
 export const PreviewNavigateInput = Schema.Struct({
-  threadId: ThreadId,
+  threadId: TrimmedNonEmptyString,
   tabId: PreviewTabId,
   url: Url,
   resolvedTitle: Schema.optional(Title),
@@ -205,7 +205,7 @@ export const PreviewNavigateInput = Schema.Struct({
 export type PreviewNavigateInput = typeof PreviewNavigateInput.Type;
 
 export const PreviewReportStatusInput = Schema.Struct({
-  threadId: ThreadId,
+  threadId: TrimmedNonEmptyString,
   tabId: PreviewTabId,
   navStatus: PreviewNavStatus,
   canGoBack: Schema.Boolean,
@@ -214,26 +214,26 @@ export const PreviewReportStatusInput = Schema.Struct({
 export type PreviewReportStatusInput = typeof PreviewReportStatusInput.Type;
 
 export const PreviewRefreshInput = Schema.Struct({
-  threadId: ThreadId,
+  threadId: TrimmedNonEmptyString,
   tabId: PreviewTabId,
 });
 export type PreviewRefreshInput = typeof PreviewRefreshInput.Type;
 
 export const PreviewResizeInput = Schema.Struct({
-  threadId: ThreadId,
+  threadId: TrimmedNonEmptyString,
   tabId: PreviewTabId,
   viewport: PreviewViewportSetting,
 });
 export type PreviewResizeInput = typeof PreviewResizeInput.Type;
 
 export const PreviewCloseInput = Schema.Struct({
-  threadId: ThreadId,
+  threadId: TrimmedNonEmptyString,
   tabId: Schema.optional(PreviewTabId),
 });
 export type PreviewCloseInput = typeof PreviewCloseInput.Type;
 
 export const PreviewListInput = Schema.Struct({
-  threadId: ThreadId,
+  threadId: TrimmedNonEmptyString,
 });
 export type PreviewListInput = typeof PreviewListInput.Type;
 
@@ -309,7 +309,7 @@ export const DiscoveredLocalServer = Schema.Struct({
   pid: Schema.NullOr(Schema.Int.check(Schema.isGreaterThan(0))),
   terminal: Schema.NullOr(
     Schema.Struct({
-      threadId: ThreadId,
+      threadId: TrimmedNonEmptyString,
       terminalId: TrimmedNonEmptyString,
     }),
   ),

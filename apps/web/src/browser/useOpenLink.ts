@@ -1,4 +1,4 @@
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { WorkspaceRef } from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -30,12 +30,12 @@ const NO_MODIFIER = { metaKey: false, ctrlKey: false } as const;
  * where it should go first. Failed settings reads reject without opening a
  * browser. The promise also rejects if the system-browser fallback fails.
  */
-export function useOpenLink(threadRef: ScopedThreadRef | null | undefined): (
+export function useOpenLink(threadRef: WorkspaceRef | null | undefined): (
   url: string,
   options?: {
     readonly event?: { readonly metaKey: boolean; readonly ctrlKey: boolean };
     /** Thread to open beside when it is not the hook's own, e.g. a sidebar row's. */
-    readonly threadRef?: ScopedThreadRef | undefined;
+    readonly threadRef?: WorkspaceRef | undefined;
   },
 ) => Promise<void> {
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });

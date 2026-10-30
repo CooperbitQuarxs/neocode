@@ -1,4 +1,5 @@
-import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
+import type { WorkspaceRef } from "@t3tools/client-runtime/environment";
 import { Globe, History, RadioTower } from "lucide-react";
 
 import type { BrowserHistoryEntry } from "~/browserHistoryStore";
@@ -10,7 +11,7 @@ import { PreviewRecentUrlCard } from "./PreviewRecentUrlCard";
 import { useDiscoveredLocalServers } from "./useDiscoveredLocalServers";
 
 interface Props {
-  threadRef: ScopedThreadRef;
+  threadRef: WorkspaceRef;
   environmentId: EnvironmentId;
   configuredUrls?: ReadonlyArray<string> | undefined;
   recentEntries: ReadonlyArray<BrowserHistoryEntry>;

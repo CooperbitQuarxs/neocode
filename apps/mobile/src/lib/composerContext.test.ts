@@ -204,6 +204,44 @@ describe("mobile composer context", () => {
     expect(prompt).toContain("4 | build failed\n5 | retry");
     expect(prompt).not.toContain('unavailable="true"');
   });
+
+  it("serializes native terminal, browser annotation and review payloads alongside real uploaded image references", () => {
+    const review = {
+      version: 1 as const,
+      kind: "review-comment" as const,
+      contextId: ComposerContextId.make("native-review"),
+      label: "Review",
+      sectionId: "working-tree",
+      sectionTitle: "Working tree",
+      filePath: "src/a.ts",
+      startIndex: 0,
+      endIndex: 0,
+      rangeLabel: "L1",
+      text: "Keep validation",
+      diff: "- old\n+ new",
+    };
+    const context: OrchestrationMessageContext = {
+      version: 1,
+      records: [terminal, image, annotation, review],
+    };
+    const uploaded = uploadedComposerContext(
+      context,
+      [{ id: image.attachmentId }],
+      [{ id: "server-image" }],
+    );
+    const text = context.records.map(formatComposerContextReference).join(" ");
+    const message = serializeComposerMessageForServer(text, uploaded, false);
+    expect(message).not.toHaveProperty("context");
+    expect(message.text).not.toContain("t3-context://");
+    expect(message.text).toContain("build failed");
+    expect(message.text).toContain(annotation.comment);
+    expect(message.text).toContain(review.text);
+    expect(message.text).toContain(review.diff);
+    expect(uploaded?.records.find((record) => record.kind === "image")).toMatchObject({
+      attachmentId: "server-image",
+    });
+    expect(context.records).toEqual([terminal, image, annotation, review]);
+  });
 });
 
 describe("host context compatibility", () => {

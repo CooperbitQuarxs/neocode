@@ -130,4 +130,81 @@ describe("ReviewService", () => {
       assert.deepStrictEqual(detectCalls, []);
     }).pipe(Effect.provide(NodeServices.layer)),
   );
+
+  it.effect("limits scoped preview and contents to that scope, not the configured roots", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
+      const nativeRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-native-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
+      const detectCalls: Array<{ readonly cwd: string }> = [];
+
+      yield* Effect.gen(function* () {
+        const review = yield* ReviewService.ReviewService;
+        const scope = { workspaceRoot: nativeRoot };
+        for (const cwd of [workspaceRoot, `${nativeRoot}-sibling`]) {
+          const preview = yield* review.getDiffPreview({ cwd }, scope).pipe(Effect.flip);
+          const contents = yield* review
+            .getDiffFileContents(
+              {
+                cwd,
+                sourceKind: "working-tree",
+                changeType: "change",
+                baseRef: "HEAD",
+                headRef: null,
+                oldPath: "file.ts",
+                newPath: "file.ts",
+              },
+              scope,
+            )
+            .pipe(Effect.flip);
+          assert.strictEqual(preview._tag, "VcsRepositoryDetectionError");
+          assert.strictEqual(contents._tag, "VcsRepositoryDetectionError");
+        }
+      }).pipe(Effect.provide(makeLayer({ workspaceRoot, baseDir, detectCalls })));
+      assert.deepStrictEqual(detectCalls, []);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect(
+    "canonicalizes scoped roots and rejects symlink escapes for both review operations",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const workspaceRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-workspace-" });
+        const nativeRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-native-" });
+        const outsideRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-outside-" });
+        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-review-base-" });
+        const alias = `${baseDir}/native-alias`;
+        const escape = `${nativeRoot}/escape`;
+        yield* fs.symlink(nativeRoot, alias);
+        yield* fs.symlink(outsideRoot, escape);
+        const detectCalls: Array<{ readonly cwd: string }> = [];
+
+        yield* Effect.gen(function* () {
+          const review = yield* ReviewService.ReviewService;
+          const scope = { workspaceRoot: alias };
+          const allowed = yield* review.getDiffPreview({ cwd: nativeRoot }, scope);
+          assert.deepStrictEqual(allowed.sources, []);
+          const preview = yield* review.getDiffPreview({ cwd: escape }, scope).pipe(Effect.flip);
+          const contents = yield* review
+            .getDiffFileContents(
+              {
+                cwd: escape,
+                sourceKind: "working-tree",
+                changeType: "change",
+                baseRef: "HEAD",
+                headRef: null,
+                oldPath: "secret.ts",
+                newPath: "secret.ts",
+              },
+              scope,
+            )
+            .pipe(Effect.flip);
+          assert.strictEqual(preview._tag, "VcsRepositoryDetectionError");
+          assert.strictEqual(contents._tag, "VcsRepositoryDetectionError");
+        }).pipe(Effect.provide(makeLayer({ workspaceRoot, baseDir, detectCalls })));
+        assert.deepStrictEqual(detectCalls, [{ cwd: nativeRoot }]);
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
 });

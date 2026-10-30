@@ -1,7 +1,11 @@
 "use client";
 
 import { RegistryContext, useAtomSet, useAtomValue } from "@effect/atom-react";
-import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
+import {
+  parseWorkspaceKey,
+  workspaceResourceId,
+  type WorkspaceRef,
+} from "@t3tools/client-runtime/environment";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
   FILL_PREVIEW_VIEWPORT,
@@ -18,7 +22,6 @@ import {
   type PreviewAutomationStatus,
   type PreviewRenderedViewportSize,
   type PreviewViewportSetting,
-  type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { resolvePreviewViewport } from "@t3tools/shared/previewViewport";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -88,6 +91,7 @@ import {
   needsPreviewAutomationSessionSync,
   resolvePreviewAutomationOpenTab,
   resolvePreviewAutomationTarget,
+  resolvePreviewAutomationWorkspace,
 } from "./previewAutomationTarget";
 import { resolveHostWaitBudgetMs, waitForHostReadiness } from "./previewAutomationHostBudget";
 import { isPreviewViewportReady } from "./previewViewportReadiness";
@@ -104,7 +108,7 @@ const waitForPreviewPresentation = async (runtimeTabId: string): Promise<void> =
 };
 
 const waitForDesktopOverlay = async (
-  threadRef: ScopedThreadRef,
+  threadRef: WorkspaceRef,
   requestId: string,
   tabId: string,
   runtimeTabId: string,
@@ -127,7 +131,7 @@ const waitForDesktopOverlay = async (
   throw new PreviewAutomationOverlayTimeoutError({
     requestId,
     environmentId: threadRef.environmentId,
-    threadId: threadRef.threadId,
+    threadId: workspaceResourceId(threadRef),
     timeoutMs: waitBudgetMs,
   });
 };
@@ -183,7 +187,7 @@ const readDeclaredViewport = (
 };
 
 const waitForRenderedViewport = async (
-  threadRef: ScopedThreadRef,
+  threadRef: WorkspaceRef,
   tabId: string,
   runtimeTabId: string,
   setting: PreviewViewportSetting,
@@ -228,7 +232,7 @@ const waitForRenderedViewport = async (
 };
 
 const currentStatus = async (
-  threadRef: ScopedThreadRef,
+  threadRef: WorkspaceRef,
   requestedTabId: string | null,
 ): Promise<PreviewAutomationStatus> => {
   const state = readThreadPreviewState(threadRef);
@@ -304,12 +308,12 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
   const liveTabs = useMemo(
     () =>
       Object.entries(previewSessions).flatMap(([key, state]) => {
-        const ref = parseScopedThreadKey(key);
+        const ref = parseWorkspaceKey(key);
         if (ref?.environmentId !== environmentId) return [];
         return Object.values(state.sessions)
           .filter((tab) => state.desktopByTabId[tab.tabId]?.hasWebContents)
           .map((tab) => ({
-            threadId: ref.threadId,
+            threadId: workspaceResourceId(ref),
             tabId: tab.tabId,
             visible: visibleRuntimeTabIds.includes(
               previewRuntimeTabId(ref, state.serverEpoch, tab.tabId),
@@ -358,13 +362,12 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
     async (request: PreviewAutomationRequest): Promise<unknown> => {
       // Session sync and tab creation consume the same budget as overlay registration.
       const hostDeadlineMs = Date.now() + resolveHostWaitBudgetMs(request.timeoutMs);
-      const threadRef: ScopedThreadRef = {
-        environmentId,
-        threadId: request.threadId,
-      };
+      const threadRef = resolvePreviewAutomationWorkspace(environmentId, request);
       let tabId = request.tabId ?? null;
       const browserActivity = { release: null as (() => void) | null };
       try {
+        if (!threadRef)
+          throw new Error("Preview request is missing its canonical workspace identity.");
         let state = readThreadPreviewState(threadRef);
         const needsSessionSync = needsPreviewAutomationSessionSync(state, request.tabId);
         if (needsSessionSync) {

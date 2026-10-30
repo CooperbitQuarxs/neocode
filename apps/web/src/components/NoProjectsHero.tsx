@@ -8,7 +8,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "./ui/empty";
 import { SidebarInset } from "./ui/sidebar";
 import { WorkspacePageHeader } from "./WorkspacePageHeader";
 
-export function NoProjectsHero() {
+export function NoProjectsHero({ hasSavedProjects = false }: { hasSavedProjects?: boolean }) {
   const openAddProject = useCallback(() => openCommandPalette({ open: "add-project" }), []);
 
   return (
@@ -20,7 +20,11 @@ export function NoProjectsHero() {
           <div className="w-full max-w-lg px-8 py-12">
             <EmptyHeader className="max-w-none">
               <EmptyTitle>What should we work on?</EmptyTitle>
-              <EmptyDescription>Add a project to start your first thread.</EmptyDescription>
+              <EmptyDescription>
+                {hasSavedProjects
+                  ? "No saved project directory is currently available. Add a project to start working; saved conversations remain in the sidebar."
+                  : "Add a project to start your first thread."}
+              </EmptyDescription>
               <div className="mt-6 flex justify-center">
                 <Button size="sm" onClick={openAddProject}>
                   <PlusIcon className="size-4" />

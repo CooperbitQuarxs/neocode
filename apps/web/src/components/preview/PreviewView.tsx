@@ -1,6 +1,10 @@
 "use client";
 
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import {
+  workspaceKey,
+  workspaceResourceId,
+  type WorkspaceRef,
+} from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -10,7 +14,6 @@ import {
   FILL_PREVIEW_VIEWPORT,
   type PreviewAnnotationPayload,
   type PreviewViewportSetting,
-  type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { normalizePreviewUrl } from "@t3tools/shared/preview";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -72,9 +75,11 @@ import {
 } from "~/browser/browserRecording";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { createPortal } from "react-dom";
 
 interface Props {
-  threadRef: ScopedThreadRef;
+  threadRef: WorkspaceRef;
+  placement?: "inline" | "sheet";
   tabId?: string | null;
   configuredUrls?: ReadonlyArray<string> | undefined;
   visible: boolean;
@@ -99,6 +104,7 @@ const localApi = typeof window === "undefined" ? null : ensureLocalApi();
  */
 export function PreviewView({
   threadRef,
+  placement = "inline",
   tabId: requestedTabId,
   configuredUrls,
   visible,
@@ -170,14 +176,19 @@ export function PreviewView({
   // as "every profile".
   const activeProfileId = snapshot?.profileId ?? DEFAULT_BROWSER_PROFILE_ID;
   const activeProfileName = previewProfileName(browserDefaults.profiles, activeProfileId);
+  const browserSurfaceZIndex = placement === "sheet" ? 47 : 30;
   const panelRect = useBrowserSurfaceStore((state) =>
     runtimeTabId ? (state.byTabId[runtimeTabId]?.rect ?? null) : null,
   );
+  const browserSurfacePresented = useBrowserSurfaceStore((state) => {
+    const surface = runtimeTabId ? state.byTabId[runtimeTabId] : undefined;
+    return surface?.visible === true && surface.zIndex === browserSurfaceZIndex;
+  });
 
   const navUrl = navStatus._tag === "Success" ? navStatus.url : null;
   const navTitle = navStatus._tag === "Success" ? navStatus.title : null;
   const latestHistoryUrl = recentHistoryEntries[0]?.url;
-  const threadKey = scopedThreadKey(threadRef);
+  const threadKey = workspaceKey(threadRef);
   useEffect(() => {
     if (!navUrl || !navTitle || !latestHistoryUrl) return;
     // Agent-driven pages only enrich an existing requested URL.
@@ -259,7 +270,7 @@ export function PreviewView({
       const result = await resize({
         environmentId: threadRef.environmentId,
         input: {
-          threadId: threadRef.threadId,
+          threadId: workspaceResourceId(threadRef),
           tabId,
           viewport: nextViewport,
         },
@@ -704,11 +715,27 @@ export function PreviewView({
       }
     });
   }, [handleRefresh, handleResetZoom, handleZoomIn, handleZoomOut, visible]);
+  const browserOverlays = (
+    <>
+      {snapshot && desktopOverlay ? <ZoomIndicator zoomFactor={desktopOverlay.zoomFactor} /> : null}
+      {runtimeTabId &&
+      desktopOverlay &&
+      !showEmptyState &&
+      !isUnreachable &&
+      !activeRecordingTabIds.has(runtimeTabId) ? (
+        <AgentBrowserCursor
+          tabId={runtimeTabId}
+          zoomFactor={desktopOverlay.zoomFactor}
+          controller={controller}
+        />
+      ) : null}
+    </>
+  );
 
   return (
     <div
       className="flex min-h-0 flex-1 flex-col bg-background"
-      data-thread-key={scopedThreadKey(threadRef)}
+      data-thread-key={workspaceKey(threadRef)}
     >
       <PreviewChromeRow
         url={url}
@@ -782,6 +809,8 @@ export function PreviewView({
             key={runtimeTabId}
             tabId={runtimeTabId}
             visible={visible && !isUnreachable}
+            // Global guests sit above their sheet (46), below floating players (48) and dialogs (50).
+            zIndex={browserSurfaceZIndex}
             className="absolute inset-0 h-full w-full"
           />
         ) : null}
@@ -795,20 +824,28 @@ export function PreviewView({
             onOpenUrl={(next) => void handleOpenServerUrl(next)}
           />
         ) : null}
-        {snapshot && desktopOverlay ? (
-          <ZoomIndicator zoomFactor={desktopOverlay.zoomFactor} />
-        ) : null}
-        {runtimeTabId &&
-        desktopOverlay &&
-        !showEmptyState &&
-        !isUnreachable &&
-        !activeRecordingTabIds.has(runtimeTabId) ? (
-          <AgentBrowserCursor
-            tabId={runtimeTabId}
-            zoomFactor={desktopOverlay.zoomFactor}
-            controller={controller}
-          />
-        ) : null}
+        {previewBridge
+          ? visible &&
+            panelRect &&
+            browserSurfacePresented &&
+            // Guests live outside the panel. Follow them after the app root at
+            // the same layer, above the guest but below floating players/dialogs.
+            createPortal(
+              <div
+                className="pointer-events-none fixed overflow-hidden"
+                style={{
+                  left: panelRect.x,
+                  top: panelRect.y,
+                  width: panelRect.width,
+                  height: panelRect.height,
+                  zIndex: browserSurfaceZIndex,
+                }}
+              >
+                {browserOverlays}
+              </div>,
+              document.body,
+            )
+          : browserOverlays}
         {navStatus._tag === "LoadFailed" ? (
           <div className="absolute inset-0 z-10 bg-background">
             <PreviewUnreachable

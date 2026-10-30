@@ -3,6 +3,7 @@ import {
   scopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
+  workspaceResourceId,
 } from "@t3tools/client-runtime/environment";
 import * as Schema from "effect/Schema";
 import {
@@ -236,6 +237,55 @@ describe("composerDraftStore assistant citations", () => {
       await useComposerDraftStore.persist.clearStorage();
       vi.useRealTimers();
     }
+  });
+});
+
+describe("composerDraftStore native workspaces", () => {
+  beforeEach(resetComposerDraftStore);
+
+  const target = {
+    environmentId: EnvironmentId.make("native-host"),
+    ref: {
+      providerInstanceId: ProviderInstanceId.make("neopi"),
+      sessionFile: "/sessions/project free/conversation.jsonl",
+    },
+  };
+
+  it("keeps native terminal selections and images without a SQL draft session", () => {
+    const store = useComposerDraftStore.getState();
+    store.setPrompt(target, "Explain this output");
+    store.addTerminalContext(target, makeTerminalContext({ id: "native-selection" }));
+    const image = makeImage({ id: "native-image", previewUrl: "data:image/png;base64,AQ==" });
+    expect(store.addImage(target, image)).toBe(true);
+
+    const draft = useComposerDraftStore.getState().getComposerDraft(target);
+    expect(draft?.prompt).toContain("Explain this output");
+    expect(draft?.prompt).toContain("native-selection");
+    expect(draft?.terminalContexts).toEqual([
+      {
+        ...makeTerminalContext({ id: "native-selection" }),
+        threadId: workspaceResourceId(target),
+      },
+    ]);
+    expect(draft?.images).toEqual([image]);
+    expect(useComposerDraftStore.getState().draftThreadsByThreadKey).toEqual({});
+  });
+
+  it("clears only the selected canonical draft across profiles, files and environments", () => {
+    const others = [
+      { ...target, environmentId: EnvironmentId.make("other-host") },
+      { ...target, ref: { ...target.ref, providerInstanceId: ProviderInstanceId.make("other") } },
+      { ...target, ref: { ...target.ref, sessionFile: "/sessions/another.jsonl" } },
+      scopeThreadRef(target.environmentId, ThreadId.make("legacy-thread")),
+    ];
+    const store = useComposerDraftStore.getState();
+    store.setPrompt(target, "Clear only this draft");
+    others.forEach((other, index) => store.setPrompt(other, `Keep draft ${index}`));
+    store.clearComposerContent(target);
+    expect(useComposerDraftStore.getState().getComposerDraft(target)).toBeNull();
+    expect(
+      others.map((other) => useComposerDraftStore.getState().getComposerDraft(other)?.prompt),
+    ).toEqual(["Keep draft 0", "Keep draft 1", "Keep draft 2", "Keep draft 3"]);
   });
 });
 

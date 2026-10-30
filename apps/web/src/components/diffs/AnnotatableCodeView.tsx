@@ -7,10 +7,9 @@ import type {
   SelectedLineRange,
 } from "@pierre/diffs";
 import type { CodeViewHandle } from "@pierre/diffs/react";
-import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useCallback, useMemo, useState, type ReactNode, type Ref } from "react";
 
-import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
+import { type ComposerThreadTarget, useComposerDraftStore } from "~/composerDraftStore";
 import { fnv1a32 } from "~/lib/diffRendering";
 import {
   buildDiffReviewComment,
@@ -82,7 +81,7 @@ interface AnnotatableCodeViewProps {
   }>;
   sectionId: string;
   sectionTitle: string;
-  composerDraftTarget: ScopedThreadRef | DraftId;
+  composerDraftTarget: ComposerThreadTarget;
   options: StyledDiffCodeViewOptions<DiffCommentAnnotationGroup>;
   viewerRef?: Ref<AnnotatableCodeViewHandle>;
   className?: string;
