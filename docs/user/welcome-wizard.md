@@ -32,8 +32,9 @@ profile with **Enable NeoPi**. Existing launch settings are preserved.
 
 Choose **Connect to NeoProxy** to connect with your server address and member key.
 If asked to verify a certificate, compare the complete fingerprints with your
-administrator before accepting. A connected account with no models needs an
-administrator grant, not another provider login. See [Connect to NeoProxy](./install.md#connect-to-neoproxy).
+administrator before accepting. Your administrator controls which models your
+member can use; an upstream-provider login is not needed.
+See [Connect to NeoProxy](./install.md#connect-to-neoproxy).
 
 You can continue without finishing NeoPi or NeoProxy setup. Starting a new thread
 without an available runtime opens the same computer's NeoCore settings. Other

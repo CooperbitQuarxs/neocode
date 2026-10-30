@@ -2080,6 +2080,7 @@ function ProviderAccounts({
           {isNeoProxy &&
           catalogReady &&
           provider.authenticated &&
+          !provider.disabled &&
           accounts.length > 0 &&
           !hasAvailableCatalogModels &&
           !loading &&

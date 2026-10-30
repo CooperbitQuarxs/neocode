@@ -754,6 +754,7 @@ function NeoProxyOnboardingConnection({
   const canConnect = neoProxy?.loginProviders.some((method) => method.available) === true;
   const connectedEmpty =
     neoProxy?.authenticated === true &&
+    !neoProxy.disabled &&
     configuration !== null &&
     !configuration.models.some((model) => model.provider === "neoproxy" && model.available);
   const login = async () => {

@@ -838,6 +838,7 @@ function ProviderAccounts({
       catalogReady &&
       accountsReady &&
       provider.authenticated &&
+      !provider.disabled &&
       accounts.length > 0 &&
       !hasAvailableCatalogModels ? (
         <Text className="text-sm text-foreground-muted">
