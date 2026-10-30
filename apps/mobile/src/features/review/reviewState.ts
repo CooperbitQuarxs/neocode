@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 
 import type { EnvironmentId, ReviewDiffPreviewSource, ThreadId } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
+import { workspaceKey, type WorkspaceRef } from "@t3tools/client-runtime/environment";
 
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { appAtomRegistry } from "../../state/atom-registry";
@@ -124,7 +125,9 @@ export interface ReviewAsyncState {
 function buildThreadKey(input: {
   readonly environmentId?: EnvironmentId;
   readonly threadId?: ThreadId;
+  readonly workspaceRef?: WorkspaceRef;
 }): string | null {
+  if (input.workspaceRef) return workspaceKey(input.workspaceRef);
   return input.environmentId && input.threadId
     ? scopedThreadKey(input.environmentId, input.threadId)
     : null;
@@ -137,6 +140,7 @@ function buildSectionCacheKey(threadKey: string, sectionId: string): string {
 export function useReviewCacheForThread(input: {
   readonly environmentId?: EnvironmentId;
   readonly threadId?: ThreadId;
+  readonly workspaceRef?: WorkspaceRef;
 }): ReviewCacheForThread {
   const threadKey = buildThreadKey(input);
   const gitSections = useAtomValue(

@@ -17,7 +17,6 @@ import {
   isRichTextBoldShortcut,
   modelPickerJumpCommandForIndex,
   modelPickerJumpIndexFromCommand,
-  isOpenFavoriteEditorShortcut,
   isTerminalClearShortcut,
   isTerminalCloseShortcut,
   isTerminalNewShortcut,
@@ -34,6 +33,24 @@ import {
   threadTraversalDirectionFromCommand,
   type ShortcutEventLike,
 } from "./keybindings";
+
+it.each([
+  ["p", "modelPicker.toggle"],
+  ["m", "models.open"],
+] as const)("keeps Alt-%s native navigation distinct", (key, command) => {
+  const input = event({ key, altKey: true });
+  assert.strictEqual(
+    resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
+      platform: "Linux",
+      context: { terminalFocus: false },
+    }),
+    command,
+  );
+  assert.isNull(resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
+    platform: "Linux",
+    context: { terminalFocus: true },
+  }));
+});
 
 function event(overrides: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
   return {
@@ -147,7 +164,6 @@ const DEFAULT_BINDINGS = compile([
   },
   { shortcut: modShortcut("o", { shiftKey: true }), command: "chat.new" },
   { shortcut: modShortcut("n", { shiftKey: true }), command: "chat.newLocal" },
-  { shortcut: modShortcut("o"), command: "editor.openFavorite" },
   { shortcut: modShortcut("[", { shiftKey: true }), command: "thread.previous" },
   { shortcut: modShortcut("]", { shiftKey: true }), command: "thread.next" },
   {
@@ -446,10 +462,6 @@ describe("shortcutLabelForCommand", () => {
       "Ctrl+Shift+M",
     );
     assert.strictEqual(
-      shortcutLabelForCommand(DEFAULT_BINDINGS, "editor.openFavorite", "Linux"),
-      "Ctrl+O",
-    );
-    assert.strictEqual(
       shortcutLabelForCommand(DEFAULT_BINDINGS, "thread.jump.3", "MacIntel"),
       "⌘3",
     );
@@ -664,19 +676,6 @@ describe("chat/editor shortcuts", () => {
         platform: "Linux",
       }),
       "chat.newLocal",
-    );
-  });
-
-  it("matches editor.openFavorite shortcut", () => {
-    assert.isTrue(
-      isOpenFavoriteEditorShortcut(event({ key: "o", metaKey: true }), DEFAULT_BINDINGS, {
-        platform: "MacIntel",
-      }),
-    );
-    assert.isTrue(
-      isOpenFavoriteEditorShortcut(event({ key: "o", ctrlKey: true }), DEFAULT_BINDINGS, {
-        platform: "Linux",
-      }),
     );
   });
 

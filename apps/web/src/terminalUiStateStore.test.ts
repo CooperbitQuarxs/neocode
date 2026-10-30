@@ -1,5 +1,5 @@
-import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
-import { ThreadId } from "@t3tools/contracts";
+import { scopeThreadRef, scopedThreadKey, workspaceKey } from "@t3tools/client-runtime/environment";
+import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
@@ -20,6 +20,80 @@ describe("terminalUiStateStore actions", () => {
       terminalUiStateByThreadKey: {},
       suppressedTerminalIdsByThreadKey: {},
     });
+  });
+
+  it("isolates native layouts and close tombstones by environment, provider and canonical file", () => {
+    const target = {
+      environmentId: EnvironmentId.make("environment-a"),
+      ref: {
+        providerInstanceId: ProviderInstanceId.make("neopi-a"),
+        sessionFile: "/sessions/current.jsonl",
+      },
+    };
+    const otherTargets = [
+      { ...target, environmentId: EnvironmentId.make("environment-b") },
+      { ...target, ref: { ...target.ref, providerInstanceId: ProviderInstanceId.make("neopi-b") } },
+      { ...target, ref: { ...target.ref, sessionFile: "/sessions/other.jsonl" } },
+      THREAD_REF,
+    ];
+    const store = useTerminalUiStateStore.getState();
+    store.newTerminal(target, "terminal-1");
+    store.splitTerminalVertical(target, "terminal-2");
+    store.setTerminalHeight(target, 420);
+    for (const other of otherTargets) store.newTerminal(other, "terminal-2");
+    store.closeTerminal(target, "terminal-2");
+    store.reconcileTerminalIds(target, ["terminal-1", "terminal-2"]);
+    for (const other of otherTargets) store.reconcileTerminalIds(other, ["terminal-2"]);
+
+    const states = useTerminalUiStateStore.getState().terminalUiStateByThreadKey;
+    expect(selectThreadTerminalUiState(states, target)).toMatchObject({
+      terminalHeight: 420,
+      terminalIds: ["terminal-1"],
+      activeTerminalId: "terminal-1",
+    });
+    for (const other of otherTargets) {
+      expect(selectThreadTerminalUiState(states, other).terminalIds).toEqual(["terminal-2"]);
+    }
+    store.ensureTerminal(target, "terminal-2", { open: true });
+    expect(
+      selectThreadTerminalUiState(
+        useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+        target,
+      ).activeTerminalId,
+    ).toBe("terminal-2");
+  });
+
+  it("retains native layout across persistence and SQL-only orphan cleanup", () => {
+    const target = {
+      environmentId: EnvironmentId.make("environment-a"),
+      ref: {
+        providerInstanceId: ProviderInstanceId.make("neopi-a"),
+        sessionFile: "/sessions/current.jsonl",
+      },
+    };
+    const store = useTerminalUiStateStore.getState();
+    store.newTerminal(target, "native-shell");
+    store.newTerminal(THREAD_REF, "legacy-shell");
+    store.removeOrphanedTerminalUiStates(new Set());
+    const states = useTerminalUiStateStore.getState().terminalUiStateByThreadKey;
+    expect(selectThreadTerminalUiState(states, target).terminalIds).toEqual(["native-shell"]);
+    expect(selectThreadTerminalUiState(states, THREAD_REF).terminalIds).toEqual([]);
+    const migrated = migratePersistedTerminalUiStateStoreState(
+      {
+        terminalUiStateByThreadKey: states,
+      },
+      4,
+    );
+    expect(migrated.terminalUiStateByThreadKey?.[workspaceKey(target)]?.terminalIds).toEqual([
+      "native-shell",
+    ]);
+    store.removeTerminalUiState(target);
+    expect(
+      selectThreadTerminalUiState(
+        useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+        target,
+      ).terminalIds,
+    ).toEqual([]);
   });
 
   it("returns an empty default terminal UI state for unknown threads", () => {

@@ -262,12 +262,16 @@ const makeWindowsPayloadFixture = Effect.fn("test.makeWindowsPayloadFixture")(fu
 it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   it("resolves the dedicated nightly updater channel from nightly versions", () => {
     assert.equal(resolveDesktopUpdateChannel("0.0.17-nightly.20260413.42"), "nightly");
+    assert.equal(resolveDesktopUpdateChannel("0.0.42-nightly.20261021.39530074804.1"), "nightly");
     assert.equal(resolveDesktopUpdateChannel("0.0.17"), "latest");
   });
 
   it("switches desktop packaging product names to nightly for nightly builds", () => {
     assert.match(resolveDesktopProductName("0.0.17"), /\(Alpha\)$/);
-    assert.match(resolveDesktopProductName("0.0.17-nightly.20260413.42"), /\(Nightly\)$/);
+    assert.match(
+      resolveDesktopProductName("0.0.42-nightly.20261021.39530074804.1"),
+      /\(Nightly\)$/,
+    );
   });
 
   it("switches desktop packaging icons to the nightly artwork for nightly versions", () => {
@@ -277,7 +281,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       windowsIconIco: BRAND_ASSET_PATHS.productionWindowsIconIco,
     });
 
-    assert.deepStrictEqual(resolveDesktopBuildIconAssets("0.0.17-nightly.20260413.42"), {
+    assert.deepStrictEqual(resolveDesktopBuildIconAssets("0.0.42-nightly.20261021.39530074804.1"), {
       macIconPng: BRAND_ASSET_PATHS.nightlyMacIconPng,
       linuxIconPng: BRAND_ASSET_PATHS.nightlyLinuxIconPng,
       windowsIconIco: BRAND_ASSET_PATHS.nightlyWindowsIconIco,
@@ -286,7 +290,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
   it("switches the bundled splash and favicon branding for nightly versions", () => {
     assert.equal(resolveDesktopWebAssetBrand("0.0.17"), "production");
-    assert.equal(resolveDesktopWebAssetBrand("0.0.17-nightly.20260413.42"), "nightly");
+    assert.equal(resolveDesktopWebAssetBrand("0.0.42-nightly.20261021.39530074804.1"), "nightly");
   });
 
   it.effect("resolves GitHub desktop publish config from Effect config", () =>
@@ -354,12 +358,31 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       const previewChannel = yield* createBuildConfig(
         "mac",
         "dmg",
-        "0.0.41-preview.20260912.1589",
+        "0.0.42-preview.20261021.39530074804.1",
         false,
         false,
         undefined,
         undefined,
       );
+
+      const nightly = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.42-nightly.20261021.39530074804.1",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      assert.deepStrictEqual(nightly.publish, [
+        {
+          provider: "github",
+          owner: "pingdotgg",
+          repo: "t3code",
+          releaseType: "prerelease",
+          channel: "nightly",
+        },
+      ]);
 
       assert.notProperty(preview, "publish");
       assert.notProperty(previewChannel, "publish");
@@ -562,7 +585,6 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }
 
     assert.deepStrictEqual(DESKTOP_FILE_EXCLUSIONS, [
-      "!**/node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
       "!**/*.map",
       "!**/*.d.cts",
       "!apps/desktop/resources/browser-secret",
@@ -661,10 +683,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         ...WINDOWS_SERVER_EXTRA_RESOURCES,
       ]);
       assert.deepStrictEqual(win.nsis, { differentialPackage: true });
-      // The Claude SDK platform packages and .bin shims never ship.
+      // Package-manager .bin shims never ship.
       assert.deepStrictEqual(WINDOWS_SERVER_ASAR_IGNORE_GLOBS, [
-        "**/node_modules/@anthropic-ai/claude-agent-sdk-*",
-        "**/node_modules/@anthropic-ai/claude-agent-sdk-*/**",
         "**/node_modules/.bin",
         "**/node_modules/.bin/**",
         "**/*.map",
@@ -747,9 +767,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       resolveMergedStageDependencies({
         platform: "mac",
         serverDependencies: {
-          "@anthropic-ai/claude-agent-sdk": "^0.3.170",
           "@ff-labs/fff-node": "0.9.4",
-          "@opencode-ai/sdk": "^1.3.15",
           "@pierre/diffs": "1.3.0",
           "node-pty": "1.1.0",
         },

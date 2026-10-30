@@ -1,13 +1,19 @@
-import type { NeoPiSessionConfigurationResult, ScopedThreadRef } from "@t3tools/contracts";
+import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
+import type { NeoPiSessionConfigurationResult, RuntimeMode, ScopedThreadRef } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
+import { AsyncResult } from "effect/unstable/reactivity";
 import { InfoIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useServerConfigs, useThreadShell } from "../../state/entities";
-import { neopiSessionConfiguration } from "../../state/neopiSessions";
+import {
+  neopiSessionConfiguration,
+  neopiSessionConfigurationChanges,
+} from "../../state/neopiSessions";
+import { formatEnvironmentQueryError } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Button } from "../ui/button";
 import {
@@ -19,15 +25,25 @@ import {
   DialogPanel,
   DialogPopup,
   DialogTitle,
+  DialogTrigger,
 } from "../ui/dialog";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { Switch } from "../ui/switch";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { runtimeModeConfig, runtimeModeOptions } from "../chat/runtimeModeConfig";
+import { useNeoPiSessionStatus } from "./NeoPiSessionStatus";
+
+interface PermissionProps {
+  runtimeMode: RuntimeMode;
+  onRuntimeModeChange: (mode: RuntimeMode) => void;
+}
 
 type SnapshotState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "loaded"; result: NeoPiSessionConfigurationResult };
 
-export function NeoPiSessionConfiguration({ threadRef }: { threadRef: ScopedThreadRef | null }) {
+export function NeoPiSessionConfiguration({ threadRef, ...permissions }: { threadRef: ScopedThreadRef | null } & PermissionProps) {
   const thread = useThreadShell(threadRef);
   const configs = useServerConfigs();
   const provider =
@@ -40,56 +56,104 @@ export function NeoPiSessionConfiguration({ threadRef }: { threadRef: ScopedThre
               (thread.session?.providerInstanceId ?? thread.modelSelection.instanceId),
           )
       : null;
-  if (!threadRef || !thread || provider?.driver !== "neopi") return null;
+  if (threadRef && (!thread || provider?.driver !== "neopi")) return null;
 
   return (
     <SessionConfigurationControl
-      key={JSON.stringify([threadRef.environmentId, threadRef.threadId, provider.instanceId])}
+      key={JSON.stringify([threadRef?.environmentId, threadRef?.threadId, provider?.instanceId])}
       threadRef={threadRef}
+      {...permissions}
     />
   );
 }
 
-function SessionConfigurationControl({ threadRef }: { threadRef: ScopedThreadRef }) {
+function SessionConfigurationControl({ threadRef, ...permissions }: { threadRef: ScopedThreadRef | null } & PermissionProps) {
   const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <Tooltip>
         <TooltipTrigger
           render={
-            <Button
-              ref={triggerRef}
-              size="icon-sm"
-              variant="ghost"
-              aria-label="NeoPi session configuration"
-              aria-haspopup="dialog"
-              aria-expanded={open}
-              onClick={() => setOpen(true)}
+            <DialogTrigger
+              render={
+                <Button size="sm" variant="ghost" aria-label="NeoPi session configuration" data-session-permissions />
+              }
             />
           }
         >
           <InfoIcon className="size-4" />
+          <span className="sr-only sm:not-sr-only">
+            {threadRef ? <NativePermissionSummary threadRef={threadRef} /> : "Session configuration"}
+          </span>
         </TooltipTrigger>
         <TooltipPopup>NeoPi session configuration</TooltipPopup>
       </Tooltip>
-      <DialogPopup finalFocus={triggerRef}>
+      <DialogPopup>
         <DialogHeader>
           <DialogTitle>NeoPi session configuration</DialogTitle>
           <DialogDescription>
-            Read-only snapshot of the connected native session. Values are read separately and may
-            change during observation. This view does not update continuously. Refresh to read
-            again.
+            Native session observations and the permission preference for your next owned turn.
+            Opening this panel never changes the runtime or terminal owner's policy.
           </DialogDescription>
         </DialogHeader>
-        {open ? <SessionConfigurationSnapshot threadRef={threadRef} /> : null}
+        <DialogPanel>
+          {threadRef
+            ? <ConnectedPermissionPreference threadRef={threadRef} {...permissions} />
+            : <PermissionPreference {...permissions} disabled={false} reason="Applies when NeoCode starts the native session." />}
+        </DialogPanel>
+        {open && threadRef ? <SessionConfigurationSnapshot threadRef={threadRef} /> : null}
       </DialogPopup>
     </Dialog>
   );
 }
 
 function SessionConfigurationSnapshot({ threadRef }: { threadRef: ScopedThreadRef }) {
+  const [follow, setFollow] = useState(false);
+
+  return (
+    <>
+      <div className="shrink-0">
+        <DialogPanel>
+          <div className="space-y-2 text-sm">
+            <label className="flex items-center justify-between gap-4">
+              Follow model changes
+              <Switch checked={follow} onCheckedChange={setFollow} />
+            </label>
+            <p className="text-muted-foreground">
+              Follows native model and effort events. Use Refresh for role-definition changes.
+              Advisor configuration is not shown here.
+            </p>
+          </div>
+        </DialogPanel>
+      </div>
+      {follow ? (
+        <FollowingSessionConfiguration threadRef={threadRef} />
+      ) : (
+        <ManualSessionConfiguration threadRef={threadRef} />
+      )}
+    </>
+  );
+}
+
+function FollowingSessionConfiguration({ threadRef }: { threadRef: ScopedThreadRef }) {
+  const atom = neopiSessionConfigurationChanges({
+    environmentId: threadRef.environmentId,
+    input: { threadId: threadRef.threadId },
+  });
+  const result = useAtomValue(atom);
+  const refresh = useAtomRefresh(atom);
+  // A live stream stays waiting between events; its successful snapshot is usable.
+  const state: SnapshotState = AsyncResult.isFailure(result)
+    ? { status: "error", message: formatEnvironmentQueryError(result.cause) }
+    : !AsyncResult.isSuccess(result) || result.value === null
+      ? { status: "loading" }
+      : { status: "loaded", result: result.value };
+
+  return <SessionConfigurationView state={state} refresh={refresh} />;
+}
+
+function ManualSessionConfiguration({ threadRef }: { threadRef: ScopedThreadRef }) {
   const readConfiguration = useAtomCommand(neopiSessionConfiguration, { reportFailure: false });
   const [state, setState] = useState<SnapshotState>({ status: "loading" });
   const requestVersion = useRef(0);
@@ -126,6 +190,25 @@ function SessionConfigurationSnapshot({ threadRef }: { threadRef: ScopedThreadRe
   }, [refresh]);
 
   return (
+    <SessionConfigurationView
+      state={state}
+      refresh={() => {
+        // A requested refresh replaces the old snapshot even if the read fails.
+        setState({ status: "loading" });
+        void refresh();
+      }}
+    />
+  );
+}
+
+function SessionConfigurationView({
+  state,
+  refresh,
+}: {
+  state: SnapshotState;
+  refresh: () => void;
+}) {
+  return (
     <>
       <DialogPanel>
         <div aria-busy={state.status === "loading"} className="space-y-4 text-sm">
@@ -146,15 +229,7 @@ function SessionConfigurationSnapshot({ threadRef }: { threadRef: ScopedThreadRe
       </DialogPanel>
       <DialogFooter>
         <DialogClose render={<Button variant="ghost" />}>Close</DialogClose>
-        <Button
-          variant="secondary"
-          disabled={state.status === "loading"}
-          onClick={() => {
-            // A requested refresh replaces the old snapshot even if the read fails.
-            setState({ status: "loading" });
-            void refresh();
-          }}
-        >
+        <Button variant="secondary" disabled={state.status === "loading"} onClick={refresh}>
           Refresh
         </Button>
       </DialogFooter>
@@ -257,4 +332,47 @@ function ConfigurationDetails({
       </section>
     </>
   );
+}
+
+const permissionLabel = (mode: string | null) => mode === "always-ask" ? "Supervised"
+  : mode === "write" ? "Auto-accept edits"
+  : mode === "yolo" ? "Full access" : "Policy unavailable";
+
+function NativePermissionSummary({ threadRef }: { threadRef: ScopedThreadRef }) {
+  const status = useNeoPiSessionStatus(threadRef);
+  return status.status === "observed" ? permissionLabel(status.approvalMode) : "Policy unavailable";
+}
+
+function ConnectedPermissionPreference({ threadRef, ...props }: PermissionProps & { threadRef: ScopedThreadRef }) {
+  const status = useNeoPiSessionStatus(threadRef);
+  const terminal = status.status === "observed" && status.attachment === "terminal";
+  const disabled = status.status !== "observed" || terminal;
+  return <>
+    <p className="mb-3 text-sm">Current native policy: {status.status === "observed" ? permissionLabel(status.approvalMode) : "Unavailable"}</p>
+    <PermissionPreference {...props} disabled={disabled} reason={terminal
+      ? "This session is terminal-owned. Change permissions in its terminal owner. NeoCode cannot apply an owned-turn preference while attached."
+      : disabled ? "Connect to the native session before changing the next-turn preference."
+      : "This preference is sent to the native runtime before your next turn. The current policy does not change until the native runtime accepts it. Per-tool policies and safety checks still apply."} />
+  </>;
+}
+
+function PermissionPreference({ runtimeMode, onRuntimeModeChange, disabled, reason }: PermissionProps & {
+  disabled: boolean;
+  reason: string;
+}) {
+  return <div className="space-y-2 text-sm">
+    <label htmlFor="native-next-turn-permissions">Next owned turn</label>
+    <Select value={runtimeMode === "auto" ? "full-access" : runtimeMode} disabled={disabled}
+      onValueChange={(value) => { if (value) onRuntimeModeChange(value); }}>
+      <SelectTrigger id="native-next-turn-permissions" aria-describedby="native-permission-explanation">
+        <SelectValue>{runtimeModeConfig[runtimeMode === "auto" ? "full-access" : runtimeMode].label}</SelectValue>
+      </SelectTrigger>
+      <SelectPopup>
+        {runtimeModeOptions.filter((mode) => mode !== "auto").map((mode) => <SelectItem key={mode} value={mode}>
+          {runtimeModeConfig[mode].label}
+        </SelectItem>)}
+      </SelectPopup>
+    </Select>
+    <p id="native-permission-explanation" className="text-muted-foreground">{reason}</p>
+  </div>;
 }

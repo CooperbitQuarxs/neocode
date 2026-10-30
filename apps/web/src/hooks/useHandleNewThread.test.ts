@@ -179,6 +179,7 @@ vi.mock("../uiStateStore", () => ({
   useUiStateStore: () => [],
 }));
 vi.mock("./useSettings", () => ({ useClientSettings: () => ({}) }));
+vi.mock("./useAvailableProject", () => ({ useAvailableProject: () => null }));
 
 import { useNewThreadHandler } from "./useHandleNewThread";
 

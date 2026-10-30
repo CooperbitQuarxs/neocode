@@ -5,6 +5,8 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type {
   EnvironmentId,
+  NeoPiNativeSessionRef,
+  NeoPiNativeSessionsGetDiffFileContentsInput,
   PullRequestDiffFileContentsInput,
   PullRequestDiffFileContentsResult,
   PullRequestRef,
@@ -25,6 +27,10 @@ interface GitDiffFileContentsSource {
   readonly cacheKey: string;
 }
 
+interface NativeDiffFileContentsSource extends Omit<GitDiffFileContentsSource, "cwd"> {
+  readonly ref: NeoPiNativeSessionRef;
+}
+
 interface PullRequestDiffFileContentsSource {
   readonly environmentId: EnvironmentId;
   readonly reference: PullRequestRef;
@@ -35,6 +41,11 @@ interface PullRequestDiffFileContentsSource {
 type GetDiffFileContents<E> = (request: {
   readonly environmentId: EnvironmentId;
   readonly input: ReviewDiffFileContentsInput;
+}) => Promise<AtomCommandResult<ReviewDiffFileContentsResult, E>>;
+
+type GetNativeDiffFileContents<E> = (request: {
+  readonly environmentId: EnvironmentId;
+  readonly input: NeoPiNativeSessionsGetDiffFileContentsInput;
 }) => Promise<AtomCommandResult<ReviewDiffFileContentsResult, E>>;
 
 type GetPullRequestDiffFileContents<E> = (request: {
@@ -98,6 +109,39 @@ export function createGitDiffFileContentsLoader<E>(
     }
     return result.value;
   }, source.cacheKey);
+}
+
+export function createNativeDiffFileContentsLoader<E>(
+  getDiffFileContents: GetNativeDiffFileContents<E>,
+  source: NativeDiffFileContentsSource,
+): FileDiffContentsLoader {
+  const cacheKey = JSON.stringify([
+    source.environmentId,
+    source.ref.providerInstanceId,
+    source.ref.sessionFile,
+    source.sourceKind,
+    source.baseRef,
+    source.headRef,
+    source.cacheKey,
+  ]);
+  return createDiffFileContentsLoader(async ({ changeType, oldPath, newPath }) => {
+    const result = await getDiffFileContents({
+      environmentId: source.environmentId,
+      input: {
+        ref: source.ref,
+        sourceKind: source.sourceKind,
+        changeType,
+        baseRef: source.baseRef,
+        headRef: source.headRef,
+        oldPath,
+        newPath,
+      },
+    });
+    if (result._tag !== "Success") {
+      throw squashAtomCommandFailure(result);
+    }
+    return result.value;
+  }, cacheKey);
 }
 
 /** Loads host-backed PR files, which may name revisions this checkout has never fetched. */

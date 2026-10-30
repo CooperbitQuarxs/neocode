@@ -3731,6 +3731,69 @@ it.effect("does not cache a failed listing", () =>
   }),
 );
 
+it.effect("reads a selected fork directly with the host viewer across filter changes", () =>
+  Effect.gen(function* () {
+    const reads: Array<Parameters<PullRequestProviderApi["listChangeRequests"]>[0]> = [];
+    const service = yield* makeService({
+      projects: [
+        project({
+          id: "fork",
+          title: "editor",
+          workspaceRoot: "/fork",
+          repository: "fork-owner/editor",
+        }),
+        project({
+          id: "upstream",
+          title: "parent",
+          workspaceRoot: "/parent",
+          repository: "team/editor",
+        }),
+      ],
+      providers: [
+        fakeProvider("github", {
+          getViewer: () => Effect.succeed("current-reader"),
+          listChangeRequestsAcross: () =>
+            Effect.die("a selected fork must not search the host first"),
+          listChangeRequests: (input) =>
+            Effect.sync(() => {
+              reads.push(input);
+              return {
+                items: [
+                  {
+                    ...changeRequest(7, "2026-07-02T00:00:00Z"),
+                    author: { login: "current-reader", name: null, avatarUrl: null },
+                  },
+                ],
+                truncated: false,
+                continues: true,
+              };
+            }),
+        }),
+      ],
+    });
+    for (const involvement of ["all", "authored"] as const) {
+      const result = yield* service.list({
+        projectId: "fork" as ProjectId,
+        state: "open",
+        involvement,
+        ...(involvement === "authored" ? { filters: { author: "me" } } : {}),
+      });
+      assert.deepStrictEqual(result.viewers, { "github.com": "current-reader" });
+      assert.deepStrictEqual(
+        result.entries.map((entry) => [entry.projectId, entry.repository, entry.author?.login]),
+        [["fork", "fork-owner/editor", "current-reader"]],
+      );
+    }
+    assert.deepStrictEqual(
+      reads.map((input) => [input.cwd, input.repository, input.viewer, input.involvement]),
+      [
+        ["/fork", "fork-owner/editor", "current-reader", "all"],
+        ["/fork", "fork-owner/editor", "current-reader", "authored"],
+      ],
+    );
+  }),
+);
+
 it.effect("reads a host's repositories in one search, and files the rows back under each", () =>
   Effect.gen(function* () {
     const asked: Array<ReadonlyArray<string>> = [];

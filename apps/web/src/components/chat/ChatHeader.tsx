@@ -1,8 +1,8 @@
 import {
   type EnvironmentId,
-  type EditorId,
   type ProjectScript,
   type ResolvedKeybindingsConfig,
+  type RuntimeMode,
   type ThreadId,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -32,9 +32,6 @@ import ProjectScriptsControl, {
   type NewProjectScriptInput,
   type ProjectScriptActionResult,
 } from "../ProjectScriptsControl";
-import { OpenInPicker } from "./OpenInPicker";
-import { useRemoteOpenState, type RemoteOpenMode } from "../../remoteOpen";
-import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useT3ProjectFileScripts } from "~/hooks/useT3ProjectFileScripts";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
 import { readLocalApi } from "~/localApi";
@@ -56,6 +53,8 @@ import { NeoPiTerminalHandoff } from "../neopi/NeoPiTerminalHandoff";
 import { NeoPiSessionConfiguration } from "../neopi/NeoPiSessionConfiguration";
 
 interface ChatHeaderProps {
+  runtimeMode: RuntimeMode;
+  onRuntimeModeChange: (mode: RuntimeMode) => void;
   activeThreadEnvironmentId: EnvironmentId;
   activeThreadId: ThreadId;
   draftId?: DraftId;
@@ -63,11 +62,9 @@ interface ChatHeaderProps {
   /** Drafts have no server thread yet, so the title carries no action menu. */
   isServerThread: boolean;
   activeProject: EnvironmentProject | null;
-  openInCwd: string | null;
   activeProjectScripts: ReadonlyArray<ProjectScript> | undefined;
   preferredScriptId: string | null;
   keybindings: ResolvedKeybindingsConfig;
-  availableEditors: ReadonlyArray<EditorId>;
   rightPanelOpen: boolean;
   gitCwd: string | null;
   readonly onOpenPullRequest?: ((number: number) => void) | undefined;
@@ -106,37 +103,18 @@ const TITLE_MENU_OPEN_DELAY_MS = 500;
 // Matches the @3xl/header-actions container breakpoint owned by this header.
 const HEADER_ACTIONS_EXPANDED_BREAKPOINT_REM = 48;
 
-export function shouldShowOpenInPicker(input: {
-  readonly activeProjectName: string | undefined;
-  readonly activeThreadEnvironmentId: EnvironmentId;
-  readonly primaryEnvironmentId: EnvironmentId | null;
-  readonly remoteOpenMode: RemoteOpenMode;
-}): boolean {
-  if (!input.activeProjectName) return false;
-  if (
-    input.primaryEnvironmentId !== null &&
-    input.activeThreadEnvironmentId === input.primaryEnvironmentId
-  ) {
-    return true;
-  }
-  // Remote environments get the picker in deep-link mode (or its explicit
-  // "no SSH route" state). Non-primary local backends (e.g. WSL) keep it
-  // hidden, matching pre-remote behavior.
-  return input.remoteOpenMode !== "local-exec";
-}
-
 export const ChatHeader = memo(function ChatHeader({
   activeThreadEnvironmentId,
   activeThreadId,
   draftId,
   activeThreadTitle,
+  runtimeMode,
+  onRuntimeModeChange,
   isServerThread,
   activeProject,
-  openInCwd,
   activeProjectScripts,
   preferredScriptId,
   keybindings,
-  availableEditors,
   rightPanelOpen,
   gitCwd,
   onOpenPullRequest,
@@ -196,20 +174,12 @@ export const ChatHeader = memo(function ChatHeader({
     [actionsContainer, actionsCollapsed],
   );
   if (!actionsCollapsed && actionsOpen) setActionsOpen(false);
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
   const activeProjectName = activeProject?.title;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const fileScripts = useT3ProjectFileScripts(
     activeThreadEnvironmentId,
     activeProjectScripts ? activeProjectCwd : null,
   );
-  const remoteOpenState = useRemoteOpenState(activeThreadEnvironmentId);
-  const showOpenInPicker = shouldShowOpenInPicker({
-    activeProjectName,
-    activeThreadEnvironmentId,
-    primaryEnvironmentId,
-    remoteOpenMode: remoteOpenState.mode,
-  });
   const activeThreadRef = useMemo(
     () => scopeThreadRef(activeThreadEnvironmentId, activeThreadId),
     [activeThreadEnvironmentId, activeThreadId],
@@ -371,21 +341,9 @@ export const ChatHeader = memo(function ChatHeader({
           />
         </>
       )}
-      {showOpenInPicker && (
-        <>
-          {actionsCollapsed && activeProjectScripts && <MenuSeparator />}
-          <OpenInPicker
-            presentation={actionsCollapsed ? "menu" : "toolbar"}
-            environmentId={activeThreadEnvironmentId}
-            keybindings={keybindings}
-            availableEditors={availableEditors}
-            openInCwd={openInCwd}
-          />
-        </>
-      )}
       {activeProjectName && gitCwd && (
         <>
-          {actionsCollapsed && (activeProjectScripts || showOpenInPicker) && <MenuSeparator />}
+          {actionsCollapsed && activeProjectScripts && <MenuSeparator />}
           <GitActionsControl
             presentation={actionsCollapsed ? "menu" : "toolbar"}
             gitCwd={gitCwd}
@@ -436,7 +394,7 @@ export const ChatHeader = memo(function ChatHeader({
             </WorkspaceBreadcrumbSeparator>
           </>
         ) : null}
-        <WorkspaceBreadcrumbItem current className="min-w-10 flex-1">
+        <WorkspaceBreadcrumbItem current className="min-w-10 max-w-64 flex-1">
           {renamingTitle !== null ? (
             <input
               autoFocus
@@ -490,7 +448,11 @@ export const ChatHeader = memo(function ChatHeader({
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
       <NeoPiTerminalHandoff threadRef={isServerThread ? activeThreadRef : null} />
-      <NeoPiSessionConfiguration threadRef={isServerThread ? activeThreadRef : null} />
+      <NeoPiSessionConfiguration
+        threadRef={isServerThread ? activeThreadRef : null}
+        runtimeMode={runtimeMode}
+        onRuntimeModeChange={onRuntimeModeChange}
+      />
       <div
         ref={headerActionsRef}
         data-chat-header-actions
@@ -506,7 +468,7 @@ export const ChatHeader = memo(function ChatHeader({
           <MenuTrigger
             className={
               actionsCollapsed &&
-              (activeProjectScripts || showOpenInPicker || (activeProjectName && gitCwd))
+              (activeProjectScripts || (activeProjectName && gitCwd))
                 ? undefined
                 : "hidden"
             }

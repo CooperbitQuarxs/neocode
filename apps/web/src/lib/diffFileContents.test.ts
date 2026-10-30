@@ -1,10 +1,17 @@
 import type { FileDiffMetadata } from "@pierre/diffs";
-import { EnvironmentId, type ReviewDiffFileContentsResult } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProviderInstanceId,
+  type ReviewDiffFileContentsResult,
+} from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { createGitDiffFileContentsLoader } from "./diffFileContents";
+import {
+  createGitDiffFileContentsLoader,
+  createNativeDiffFileContentsLoader,
+} from "./diffFileContents";
 
 const SOURCE = {
   environmentId: EnvironmentId.make("environment-1"),
@@ -74,6 +81,55 @@ describe("createGitDiffFileContentsLoader", () => {
       AsyncResult.failure<ReviewDiffFileContentsResult, Error>(Cause.fail(failure)),
     );
     const load = createGitDiffFileContentsLoader(getDiffFileContents, SOURCE);
+
+    await expect(load(fileDiff())).rejects.toBe(failure);
+  });
+});
+
+describe("createNativeDiffFileContentsLoader", () => {
+  const source = {
+    environmentId: SOURCE.environmentId,
+    ref: {
+      providerInstanceId: ProviderInstanceId.make("neopi"),
+      sessionFile: "/sessions/first.jsonl",
+    },
+    sourceKind: SOURCE.sourceKind,
+    baseRef: SOURCE.baseRef,
+    headRef: SOURCE.headRef,
+    cacheKey: SOURCE.cacheKey,
+  };
+
+  it("keeps identical patches in different native workspaces out of Pierre's hydrated cache", async () => {
+    const getDiffFileContents = vi.fn(async () =>
+      AsyncResult.success({ oldContents: "before\n", newContents: "after\n" }),
+    );
+    const sources = [
+      source,
+      { ...source, environmentId: EnvironmentId.make("environment-2") },
+      {
+        ...source,
+        ref: { ...source.ref, providerInstanceId: ProviderInstanceId.make("other-neopi") },
+      },
+      { ...source, ref: { ...source.ref, sessionFile: "/sessions/second.jsonl" } },
+      { ...source, baseRef: "release" },
+    ];
+    const loaded = await Promise.all(
+      sources.map((entry) =>
+        createNativeDiffFileContentsLoader(getDiffFileContents, entry)(fileDiff()),
+      ),
+    );
+    expect(new Set(loaded.map((files) => files.newFile?.cacheKey)).size).toBe(sources.length);
+    expect(new Set(loaded.map((files) => files.oldFile?.cacheKey)).size).toBe(sources.length);
+    expect(loaded[0]?.newFile?.contents).toBe("after\n");
+    expect(loaded[0]?.oldFile?.contents).toBe("before\n");
+  });
+
+  it("preserves native authorization failures during unchanged-context expansion", async () => {
+    const failure = new Error("Native session workspace is unavailable.");
+    const getDiffFileContents = vi.fn(async () =>
+      AsyncResult.failure<ReviewDiffFileContentsResult, Error>(Cause.fail(failure)),
+    );
+    const load = createNativeDiffFileContentsLoader(getDiffFileContents, source);
 
     await expect(load(fileDiff())).rejects.toBe(failure);
   });

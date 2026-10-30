@@ -12,11 +12,13 @@ import {
 import type { PlanProposalResponseFrame } from "effect-neopi-rpc/schema";
 import { NeoPiRpcError } from "effect-neopi-rpc/errors";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Exit from "effect/Exit";
 import * as Queue from "effect/Queue";
+import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
 import { ChildProcess } from "effect/unstable/process";
@@ -26,6 +28,7 @@ import { buildNeoPiLaunchPlan, isSharedNeoPiCursor } from "./NeoPiLaunchArgs.ts"
 import { NEOPI_CAPABILITIES, neopiCompatibility } from "./NeoPiCompatibility.ts";
 import { neoPiRoleFromModelSlug } from "./NeoPiModelCatalog.ts";
 import { NeoPiRuntimeError } from "./NeoPiRuntimeError.ts";
+import { makeNeoPiNativeEventHub } from "./NeoPiNativeEventHub.ts";
 import type {
   NeoPiResumeCursor,
   NeoPiRuntimeFrame,
@@ -133,6 +136,11 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     input.cursor ?? { v: 1, sessionFile: "", sessionId: "", sessionDir: "", turnBoundaries: [] },
   );
   const frames = yield* Queue.unbounded<NeoPiRuntimeFrame, Cause.Done<void>>();
+  const nativeEvents = makeNeoPiNativeEventHub();
+  const configurationChanges = yield* PubSub.sliding<void>(1);
+  const invalidateConfiguration = PubSub.publish(configurationChanges, undefined).pipe(
+    Effect.asVoid,
+  );
   const capabilities = new Set<string>();
   const uiPending = new Set<string>();
   const hostPending = new Map<string, Scope.Closeable>();
@@ -142,6 +150,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
   let generation = 0;
   let active: ActiveTurn | undefined;
   let compacting = false;
+  let lastTelemetryAt = 0;
   let pendingProposal:
     | {
         readonly id: string;
@@ -169,26 +178,47 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
 
   const emit = (frame: NeoPiRuntimeFrame) =>
     Queue.offer(frames, frame).pipe(Effect.orDie, Effect.asVoid);
-  const setState = (value: NeoPiRuntimeState) => SubscriptionRef.set(state, value);
+  const setState = (value: NeoPiRuntimeState) =>
+    SubscriptionRef.set(state, value).pipe(
+      Effect.andThen(invalidateConfiguration),
+      Effect.andThen(() =>
+        value === "stopped" || value === "failed" || value === "stopping"
+          ? nativeEvents.publish({ type: "neocode_connection_closed", state: value })
+          : Effect.void,
+      ),
+    );
   const current = () =>
     client
       ? Effect.succeed(client)
       : Effect.fail(
           new NeoPiRuntimeError({ code: "closed", message: "NeoPi session is not connected" }),
         );
-  // Only read operations and interrupting our own turn may cross an attached
-  // control connection. New mutating commands are refused by default.
-  const attachedReadCommands = new Set([
+  // Native settings/auth operations and interrupting our own turn may cross
+  // an attached control connection. Other session mutations remain owner-only.
+  const attachedCommands = new Set([
     "get_state",
+    "snapshot_session_journal",
     "get_entries",
+    "get_entries_page",
     "get_messages_page",
     "get_usage",
     "get_roles",
     "get_commands",
+    "get_models_configuration",
+    "set_model_role_configuration",
+    "set_model_role_storage",
+    "set_effort_rules",
+    "get_login_providers",
+    "get_logout_accounts",
+    "set_provider_api_key",
+    "login",
+    "cancel_login",
+    "logout",
   ]);
+  const modelsAuthUi = new Set<string>();
   const request: NeoPiRpcClient["request"] = (cmd) =>
     Effect.gen(function* () {
-      if (!attachedReadCommands.has(cmd.type) && !(cmd.type === "abort" && active))
+      if (!attachedCommands.has(cmd.type) && !(cmd.type === "abort" && active))
         yield* requireOwner(cmd.type);
       if (!client)
         return yield* new NeoPiRpcError({
@@ -408,10 +438,51 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     });
   const handleEvent = (frame: NeoPiRuntimeFrame) =>
     Effect.gen(function* () {
-      // Control subscriptions include terminal-originated turns. They are not
-      // imported live: without a NeoCode-started turn there is no thread turn
-      // to correlate them with, so never let them create or settle turn state.
+      if (frame.type === "message_update") {
+        const now = yield* Clock.currentTimeMillis;
+        if (now - lastTelemetryAt >= 1000) {
+          lastTelemetryAt = now;
+          yield* invalidateConfiguration;
+        }
+      }
+      if (
+        frame.type === "model_changed" ||
+        frame.type === "thinking_level_changed" ||
+        frame.type === "approval_mode_changed" ||
+        frame.type === "models_configuration_changed" ||
+        frame.type === "themes_configuration_changed" ||
+        frame.type === "message_end" ||
+        frame.type === "agent_start" ||
+        frame.type === "agent_end" ||
+        frame.type === "auto_compaction_end" ||
+        frame.type === "advisor_cost_changed" ||
+        frame.type === "journal_state" ||
+        frame.type === "journal_entry"
+      )
+        yield* invalidateConfiguration;
+      // Native observers retain process-local message IDs independently of SQL
+      // turns. Only message_persisted can associate one with a durable entry.
+      const nativeFrame: { readonly type: string } = frame;
+      yield* nativeEvents.publish(nativeFrame);
+      if (
+        frame.type === "journal_state" ||
+        frame.type === "journal_entry" ||
+        frame.type === "message_persisted"
+      )
+        return;
+      // External terminal work must not create or settle NeoCode SQL turns.
       if (attached && !active) return;
+      // A proposal settles the graphical turn before the native run ends.
+      // Its terminal event must still release withdrawal and expiry waiters.
+      if (
+        !active &&
+        (frame.type.startsWith("message_") ||
+          frame.type === "agent_start" ||
+          (frame.type === "agent_end" && !pendingProposal) ||
+          frame.type === "turn_start" ||
+          frame.type === "turn_end")
+      )
+        return;
       const turn = active;
       yield* emit({ ...frame, ...(turn ? { turnId: turn.id } : {}) });
       const rejected = pendingProposal;
@@ -582,6 +653,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     );
   const closePeer = Effect.gen(function* () {
     generation++;
+    yield* invalidateConfiguration;
     if (pendingProposal) {
       const proposal = pendingProposal;
       pendingProposal = undefined;
@@ -644,6 +716,9 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
           args,
           cwd: launch.cwd,
           env: launch.env,
+          // Event handlers await replies on this connection (turn boundaries,
+          // state refreshes). Backpressuring stdout here can strand those
+          // replies behind queued events. Window observers have their own budgets.
           ...(input.requestTimeoutMs === undefined
             ? {}
             : { requestTimeoutMs: input.requestTimeoutMs }),
@@ -666,6 +741,13 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
               );
               yield* Stream.runForEach(transport.uiRequests, (frame) =>
                 Effect.gen(function* () {
+                  if (typeof frame.loginId === "string") {
+                    if (frame.method === "input") modelsAuthUi.add(frame.id);
+                    if (frame.method === "cancel" && typeof frame.targetId === "string")
+                      modelsAuthUi.delete(frame.targetId);
+                    yield* emit(frame);
+                    return;
+                  }
                   if (attached && !active) return;
                   if (activeUiMethods.has(frame.method)) {
                     if (
@@ -1188,6 +1270,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
       sessionId: fresh.sessionId,
       sessionFile: NodePath.resolve(fresh.sessionFile),
     });
+    yield* invalidateConfiguration;
     yield* emit({ type: "t3.state", state: fresh });
   });
   const setRuntimeMode = (next: RuntimeMode) =>
@@ -1212,6 +1295,34 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     get processGeneration() {
       return generation;
     },
+    subscribeConfigurationChanges: PubSub.subscribe(configurationChanges),
+    observeNative: nativeEvents.subscribe,
+    nativeRequest: (command) =>
+      Effect.gen(function* () {
+        if (
+          ![
+            "get_state",
+            "get_entries_page",
+            "snapshot_session_journal",
+            "navigate_tree",
+            "resume_tree",
+            "abort",
+          ].includes(command.type)
+        )
+          return yield* new NeoPiRpcError({
+            code: "unsupported",
+            command: command.type,
+            message: "Not a native conversation command.",
+          });
+        if (!client)
+          return yield* new NeoPiRpcError({
+            code: "closed",
+            command: command.type,
+            message: "NeoPi session is not connected",
+          });
+        return yield* client.request(command);
+      }),
+    invalidateConfiguration,
     prepareForTurn,
     capabilities,
     start,
@@ -1242,7 +1353,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
     applyModelSelection,
     respondUi: (response) =>
       Effect.gen(function* () {
-        yield* requireOwner("respond to owner UI");
+        if (!modelsAuthUi.has(response.id)) yield* requireOwner("respond to owner UI");
         const channel = client ?? earlyUi;
         if (!channel)
           return yield* new NeoPiRpcError({
@@ -1251,6 +1362,7 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
           });
         yield* channel.respondUi(response);
         uiPending.delete(response.id);
+        modelsAuthUi.delete(response.id);
       }),
   } satisfies NeoPiSessionRuntimeShape;
 });

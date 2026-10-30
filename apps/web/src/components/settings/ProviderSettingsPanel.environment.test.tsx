@@ -16,12 +16,10 @@ const atoms = vi.hoisted(() => ({
   providers: null as ReadonlyArray<ServerProvider> | null,
   providersAtom: Symbol("providers"),
   refreshProviders: Symbol("refreshProviders"),
-  updateProvider: Symbol("updateProvider"),
 }));
 
 const commands = vi.hoisted(() => ({
   refresh: vi.fn(),
-  updateProvider: vi.fn(),
 }));
 
 const settingsState = vi.hoisted(() => ({
@@ -58,13 +56,11 @@ vi.mock("../../state/server", () => ({
   serverEnvironment: {
     providersValueAtom: () => atoms.providersAtom,
     refreshProviders: atoms.refreshProviders,
-    updateProvider: atoms.updateProvider,
   },
 }));
 
 vi.mock("../../state/use-atom-command", () => ({
-  useAtomCommand: (atom: symbol) =>
-    atom === atoms.refreshProviders ? commands.refresh : commands.updateProvider,
+  useAtomCommand: () => commands.refresh,
 }));
 
 vi.mock("../../hooks/useSettings", () => ({
@@ -84,13 +80,13 @@ vi.mock("../../state/session", () => ({
 import { EnvironmentProviderSettings } from "./ProviderSettingsPanel";
 
 const environmentId = EnvironmentId.make("remote-device");
-const codexId = ProviderInstanceId.make("codex");
-const customId = ProviderInstanceId.make("codex_work");
+const neopiId = ProviderInstanceId.make("neopi");
+const customId = ProviderInstanceId.make("neopi_work");
 
 function provider(): ServerProvider {
   return {
-    instanceId: codexId,
-    driver: ProviderDriverKind.make("codex"),
+    instanceId: neopiId,
+    driver: ProviderDriverKind.make("neopi"),
     enabled: true,
     installed: true,
     version: "1.0.0",
@@ -100,21 +96,13 @@ function provider(): ServerProvider {
     models: [],
     slashCommands: [],
     skills: [],
-    versionAdvisory: {
-      status: "behind_latest",
-      currentVersion: "1.0.0",
-      latestVersion: "1.1.0",
-      updateCommand: "pnpm add -g @openai/codex@latest",
-      canUpdate: true,
-      checkedAt: "2026-07-24T12:00:00.000Z",
-      message: "Update available.",
-    },
   };
 }
 
 function renderPanel(options?: {
   readonly readOnly?: boolean;
   readonly targetInstanceId?: ProviderInstanceId;
+  readonly neoCore?: boolean;
 }): ReactElement<Record<string, unknown>> {
   hooks.beginRender();
   return EnvironmentProviderSettings({
@@ -124,6 +112,7 @@ function renderPanel(options?: {
     ...(options?.targetInstanceId === undefined
       ? {}
       : { targetInstanceId: options.targetInstanceId }),
+    ...(options?.neoCore === undefined ? {} : { neoCore: options.neoCore }),
   }) as ReactElement<Record<string, unknown>>;
 }
 
@@ -154,41 +143,13 @@ describe("EnvironmentProviderSettings routing", () => {
     settingsState.updateSettings.mockReset();
     settingsState.updateClientSettings.mockReset();
     commands.refresh.mockReset().mockResolvedValue({ _tag: "Success" });
-    commands.updateProvider.mockReset().mockResolvedValue({ _tag: "Success" });
-  });
-
-  it("allows another update after a pending update settles without dispatching duplicates", async () => {
-    settingsState.value = {
-      ...DEFAULT_UNIFIED_SETTINGS,
-      providerInstances: {
-        [customId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
-      },
-    };
-    atoms.providers = [{ ...provider(), instanceId: customId }];
-    const pending = Promise.withResolvers<{ _tag: "Success" }>();
-    commands.updateProvider.mockReturnValueOnce(pending.promise);
-    const panel = renderPanel({ targetInstanceId: customId });
-    const editor = visitElements(panel, (element) => element.props.mode === "editor");
-    const update = editor?.props.onRunUpdate as () => void;
-
-    update();
-    update();
-    expect(commands.updateProvider).toHaveBeenCalledExactlyOnceWith({
-      environmentId,
-      input: { provider: ProviderDriverKind.make("codex"), instanceId: customId },
-    });
-
-    pending.resolve({ _tag: "Success" });
-    await pending.promise;
-    update();
-    expect(commands.updateProvider).toHaveBeenCalledTimes(2);
   });
 
   it("opens the requested provider instance instead of the first provider", () => {
     settingsState.value = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
-        [customId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
+        [customId]: { driver: ProviderDriverKind.make("neopi"), enabled: true },
       },
     };
     atoms.providers = [provider()];
@@ -197,14 +158,56 @@ describe("EnvironmentProviderSettings routing", () => {
     expect(editor?.props.instanceId).toBe(customId);
   });
 
+  it("keeps every NeoPi profile selectable without writing settings on navigation", () => {
+    const firstId = ProviderInstanceId.make("neopi_personal");
+    const secondId = ProviderInstanceId.make("neopi_work");
+    settingsState.value = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [firstId]: { driver: ProviderDriverKind.make("neopi"), enabled: true },
+        [secondId]: {
+          driver: ProviderDriverKind.make("neopi"),
+          enabled: false,
+          config: { binaryPath: "/opt/work/npi", profile: "work", launchArgs: "--no-extensions" },
+          environment: [{ name: "API_KEY", value: "", sensitive: true, valueRedacted: true }],
+        },
+        [customId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
+      },
+    };
+    let panel = renderPanel({ neoCore: true, targetInstanceId: firstId });
+    expect(visitElements(panel, (element) => element.props.instanceId === customId)).toBeNull();
+    const workRow = visitElements(
+      panel,
+      (element) => element.props.instanceId === secondId && element.props.mode === "list",
+    );
+    (workRow?.props.onSelect as () => void)();
+    panel = renderPanel({ neoCore: true, targetInstanceId: firstId });
+    const editor = visitElements(panel, (element) => element.props.mode === "editor");
+    expect(editor?.props.instanceId).toBe(secondId);
+    expect(settingsState.updateSettings).not.toHaveBeenCalled();
+    expect(commands.refresh).not.toHaveBeenCalled();
+
+    const instance = settingsState.value.providerInstances![secondId]!;
+    (editor?.props.onUpdate as (next: typeof instance) => void)({ ...instance, enabled: true });
+    expect(settingsState.updateSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        providerInstances: expect.objectContaining({
+          [secondId]: { ...instance, enabled: true },
+          [firstId]: settingsState.value.providerInstances![firstId],
+          [customId]: settingsState.value.providerInstances![customId],
+        }),
+      }),
+    );
+  });
+
   it("normalizes one account's favorites without erasing another account's choices", () => {
     settingsState.value = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
-        [customId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
+        [customId]: { driver: ProviderDriverKind.make("neopi"), enabled: true },
       },
       favorites: [
-        { provider: codexId, model: "other-account" },
+        { provider: neopiId, model: "other-account" },
         { provider: customId, model: "old-favorite" },
       ],
     };
@@ -215,13 +218,13 @@ describe("EnvironmentProviderSettings routing", () => {
     changeFavorites([" chosen ", "", "chosen", "  "]);
     expect(settingsState.updateClientSettings).toHaveBeenLastCalledWith({
       favorites: [
-        { provider: codexId, model: "other-account" },
+        { provider: neopiId, model: "other-account" },
         { provider: customId, model: "chosen" },
       ],
     });
     changeFavorites([]);
     expect(settingsState.updateClientSettings).toHaveBeenLastCalledWith({
-      favorites: [{ provider: codexId, model: "other-account" }],
+      favorites: [{ provider: neopiId, model: "other-account" }],
     });
     expect(settingsState.updateSettings).not.toHaveBeenCalled();
   });
@@ -231,10 +234,10 @@ describe("EnvironmentProviderSettings routing", () => {
     settingsState.value = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
-        [customId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
+        [customId]: { driver: ProviderDriverKind.make("neopi"), enabled: true },
       },
       providerModelPreferences: {
-        [codexId]: otherPreferences,
+        [neopiId]: otherPreferences,
         [customId]: { hiddenModels: [], modelOrder: ["old-order"] },
       },
     };
@@ -246,20 +249,20 @@ describe("EnvironmentProviderSettings routing", () => {
     changeHidden(["hidden", "", "hidden", " "]);
     expect(settingsState.updateClientSettings).toHaveBeenLastCalledWith({
       providerModelPreferences: {
-        [codexId]: otherPreferences,
+        [neopiId]: otherPreferences,
         [customId]: { hiddenModels: ["hidden"], modelOrder: ["old-order"] },
       },
     });
     changeOrder(["ordered", "", "ordered", " "]);
     expect(settingsState.updateClientSettings).toHaveBeenLastCalledWith({
       providerModelPreferences: {
-        [codexId]: otherPreferences,
+        [neopiId]: otherPreferences,
         [customId]: { hiddenModels: [], modelOrder: ["ordered"] },
       },
     });
     changeOrder([]);
     expect(settingsState.updateClientSettings).toHaveBeenLastCalledWith({
-      providerModelPreferences: { [codexId]: otherPreferences },
+      providerModelPreferences: { [neopiId]: otherPreferences },
     });
     expect(settingsState.updateSettings).not.toHaveBeenCalled();
   });
@@ -276,7 +279,7 @@ describe("EnvironmentProviderSettings routing", () => {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
         [customId]: {
-          driver: ProviderDriverKind.make("codex"),
+          driver: ProviderDriverKind.make("neopi"),
           enabled: true,
         },
       },
@@ -310,12 +313,12 @@ describe("EnvironmentProviderSettings routing", () => {
     settingsState.value = {
       ...DEFAULT_UNIFIED_SETTINGS,
       providerInstances: {
-        [codexId]: {
-          driver: ProviderDriverKind.make("codex"),
+        [neopiId]: {
+          driver: ProviderDriverKind.make("neopi"),
           enabled: false,
         },
         [customId]: {
-          driver: ProviderDriverKind.make("codex"),
+          driver: ProviderDriverKind.make("neopi"),
           enabled: true,
         },
       },
@@ -340,20 +343,20 @@ describe("EnvironmentProviderSettings routing", () => {
 
     expect(settingsState.updateSettings).toHaveBeenLastCalledWith({
       providerInstances: {
-        [codexId]: settingsState.value.providerInstances?.[codexId],
+        [neopiId]: settingsState.value.providerInstances?.[neopiId],
       },
     });
 
     settingsState.updateSettings.mockClear();
     const defaultRow = visitElements(
       panel,
-      (element) => element.props.instanceId === codexId && element.props.mode === "list",
+      (element) => element.props.instanceId === neopiId && element.props.mode === "list",
     );
     (defaultRow?.props.onSelect as (() => void) | undefined)?.();
     panel = renderPanel();
     const defaultCard = visitElements(
       panel,
-      (element) => element.props.instanceId === codexId && element.props.mode === "editor",
+      (element) => element.props.instanceId === neopiId && element.props.mode === "editor",
     );
     const resetAction = defaultCard?.props.headerAction;
     const resetButton = visitElements(

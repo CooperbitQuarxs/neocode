@@ -2,12 +2,9 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { BUILT_IN_THEMES } from "@t3tools/shared/themePalettes";
 
 import {
-  applyThemeColorPreview,
-  applyThemePalette,
   getThemeColorsForMode,
   getThemeDefinition,
   getThemeModes,
-  getThemePreviewSidebarArtwork,
   getThemePreferenceMode,
   isKnownThemePreference,
   getCustomThemes,
@@ -24,9 +21,7 @@ import {
   resolveDesktopTheme,
   resolveThemeAppearance,
   serializeThemeFile,
-  subscribeToThemePreview,
   subscribeToCustomThemes,
-  themeAllowsSidebarArtwork,
   T3_CHAT_THEME,
   EMBER_THEME,
   GROVE_THEME,
@@ -37,6 +32,7 @@ import {
   createVividThemeColors,
   getDefaultThemeColors,
   themeColorToHex,
+  neoPiThemeColors,
   toCanonicalThemeColor,
   THEME_FILE_VERSION,
   singleAppearanceOf,
@@ -79,6 +75,45 @@ function contrastRatio(first: string, second: string): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+describe("native theme projection", () => {
+  it("maps native semantic surfaces without losing text or focus contrast", () => {
+    for (const appearance of ["light", "dark"] as const) {
+      const dark = appearance === "dark";
+      const native = {
+        pageBg: dark ? "#15151c" : "#faf9f5",
+        cardBg: dark ? "#232330" : "#ecebe8",
+        infoBg: dark ? "#30303d" : "#dedddb",
+        statusLineBg: dark ? "#101018" : "#ffffff",
+        userMessageBg: dark ? "#261c30" : "#251e30",
+        text: dark ? "#181820" : "#eeeeee",
+        muted: dark ? "#24242a" : "#dddddd",
+        accent: "#8156bd",
+        borderAccent: dark ? "#191920" : "#eeeeee",
+      };
+      const colors = neoPiThemeColors(appearance, native);
+      expect(asHex(colors.canvas)).toBe(native.pageBg);
+      expect(asHex(colors.sidebar)).toBe(native.statusLineBg);
+      for (const surface of [
+        colors.canvas,
+        colors.surface,
+        colors.surfaceRaised,
+        colors.surfaceOverlay,
+      ]) {
+        expect(contrastRatio(colors.text, surface)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(colors.textMuted, surface)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(colors.focus, surface)).toBeGreaterThanOrEqual(3);
+      }
+      expect(contrastRatio(colors.messageForeground, colors.messageSurface)).toBeGreaterThanOrEqual(
+        4.5,
+      );
+      expect(contrastRatio(colors.sidebarForeground, colors.sidebar)).toBeGreaterThanOrEqual(4.5);
+      const original = getDefaultThemeColors(appearance);
+      expect(colors.messageAction).toBe(original.messageAction);
+      expect(colors.messageActionForeground).toBe(original.messageActionForeground);
+    }
+  });
+});
+
 describe("theme files", () => {
   it("keeps every built-in palette value in canonical OKLCH form", () => {
     for (const theme of BUILT_IN_THEMES) {
@@ -90,32 +125,33 @@ describe("theme files", () => {
     }
   });
 
-  it("keeps stock dark controls in the neutral-black surface hierarchy", () => {
-    expectThemeColors(getStandardThemeColors("dark"), {
-      canvas: "#0a0a0a",
-      surface: "#111111",
-      surfaceRaised: "#111111",
-      surfaceOverlay: "#111111",
-      toolbarControl: "#111111",
-      secondary: "#111111",
-      muted: "#111111",
-      accentSurface: "#141414",
-    });
+  it("separates default page, card and raised surfaces in both appearances", () => {
+    for (const appearance of ["light", "dark"] as const) {
+      const colors = getStandardThemeColors(appearance);
+      expect(asHex(colors.surface)).not.toBe(asHex(colors.canvas));
+      expect(asHex(colors.surfaceRaised)).not.toBe(asHex(colors.surface));
+      expect(asHex(colors.sidebarRowActive)).not.toBe(asHex(colors.sidebar));
+    }
   });
 
-  it("keeps the stock sidebar and chat on distinct surfaces in both appearances", () => {
-    expectThemeColors(getStandardThemeColors("light"), {
-      canvas: "#fcfcfc",
-      sidebar: "#fafafa",
-      sidebarRowActive: "#ffffff",
-      messageSurface: "#f4f4f5",
-    });
-    expectThemeColors(getStandardThemeColors("dark"), {
-      canvas: "#0a0a0a",
-      sidebar: "#000000",
-      sidebarRowActive: "#1a1b1b",
-      messageSurface: "#141414",
-    });
+  it("keeps default text and focus readable on their shared surfaces", () => {
+    for (const appearance of ["light", "dark"] as const) {
+      const colors = getStandardThemeColors(appearance);
+      for (const surface of [colors.canvas, colors.surface, colors.surfaceRaised]) {
+        expect(contrastRatio(colors.text, surface)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(colors.textMuted, surface)).toBeGreaterThanOrEqual(4.5);
+        expect(contrastRatio(colors.focus, surface)).toBeGreaterThanOrEqual(3);
+      }
+      expect(
+        contrastRatio(colors.messageActionForeground, colors.messageAction),
+      ).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(colors.errorForeground, colors.errorSurface)).toBeGreaterThanOrEqual(
+        4.5,
+      );
+      expect(contrastRatio(colors.warningForeground, colors.warningSurface)).toBeGreaterThanOrEqual(
+        4.5,
+      );
+    }
   });
 
   it("derives readable, distinctive vivid palettes from exact seeds", () => {
@@ -333,42 +369,6 @@ describe("theme files", () => {
     expect(parseThemeFile(JSON.parse(serialized)).collection).toEqual(theme.collection);
   });
 
-  it("keeps sidebar artwork disabled for custom theme files", () => {
-    const theme = parseThemeFile({
-      version: THEME_FILE_VERSION,
-      name: "Art sidebar",
-      appearance: "light",
-      colors: { accent: "#5b6cff" },
-      sidebarArtwork: true,
-    });
-
-    expect(theme.sidebarArtwork).toBeUndefined();
-    expect(JSON.parse(serializeThemeFile(theme))).not.toHaveProperty("sidebarArtwork");
-  });
-
-  it("suppresses sidebar artwork during a live custom-theme preview", () => {
-    const listener = vi.fn();
-    const unsubscribe = subscribeToThemePreview(listener);
-    vi.stubGlobal("document", {
-      documentElement: {
-        classList: { toggle: vi.fn() },
-        dataset: {},
-        style: { removeProperty: vi.fn(), setProperty: vi.fn() },
-      },
-    });
-
-    applyThemeColorPreview(T3_CHAT_THEME.colors, "light");
-    expect(getThemePreviewSidebarArtwork()).toBe(false);
-    expect(listener).toHaveBeenCalledTimes(1);
-
-    applyThemePalette("system");
-    expect(getThemePreviewSidebarArtwork()).toBeNull();
-    expect(listener).toHaveBeenCalledTimes(2);
-
-    unsubscribe();
-    vi.unstubAllGlobals();
-  });
-
   it("keeps optional light and dark palettes under one theme id", () => {
     const theme = parseThemeFile({
       version: THEME_FILE_VERSION,
@@ -445,8 +445,6 @@ describe("theme files", () => {
     for (const theme of [T3_CHAT_THEME, GROVE_THEME, OCEAN_THEME, EMBER_THEME, IRIS_THEME]) {
       expect(getThemeDefinition(theme.id)).toBe(theme);
       expect(getThemeModes(theme)).toEqual(["light", "dark"]);
-      expect(theme.sidebarArtwork).toBe(true);
-      expect(themeAllowsSidebarArtwork(theme.id)).toBe(true);
       expect(theme.colors.accent).toMatch(/^oklch\(/);
       expect(theme.variants?.dark?.accent).toMatch(/^oklch\(/);
 
@@ -481,7 +479,6 @@ describe("theme files", () => {
         );
       }
     }
-    expect(themeAllowsSidebarArtwork("my-custom-theme")).toBe(false);
   });
 
   it("rejects a variant that repeats the base appearance", () => {
@@ -744,7 +741,6 @@ describe("theme files", () => {
         name: "Aurora",
         appearance: "light",
         colors: { canvas: "#f8fbff", accent: "#5b6cff" },
-        sidebarArtwork: true,
       }),
     );
     const updatedTheme = updateCustomTheme({
@@ -758,7 +754,6 @@ describe("theme files", () => {
       label: "Aurora Night",
       colors: { accent: canonical("hsl(263 70% 58%)") },
     });
-    expect(updatedTheme).not.toHaveProperty("sidebarArtwork");
     const storedThemes = JSON.parse(stored.get(CUSTOM_THEMES_STORAGE_KEY) ?? "[]");
     expect(storedThemes[0]).toEqual(untouchedTheme);
     expect(storedThemes[1]).toMatchObject({
@@ -766,7 +761,6 @@ describe("theme files", () => {
       label: "Aurora Night",
       colors: { accent: canonical("hsl(263 70% 58%)") },
     });
-    expect(storedThemes[1]).not.toHaveProperty("sidebarArtwork");
     invalidateCustomThemes();
     expect(getCustomThemes().find((theme) => theme.id === "aurora")).toMatchObject({
       id: "aurora",

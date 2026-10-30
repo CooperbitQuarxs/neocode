@@ -1,4 +1,5 @@
 import {
+  type NeoPiNativeSessionsGetDiffPreviewInput,
   type ReviewDiffPreviewInput,
   VcsUnsupportedOperationError,
   WS_METHODS,
@@ -27,6 +28,11 @@ export function createReviewEnvironmentAtoms<R, E>(
       tag: WS_METHODS.reviewGetDiffPreview,
       staleTimeMs: 5_000,
     }),
+    nativeDiffPreview: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:review:native-diff-preview",
+      tag: WS_METHODS.neopiNativeSessionsGetDiffPreview,
+      staleTimeMs: 5_000,
+    }),
     diffFilePatch: createEnvironmentQueryAtomFamily(runtime, {
       label: "environment-data:review:diff-file-patch",
       staleTimeMs: 5 * 60_000,
@@ -52,6 +58,33 @@ export function createReviewEnvironmentAtoms<R, E>(
           }),
         ),
     }),
+    nativeDiffFilePatch: createEnvironmentQueryAtomFamily(runtime, {
+      label: "environment-data:review:native-diff-file-patch",
+      staleTimeMs: 5 * 60_000,
+      execute: (input: {
+        request: NeoPiNativeSessionsGetDiffPreviewInput & {
+          file: NonNullable<NeoPiNativeSessionsGetDiffPreviewInput["file"]>;
+        };
+        cacheKey: string;
+      }) =>
+        request(WS_METHODS.neopiNativeSessionsGetDiffPreview, input.request).pipe(
+          patchReads.withPermit,
+          Effect.flatMap((result) => {
+            const source = result.sources.find(
+              (source) => source.kind === input.request.file.sourceKind,
+            );
+            return source
+              ? Effect.succeed(source)
+              : Effect.fail(
+                  new VcsUnsupportedOperationError({
+                    operation: "review.nativeDiffFilePatch",
+                    kind: "git",
+                    detail: "Diff no longer available. Refresh the comparison.",
+                  }),
+                );
+          }),
+        ),
+    }),
     diffFileContents: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:review:diff-file-contents",
       tag: WS_METHODS.reviewGetDiffFileContents,
@@ -62,6 +95,26 @@ export function createReviewEnvironmentAtoms<R, E>(
           JSON.stringify([
             environmentId,
             input.cwd,
+            input.sourceKind,
+            input.baseRef,
+            input.headRef,
+            input.oldPath,
+            input.newPath,
+            input.changeType,
+          ]),
+      },
+    }),
+    nativeDiffFileContents: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:review:native-diff-file-contents",
+      tag: WS_METHODS.neopiNativeSessionsGetDiffFileContents,
+      scheduler: diffFileScheduler,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([
+            environmentId,
+            input.ref.providerInstanceId,
+            input.ref.sessionFile,
             input.sourceKind,
             input.baseRef,
             input.headRef,

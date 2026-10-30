@@ -145,6 +145,7 @@ export function ProjectScriptEditorDialog({
   onSubmit,
   onDelete,
   onClose,
+  scopeDescription = "Commands run in this project's checkout or worktree on its environment. Editing an inherited action here overrides it only for this project; deleting it hides it here. Use Settings to change reusable environment actions.",
 }: {
   request: ProjectScriptEditorRequest | null;
   /** Existing scripts, used to derive a unique id for new scripts. */
@@ -155,6 +156,7 @@ export function ProjectScriptEditorDialog({
   ) => Promise<ProjectScriptActionResult>;
   onDelete: (scriptId: string) => void;
   onClose: () => void;
+  scopeDescription?: string;
 }) {
   const formId = React.useId();
   const [name, setName] = useState("");
@@ -304,7 +306,7 @@ export function ProjectScriptEditorDialog({
           <DialogHeader>
             <DialogTitle>{isEditing ? "Edit Action" : "Add Action"}</DialogTitle>
             <DialogDescription>
-              Actions are project-scoped commands you can run from the top bar or keybindings.
+              {scopeDescription}
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
@@ -383,6 +385,10 @@ export function ProjectScriptEditorDialog({
                     value={command}
                     onChange={(event) => setCommand(event.target.value)}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Shell command, run from the selected checkout or worktree. For example,
+                    <code> neovide -- .</code> opens that directory without interpolating its path.
+                  </p>
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="script-preview-url">Preview URL (optional)</Label>

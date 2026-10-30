@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
+import { ArrowLeftIcon, BlocksIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
@@ -26,9 +26,9 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { isSidebarUtilityPage, useNavigateToMainApp } from "./mainAppLocation";
 import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
-import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
+import { useOpenModels } from "../neopi/modelsPageState";
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
@@ -63,7 +63,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
       <SidebarBrand onBackdrop={backdropVariant !== null} />
       {pillLabel ? (
         <Badge
-          className="relative z-10 ml-1 hidden @[15rem]/sidebar-header:inline-flex"
+          className="relative z-10 ml-1 hidden @[13rem]/sidebar-header:inline-flex"
           data-environment-identification="pill"
           size="sm"
           variant="secondary"
@@ -80,21 +80,13 @@ function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
     <Link
       aria-label="Go to threads"
       className={cn(
-        "relative z-10 ml-[var(--workspace-titlebar-content-left)] hidden h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:flex",
+        "relative z-10 flex h-7 w-fit min-w-0 shrink-0 items-center overflow-hidden rounded-md outline-hidden ring-ring focus-visible:ring-2 md:ml-[var(--workspace-titlebar-content-left)]",
         onBackdrop ? "text-white" : "text-foreground",
       )}
       to="/"
     >
-      {/* Center the visible capitals, without the font's ascender/descender space. */}
-      <span className="inline-flex min-w-0 items-baseline gap-1 text-sm font-medium tracking-tight">
-        <span
-          className={cn(
-            "truncate [text-box:trim-both_cap_alphabetic]",
-            onBackdrop ? "text-white/70" : "text-muted-foreground",
-          )}
-        >
-          {APP_BASE_NAME}
-        </span>
+      <span className="truncate text-sm font-semibold tracking-tight [text-box:trim-both_cap_alphabetic]">
+        {APP_BASE_NAME}
       </span>
     </Link>
   );
@@ -128,6 +120,7 @@ function SidebarUtilityItem({
 export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const navigate = useNavigate();
   const navigateToMainApp = useNavigateToMainApp();
+  const openModels = useOpenModels();
   const { isMobile, setOpenMobile } = useSidebar();
   const isOnUtilityPage = useLocation({
     select: (location) => isSidebarUtilityPage(location.pathname),
@@ -161,6 +154,10 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     }
     void navigate({ to: "/usage" });
   }, [isMobile, navigate, setOpenMobile]);
+  const handleModelsClick = useCallback(() => {
+    closeMobileSidebar();
+    openModels();
+  }, [closeMobileSidebar, openModels]);
 
   const handleBackClick = useCallback(() => {
     closeMobileSidebar();
@@ -183,6 +180,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             label="Settings"
             onClick={handleSettingsClick}
           />
+          <SidebarUtilityItem icon={<BlocksIcon />} label="Models" onClick={handleModelsClick} />
           {pullRequestsSupported ? (
             <SidebarUtilityItem
               icon={<PullRequestGlyph.pullRequest />}
@@ -206,7 +204,6 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   return (
     <SidebarFooter>
       <SidebarThreadUndoNotice />
-      <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />
       <SidebarUtilityMenu />
     </SidebarFooter>

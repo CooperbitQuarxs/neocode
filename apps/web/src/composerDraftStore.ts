@@ -29,6 +29,10 @@ import {
   scopeProjectRef,
   scopedThreadKey,
   scopeThreadRef,
+  parseWorkspaceKey,
+  workspaceKey,
+  workspaceResourceId,
+  type WorkspaceRef,
 } from "@t3tools/client-runtime/environment";
 import * as Schema from "effect/Schema";
 import * as Equal from "effect/Equal";
@@ -216,7 +220,7 @@ const isPersistedComposerDraftFileAttachment = Schema.is(PersistedComposerDraftF
 
 const PersistedTerminalContextDraft = Schema.Struct({
   id: Schema.String,
-  threadId: ThreadId,
+  threadId: Schema.String,
   createdAt: Schema.String,
   terminalId: Schema.String,
   terminalLabel: Schema.String,
@@ -466,11 +470,12 @@ interface ProjectDraftSession extends DraftSessionState {
  * App-facing composer identity:
  * - `DraftId` for pre-thread draft sessions
  * - `ScopedThreadRef` for server-backed threads
+ * - `NativeSessionTarget` for canonical NeoPi sessions
  *
  * Raw `ThreadId` is intentionally excluded so callers cannot drop environment
  * identity for real threads.
  */
-export type ComposerThreadTarget = ScopedThreadRef | DraftId;
+export type ComposerThreadTarget = WorkspaceRef | DraftId;
 
 /**
  * Persisted store for composer content plus draft-session metadata.
@@ -845,7 +850,7 @@ function terminalContextDedupKey(context: TerminalContextDraft): string {
 }
 
 function normalizeTerminalContextForThread(
-  threadId: ThreadId,
+  threadId: string,
   context: TerminalContextDraft,
 ): TerminalContextDraft | null {
   const terminalId = context.terminalId.trim();
@@ -868,7 +873,7 @@ function normalizeTerminalContextForThread(
 }
 
 function normalizeTerminalContextsForThread(
-  threadId: ThreadId,
+  threadId: string,
   contexts: ReadonlyArray<TerminalContextDraft>,
 ): TerminalContextDraft[] {
   const existingIds = new Set<string>();
@@ -1375,14 +1380,14 @@ function logicalProjectDraftKey(logicalProjectKey: string): string {
 /**
  * Runtime composer storage key for app-facing identities only.
  *
- * Draft sessions are keyed by `DraftId`. Real threads are keyed by
- * `ScopedThreadRef` so environment identity is always preserved.
+ * Draft sessions are keyed by `DraftId`; conversations use their full workspace
+ * identity, including the environment and canonical native session when present.
  */
-export function composerTargetKey(target: ScopedThreadRef | DraftId): string {
+export function composerTargetKey(target: ComposerThreadTarget): string {
   if (typeof target === "string") {
     return target.trim();
   }
-  return scopedThreadKey(target);
+  return workspaceKey(target);
 }
 
 /**
@@ -1396,7 +1401,7 @@ function normalizeLegacyComposerStorageKey(
     environmentId?: EnvironmentId;
   },
 ): string {
-  const parsedThreadRef = parseScopedThreadKey(threadKeyOrId);
+  const parsedThreadRef = parseWorkspaceKey(threadKeyOrId);
   if (parsedThreadRef) {
     return composerTargetKey(parsedThreadRef);
   }
@@ -1436,7 +1441,7 @@ function resolveComposerDraftKey(
   }
   if (typeof normalizedTarget !== "string") {
     const scopedKey = composerTargetKey(normalizedTarget);
-    if (state.draftsByThreadKey[scopedKey]) {
+    if ("ref" in normalizedTarget || state.draftsByThreadKey[scopedKey]) {
       return scopedKey;
     }
     for (const [draftId, draftSession] of Object.entries(state.draftThreadsByThreadKey)) {
@@ -1453,16 +1458,16 @@ function resolveComposerDraftKey(
   return threadKey.length > 0 ? threadKey : null;
 }
 
-function resolveComposerThreadId(
+function resolveComposerResourceId(
   state: ComposerThreadLookupState,
   target: ComposerThreadTarget,
-): ThreadId | null {
+): string | null {
   const normalizedTarget = normalizeComposerTarget(state, target);
   if (!normalizedTarget) {
     return null;
   }
   if (typeof normalizedTarget !== "string") {
-    return normalizedTarget.threadId;
+    return workspaceResourceId(normalizedTarget);
   }
   return state.draftThreadsByThreadKey[normalizedTarget]?.threadId ?? null;
 }
@@ -2465,6 +2470,22 @@ function toHydratedThreadDraft(
   };
 }
 
+// Native acceptance notifications reuse the durable content shape, without
+// hydrating File copies or applying legacy inline-reference migrations.
+export function persistComposerDraftSnapshot(draft: ComposerThreadDraftState) {
+  return partializeComposerDraftStoreState({
+    ...composerDraftStore.getState(),
+    draftsByThreadKey: { snapshot: draft },
+    draftThreadsByThreadKey: {},
+    logicalProjectDraftThreadKeyByLogicalProjectKey: {},
+  }).draftsByThreadKey.snapshot;
+}
+const isComposerDraftSnapshot = Schema.is(PersistedComposerThreadDraftState);
+
+export function readComposerDraftSnapshot(value: unknown) {
+  return isComposerDraftSnapshot(value) ? value : null;
+}
+
 function toHydratedDraftThreadState(
   persistedDraftThread: PersistedDraftThreadState,
 ): DraftThreadState {
@@ -2600,7 +2621,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
           if (typeof threadRef === "string") {
             return get().getDraftSession(DraftId.make(threadRef));
           }
-          return get().getDraftSessionByRef(threadRef);
+          return "threadId" in threadRef ? get().getDraftSessionByRef(threadRef) : null;
         },
         getDraftThreadByRef: (threadRef) => {
           return get().getDraftSessionByRef(threadRef);
@@ -3002,7 +3023,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
         },
         setTerminalContexts: (threadRef, contexts) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef);
-          const threadId = resolveComposerThreadId(get(), threadRef);
+          const threadId = resolveComposerResourceId(get(), threadRef);
           if (!threadKey || !threadId) {
             return;
           }
@@ -3289,7 +3310,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
         },
         addImage: (threadRef, image) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef);
-          const threadId = resolveComposerThreadId(get(), threadRef);
+          const threadId = resolveComposerResourceId(get(), threadRef);
           if (!threadKey || !threadId) {
             return false;
           }
@@ -3583,7 +3604,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
         },
         insertTerminalContext: (threadRef, prompt, context, index) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef);
-          const threadId = resolveComposerThreadId(get(), threadRef);
+          const threadId = resolveComposerResourceId(get(), threadRef);
           if (!threadKey || !threadId) {
             return false;
           }
@@ -3623,7 +3644,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
         },
         addTerminalContext: (threadRef, context) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef);
-          const threadId = resolveComposerThreadId(get(), threadRef);
+          const threadId = resolveComposerResourceId(get(), threadRef);
           if (!threadKey || !threadId) {
             return;
           }
@@ -3634,7 +3655,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
         },
         addTerminalContexts: (threadRef, contexts, options) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef);
-          const threadId = resolveComposerThreadId(get(), threadRef);
+          const threadId = resolveComposerResourceId(get(), threadRef);
           if (!threadKey || !threadId || contexts.length === 0) {
             return;
           }

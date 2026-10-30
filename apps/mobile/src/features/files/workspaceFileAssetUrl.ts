@@ -1,4 +1,9 @@
-import type { AssetResource, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type {
+  AssetResource,
+  EnvironmentId,
+  NeoPiNativeSessionRef,
+  ThreadId,
+} from "@t3tools/contracts";
 import { useMemo } from "react";
 
 import { useAssetUrlState, useRefreshAssetUrl } from "../../state/assets";
@@ -14,6 +19,7 @@ export function useWorkspaceFileAssetUrlState(props: {
   readonly environmentId: EnvironmentId | null;
   readonly relativePath: string | null;
   readonly threadId: ThreadId | null;
+  readonly nativeRef?: NeoPiNativeSessionRef | undefined;
   /** A draft's workspace root, used only when there is no thread to resolve one from. */
   readonly draftCwd?: string | null;
 }) {
@@ -31,6 +37,18 @@ export function useWorkspaceFileAssetUrlState(props: {
   const draftCwd = props.draftCwd ?? null;
   const resource = useMemo<AssetResource | null>(() => {
     if (absolutePath === null || relativePath === null) return null;
+    if (props.nativeRef) {
+      return {
+        _tag:
+          isVideoPreviewFile(absolutePath) ||
+          isAudioPreviewFile(absolutePath) ||
+          isAbsolutePath(relativePath)
+            ? "native-media-file"
+            : "native-workspace-file",
+        ref: props.nativeRef,
+        path: relativePath,
+      };
+    }
     if (props.threadId !== null) {
       return {
         _tag:
@@ -46,7 +64,7 @@ export function useWorkspaceFileAssetUrlState(props: {
     // A project draft has no thread, so it names its workspace root explicitly.
     if (draftCwd === null) return null;
     return { _tag: "draft-workspace-file", cwd: draftCwd, path: relativePath };
-  }, [absolutePath, relativePath, props.threadId, draftCwd]);
+  }, [absolutePath, relativePath, props.threadId, props.nativeRef, draftCwd]);
   const state = useAssetUrlState(props.environmentId, resource);
   const refresh = useRefreshAssetUrl(props.environmentId, resource);
   return { ...state, resource, refresh };

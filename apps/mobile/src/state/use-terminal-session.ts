@@ -6,7 +6,7 @@ import {
   type KnownTerminalSession,
   type TerminalSessionState,
 } from "@t3tools/client-runtime/state/terminal";
-import { ThreadId, type EnvironmentId, type TerminalAttachInput } from "@t3tools/contracts";
+import { type EnvironmentId, type TerminalAttachInput } from "@t3tools/contracts";
 import { useMemo } from "react";
 
 import { useEnvironmentQuery } from "./query";
@@ -63,7 +63,7 @@ export function useAttachedTerminalSession(input: {
 
 export function useKnownTerminalSessions(input: {
   readonly environmentId: EnvironmentId | null;
-  readonly threadId: ThreadId | null;
+  readonly threadId: string | null;
 }): ReadonlyArray<KnownTerminalSession> {
   const metadata = useEnvironmentQuery(
     input.environmentId === null
@@ -82,7 +82,7 @@ export function useKnownTerminalSessions(input: {
       .map((summary) => ({
         target: {
           environmentId: input.environmentId!,
-          threadId: ThreadId.make(summary.threadId),
+          threadId: summary.threadId,
           terminalId: summary.terminalId,
         },
         state: combineTerminalSessionState(summary, EMPTY_TERMINAL_BUFFER_STATE),

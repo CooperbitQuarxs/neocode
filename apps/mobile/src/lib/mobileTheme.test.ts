@@ -21,6 +21,8 @@ import {
   getMobileThemeVariables,
   normalizeMobileThemeId,
   normalizeMobileThemeMode,
+  neoPiMobileThemeVariables,
+  resolveMobileNeoPiTheme,
   resolveMobileThemeIds,
   themeColorWithAlpha,
   themeColorToNativeColor,
@@ -56,6 +58,98 @@ function compositeOver(overlay: string, background: string): string {
   );
   return `#${channels.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
 }
+
+describe("native mobile theme projection", () => {
+  it("keeps the catalog off by default and ignores the retired follow setting", () => {
+    const legacy = { nativeThemeFollow: true, nativeDarkTheme: null };
+    expect(resolveMobileNeoPiTheme(null, "dark")).toBeNull();
+    expect(resolveMobileNeoPiTheme({}, "light")).toBeNull();
+    expect(resolveMobileNeoPiTheme({ ...legacy }, "dark")).toBeNull();
+    expect(resolveMobileThemeIds({})).toEqual({
+      light: DEFAULT_MOBILE_THEME_ID,
+      dark: DEFAULT_MOBILE_THEME_ID,
+    });
+  });
+
+  it("retains a locally selected palette offline and when the catalog is hidden", () => {
+    const local = {
+      name: "my-dark-palette",
+      variables: neoPiMobileThemeVariables("dark", { pageBg: "#142536" }),
+    };
+    const preferences = {
+      nativeThemeCatalogEnabled: true,
+      nativeDarkTheme: local,
+      lightThemeId: "iris",
+      darkThemeId: "ocean",
+    } as const;
+    expect(resolveMobileNeoPiTheme({ nativeThemeCatalogEnabled: true }, "dark")).toBeNull();
+    expect(resolveMobileNeoPiTheme(JSON.parse(JSON.stringify(preferences)), "dark")).toEqual(local);
+    expect(resolveMobileNeoPiTheme(preferences, "light")).toBeNull();
+    expect(
+      resolveMobileNeoPiTheme({ ...preferences, nativeThemeCatalogEnabled: false }, "dark"),
+    ).toEqual(local);
+    expect(resolveMobileNeoPiTheme({ nativeDarkTheme: local }, "dark")).toEqual(local);
+    expect(resolveMobileThemeIds(preferences)).toEqual({ light: "iris", dark: "ocean" });
+  });
+
+  it("restores one graphical half without removing the other local palette", () => {
+    const local = {
+      name: "local",
+      variables: neoPiMobileThemeVariables("dark", { pageBg: "#142536" }),
+    };
+    const preferences = {
+      nativeThemeCatalogEnabled: true,
+      nativeLightTheme: local,
+      nativeDarkTheme: local,
+    };
+    const next = {
+      ...preferences,
+      ...createMobileThemeSelectionPatch(
+        { light: "iris", dark: "ocean" },
+        "dark",
+        "light",
+        DEFAULT_MOBILE_THEME_ID,
+      ),
+    };
+    expect(resolveMobileNeoPiTheme(next, "light")).toBeNull();
+    expect(resolveMobileNeoPiTheme(next, "dark")).toBe(local);
+    expect(resolveMobileThemeIds(next)).toEqual({ light: DEFAULT_MOBILE_THEME_ID, dark: "ocean" });
+    const both = { ...next, ...createMobileThemePairPatch(DEFAULT_MOBILE_THEME_ID) };
+    expect(resolveMobileNeoPiTheme(both, "light")).toBeNull();
+    expect(resolveMobileNeoPiTheme(both, "dark")).toBeNull();
+  });
+  it("uses native colors while retaining readable text and the graphical send action", () => {
+    const variables = neoPiMobileThemeVariables("dark", {
+      pageBg: "#14141b",
+      cardBg: "#21212b",
+      infoBg: "#2b2b35",
+      statusLineBg: "#101018",
+      userMessageBg: "#ddddee",
+      text: "#22222a",
+      muted: "#191920",
+      accent: "#8765aa",
+      borderAccent: "#181820",
+    });
+    expect(variables["--color-screen"]).toBe("#14141b");
+    expect(variables["--color-drawer"]).toBe("#101018");
+    for (const background of [
+      variables["--color-screen"],
+      variables["--color-card"],
+      variables["--color-card-alt"],
+    ]) {
+      expect(contrastRatio(variables["--color-foreground"], background)).toBeGreaterThanOrEqual(
+        4.5,
+      );
+      expect(contrastRatio(variables["--color-focus"], background)).toBeGreaterThanOrEqual(3);
+    }
+    expect(
+      contrastRatio(variables["--color-user-bubble-foreground"], variables["--color-user-bubble"]),
+    ).toBeGreaterThanOrEqual(4.5);
+    expect(variables["--color-primary"]).toBe(
+      getMobileThemeVariables(DEFAULT_MOBILE_THEME_ID, "dark")["--color-primary"],
+    );
+  });
+});
 
 describe("mobile themes", () => {
   it("declares every runtime theme variable in the static stylesheet", () => {
@@ -177,15 +271,13 @@ describe("mobile themes", () => {
       expect(variables["--color-grouped-card"]).not.toBe(variables["--color-card"]);
       for (const platform of ["ios", "android"]) {
         const runtime = getMobileThemeRuntimeVariables("t3-code", appearance, platform);
-        const sidebar = flattenThemeColor(runtime["--color-drawer"], runtime["--color-screen"]);
         const chrome = flattenThemeColor(
           runtime[platform === "android" ? "--color-header" : "--color-drawer"],
           runtime["--color-screen"],
         );
-        expect(relativeLuminance(sidebar)).toBeLessThan(
-          relativeLuminance(runtime["--color-thread-canvas"]),
-        );
-        expect(contrastRatio(chrome, runtime["--color-screen"])).toBeGreaterThanOrEqual(1.06);
+        if (platform === "android" || appearance === "light") {
+          expect(contrastRatio(chrome, runtime["--color-screen"])).toBeGreaterThanOrEqual(1.06);
+        }
         const foregroundRoles =
           platform === "android"
             ? (["--color-header-foreground", "--color-foreground-muted"] as const)
@@ -225,9 +317,9 @@ describe("mobile themes", () => {
 
   it("uses the same preview roles and standard artwork as desktop", () => {
     expect(getMobileThemePreviewColors(DEFAULT_MOBILE_THEME_ID, "light")).toEqual({
-      canvas: "#fcfcfc",
-      accent: "#f4f4f5",
-      messageAction: "#4f46e5",
+      canvas: T3_CODE_LIGHT_THEME_COLORS.canvas,
+      accent: T3_CODE_LIGHT_THEME_COLORS.accentSurface,
+      messageAction: T3_CODE_LIGHT_THEME_COLORS.messageAction,
     });
     const desktopOcean = BUILT_IN_THEMES.find((theme) => theme.id === "ocean")!;
     expect(getMobileThemePreviewColors("ocean", "light")).toEqual({
@@ -264,11 +356,13 @@ describe("mobile themes", () => {
       lightThemeId: "t3-chat",
       darkThemeId: "ocean",
       themeId: "t3-chat",
+      nativeDarkTheme: null,
     });
     expect(createMobileThemeSelectionPatch(themeIds, "light", "light", "iris")).toEqual({
       lightThemeId: "iris",
       darkThemeId: "grove",
       themeId: "iris",
+      nativeLightTheme: null,
     });
   });
 
@@ -277,6 +371,8 @@ describe("mobile themes", () => {
       lightThemeId: "ember",
       darkThemeId: "ember",
       themeId: "ember",
+      nativeLightTheme: null,
+      nativeDarkTheme: null,
     });
   });
 

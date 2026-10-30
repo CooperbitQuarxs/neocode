@@ -18,6 +18,7 @@ export type SettingsPath =
   | "/settings/keybindings"
   | "/settings/snap-shot"
   | "/settings/providers"
+  | "/settings/neocore"
   | "/settings/integrations"
   | "/settings/source-control"
   | "/settings/storage"
@@ -55,7 +56,6 @@ export interface SettingsSearchItem {
   readonly cloudOnly?: boolean;
   readonly environmentOnly?: boolean;
   readonly providerSettingsOnly?: boolean;
-  readonly macProviderSettingsOnly?: boolean;
   readonly localBackendManagementOnly?: boolean;
   readonly localEnvironmentOnly?: boolean;
   readonly wslAvailableOnly?: boolean;
@@ -72,7 +72,6 @@ export interface SettingsSearchAvailability {
   readonly hasCloudPublicConfig: boolean;
   readonly hasEnvironment: boolean;
   readonly hasProviderSettingsEnvironment: boolean;
-  readonly hasMacProviderSettingsEnvironment: boolean;
   readonly canManageLocalBackend: boolean;
   readonly isWslSettingsRowVisible: boolean;
   readonly hasThreadAutoSettlement: boolean;
@@ -89,6 +88,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
+  "/settings/neocore": "NeoCore",
   "/settings/integrations": "Integrations",
   "/settings/source-control": "Source Control",
   "/settings/storage": "Storage",
@@ -186,9 +186,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "theme",
     title: "Themes",
     to: "/settings/appearance",
-    searchTerms: ["appearance colors palette custom import"],
-    // Theme cards live directly under the scheme tiles; the section is the
-    // stable scroll destination for both.
+    searchTerms: ["appearance colors palette NeoPi catalog local default"],
     targetId: "appearance",
   },
   {
@@ -360,12 +358,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["composer rich text tiptap bold italic markdown styled wysiwyg"],
   },
   {
-    id: "composer-collapse",
-    title: "Collapse composer on scroll",
-    to: "/settings/general",
-    searchTerms: ["composer rest resting scroll wheel conversation timeline shrink minimize"],
-  },
-  {
     id: "send-shortcut",
     title: "Send shortcut",
     to: "/settings/general",
@@ -376,13 +368,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Follow-up behavior",
     to: "/settings/general",
     searchTerms: ["queue steer running turn send default behavior composer"],
-  },
-  {
-    id: "provider-update-checks",
-    title: "Provider update checks",
-    to: "/settings/general",
-    searchTerms: ["installed cli versions newer available codex claude cursor grok opencode"],
-    scope: "environment-defaults",
   },
   {
     id: "continue-threads-after-server-update",
@@ -480,12 +465,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["build plan composer old"],
   },
   {
-    id: "legacy-context-window-indicator",
-    title: "Context window indicator (legacy)",
-    to: "/settings/general",
-    searchTerms: ["composer meter usage tokens circle old"],
-  },
-  {
     id: "legacy-sidebar",
     title: "Sidebar (legacy)",
     to: "/settings/general",
@@ -541,8 +520,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "providers",
     title: "Providers",
     to: "/settings/providers",
+    searchTerms: ["neopi models custom favorite hidden roles inference providers"],
+  },
+  {
+    id: "neocore",
+    title: "NeoCore",
+    to: "/settings/neocore",
     searchTerms: [
-      "agents cli codex claude cursor grok opencode antigravity google sign in sign out install subscription instances authentication api key models configuration binary path config directory endpoint arguments environment variables display name accent color custom favorite hidden auto compact",
+      "NeoPi npi runtime startup binary path executable profile OMP_PROFILE launch arguments environment variables secrets enabled disabled reconnect",
     ],
   },
   {
@@ -553,14 +538,6 @@ export const SETTINGS_SEARCH_ITEMS = [
       "usage sources CLIProxyAPI CLI proxy hub quota subscription limits management key add remove",
     ],
     providerSettingsOnly: true,
-  },
-  {
-    id: "cursor-keychain-usage",
-    title: "Cursor account usage",
-    to: "/settings/providers",
-    searchTerms: ["cursor macOS keychain usage tokens cost limits permission"],
-    providerSettingsOnly: true,
-    macProviderSettingsOnly: true,
   },
   {
     id: "provider-health-check-interval",
@@ -724,8 +701,10 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "project-actions",
     title: "Actions",
-    to: "/settings/projects",
-    searchTerms: ["commands scripts setup run dev server checkout worktree t3.json import"],
+    to: "/settings/general",
+    searchTerms: [
+      "commands scripts setup run dev server checkout worktree t3.json import global environment neovide editor",
+    ],
   },
   {
     id: "environment-icon",
@@ -840,6 +819,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   // environment at any selection. Neither needs a particular scope to render.
   "/settings/keybindings": null,
   "/settings/providers": null,
+  "/settings/neocore": null,
   "/settings/integrations": null,
   "/settings/source-control": "environment-defaults",
   "/settings/storage": "project-defaults",
@@ -959,7 +939,6 @@ export function filterAvailableSettingsSearchItems(
       (!item.cloudOnly || availability.hasCloudPublicConfig) &&
       (!item.environmentOnly || availability.hasEnvironment) &&
       (!item.providerSettingsOnly || availability.hasProviderSettingsEnvironment) &&
-      (!item.macProviderSettingsOnly || availability.hasMacProviderSettingsEnvironment) &&
       (!item.localBackendManagementOnly || availability.canManageLocalBackend) &&
       (!item.localEnvironmentOnly || !availability.localEnvironmentDisabled) &&
       (!item.wslAvailableOnly || availability.isWslSettingsRowVisible) &&

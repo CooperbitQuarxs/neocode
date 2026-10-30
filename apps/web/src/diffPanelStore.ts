@@ -1,4 +1,4 @@
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { workspaceKey, type WorkspaceRef } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef, TurnId } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
@@ -15,11 +15,11 @@ const DEFAULT_SELECTION: DiffPanelSelection = { kind: "unstaged" };
 interface DiffPanelStoreState {
   byThreadKey: Record<string, DiffPanelSelection>;
   branchBaseRefByThreadKey: Record<string, string | null>;
-  selectGitScope: (ref: ScopedThreadRef, scope: "branch" | "unstaged") => void;
-  selectBranchBaseRef: (ref: ScopedThreadRef, baseRef: string | null) => void;
+  selectGitScope: (ref: WorkspaceRef, scope: "branch" | "unstaged") => void;
+  selectBranchBaseRef: (ref: WorkspaceRef, baseRef: string | null) => void;
   selectTurn: (ref: ScopedThreadRef, turnId: TurnId, filePath?: string) => void;
   reconcileTurnSelection: (ref: ScopedThreadRef, availableTurnIds: ReadonlyArray<TurnId>) => void;
-  removeThread: (ref: ScopedThreadRef) => void;
+  removeThread: (ref: WorkspaceRef) => void;
 }
 
 function normalizeBaseRef(baseRef: string | null): string | null {
@@ -34,7 +34,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
       branchBaseRefByThreadKey: {},
       selectGitScope: (ref, scope) =>
         set((state) => {
-          const threadKey = scopedThreadKey(ref);
+          const threadKey = workspaceKey(ref);
           const previous = state.byThreadKey[threadKey];
           const previousBaseRef =
             previous?.kind === "branch"
@@ -56,7 +56,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
         }),
       selectBranchBaseRef: (ref, baseRef) =>
         set((state) => {
-          const threadKey = scopedThreadKey(ref);
+          const threadKey = workspaceKey(ref);
           const normalizedBaseRef = normalizeBaseRef(baseRef);
           return {
             byThreadKey: {
@@ -71,7 +71,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
         }),
       selectTurn: (ref, turnId, filePath) =>
         set((state) => {
-          const threadKey = scopedThreadKey(ref);
+          const threadKey = workspaceKey(ref);
           const previous = state.byThreadKey[threadKey];
           return {
             byThreadKey: {
@@ -87,7 +87,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
         }),
       reconcileTurnSelection: (ref, availableTurnIds) =>
         set((state) => {
-          const threadKey = scopedThreadKey(ref);
+          const threadKey = workspaceKey(ref);
           const previous = state.byThreadKey[threadKey];
           const latestTurnId = availableTurnIds[0];
           if (
@@ -106,7 +106,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
         }),
       removeThread: (ref) =>
         set((state) => {
-          const threadKey = scopedThreadKey(ref);
+          const threadKey = workspaceKey(ref);
           if (!(threadKey in state.byThreadKey) && !(threadKey in state.branchBaseRefByThreadKey)) {
             return state;
           }
@@ -132,8 +132,8 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
 
 export function selectThreadDiffPanelSelection(
   byThreadKey: Record<string, DiffPanelSelection>,
-  ref: ScopedThreadRef | null | undefined,
+  ref: WorkspaceRef | null | undefined,
 ): DiffPanelSelection {
   if (!ref) return DEFAULT_SELECTION;
-  return byThreadKey[scopedThreadKey(ref)] ?? DEFAULT_SELECTION;
+  return byThreadKey[workspaceKey(ref)] ?? DEFAULT_SELECTION;
 }

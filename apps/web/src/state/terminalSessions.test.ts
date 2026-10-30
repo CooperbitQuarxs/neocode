@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import { EnvironmentId, ThreadId, type TerminalSummary } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProviderInstanceId,
+  ThreadId,
+  type TerminalSummary,
+} from "@t3tools/contracts";
 import { selectRunningSubprocessTerminalIds } from "@t3tools/client-runtime/state/terminal";
+import { workspaceResourceId } from "@t3tools/client-runtime/environment";
 
 import { selectKnownTerminalSessions } from "./terminalSessions";
 
@@ -33,6 +39,39 @@ function summary(
 }
 
 describe("selectKnownTerminalSessions", () => {
+  it("selects native resource namespaces without conflating provider files or SQL threads", () => {
+    const target = {
+      environmentId: environmentA,
+      ref: {
+        providerInstanceId: ProviderInstanceId.make("neopi-a"),
+        sessionFile: "/sessions/native.jsonl",
+      },
+    };
+    const nativeId = workspaceResourceId(target);
+    const otherId = workspaceResourceId({
+      ...target,
+      ref: { ...target.ref, providerInstanceId: ProviderInstanceId.make("neopi-b") },
+    });
+    const metadata = [
+      summary(nativeId, "terminal-1", {
+        cwd: "/native",
+        status: "exited",
+        hasRunningSubprocess: false,
+      }),
+      summary(otherId, "terminal-1", { cwd: "/other-profile" }),
+      summary(threadA, "terminal-1", { cwd: "/legacy" }),
+    ];
+    const selected = selectKnownTerminalSessions(metadata, environmentA, nativeId);
+    expect(
+      selected.map((session) => ({
+        namespace: session.target.threadId,
+        cwd: session.state.summary?.cwd,
+        status: session.state.status,
+      })),
+    ).toEqual([{ namespace: nativeId, cwd: "/native", status: "exited" }]);
+    expect(selectRunningSubprocessTerminalIds(selected)).toEqual([]);
+  });
+
   it("preserves numeric terminal order and stable picker ties across threads", () => {
     const metadata = [
       summary(threadB, "terminal-2"),

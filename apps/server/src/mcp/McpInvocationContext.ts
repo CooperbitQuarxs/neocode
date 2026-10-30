@@ -3,6 +3,7 @@ import {
   McpCapabilityUnavailableError,
   PreviewAutomationUnavailableError,
   type ProviderInstanceId,
+  type NeoPiNativeSessionRef,
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -10,14 +11,25 @@ import * as Effect from "effect/Effect";
 
 export type McpCapability = "preview" | "device" | "pull-requests";
 
-export interface McpInvocationScope {
+interface McpInvocationBase {
   readonly environmentId: EnvironmentId;
-  readonly threadId: ThreadId;
   readonly providerSessionId: string;
   readonly providerInstanceId: ProviderInstanceId;
   readonly capabilities: ReadonlySet<McpCapability>;
   readonly issuedAt: number;
+  /** Registry revocation interrupts already-dispatched work as well as future calls. */
+  readonly revoked?: AbortSignal;
 }
+
+export type McpInvocationScope = McpInvocationBase &
+  (
+    | { readonly kind?: "legacy"; readonly threadId: ThreadId; readonly sessionRef?: never }
+    | {
+        readonly kind: "native";
+        readonly threadId: string;
+        readonly sessionRef: NeoPiNativeSessionRef;
+      }
+  );
 
 export class McpInvocationContext extends Context.Service<
   McpInvocationContext,
@@ -38,6 +50,7 @@ const missingCapability = (
     threadId: invocation.threadId,
     providerSessionId: invocation.providerSessionId,
     providerInstanceId: invocation.providerInstanceId,
+    ...(invocation.kind === "native" ? { sessionRef: invocation.sessionRef } : {}),
   };
   return capability === "preview"
     ? new PreviewAutomationUnavailableError({ capability, ...fields })

@@ -1,6 +1,7 @@
 "use client";
 
-import type { PreviewViewportSetting, ScopedThreadRef } from "@t3tools/contracts";
+import type { PreviewViewportSetting } from "@t3tools/contracts";
+import type { WorkspaceRef } from "@t3tools/client-runtime/environment";
 import { useShallow } from "zustand/react/shallow";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -44,7 +45,7 @@ declare global {
 }
 
 export function HostedBrowserWebview(props: {
-  readonly threadRef: ScopedThreadRef;
+  readonly threadRef: WorkspaceRef;
   readonly tabId: string;
   readonly runtimeTabId: string;
   readonly initialUrl: string | null;

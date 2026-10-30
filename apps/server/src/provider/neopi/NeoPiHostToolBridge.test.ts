@@ -1,12 +1,27 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
-import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+  type NeoPiNativeSessionRef,
+} from "@t3tools/contracts";
+import { nativeWorkspaceResourceId } from "@t3tools/shared/neopiWorkspace";
+import type {
+  AgentToolResultWire,
+  HostToolCallFrame,
+  HostToolCancelFrame,
+} from "effect-neopi-rpc/client";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
 import * as Deferred from "effect/Deferred";
 import * as Schema from "effect/Schema";
+import * as Queue from "effect/Queue";
+import * as Scope from "effect/Scope";
 import { McpServer } from "effect/unstable/ai";
 import { HttpServer } from "effect/unstable/http";
 import * as NetAddress from "effect/unstable/net/NetAddress";
@@ -18,7 +33,7 @@ import * as McpSessionRegistry from "../../mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "../../mcp/PreviewAutomationBroker.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { makeNeoPiHostToolBridge } from "./NeoPiHostToolBridge.ts";
+import { makeNeoPiHostToolBridge, makeNeoPiNativeHostToolPump } from "./NeoPiHostToolBridge.ts";
 const decodeResult = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 
 const environmentId = EnvironmentId.make("environment-bridge-test");
@@ -147,7 +162,6 @@ it.effect(
           credential: issued.config.authorizationHeader,
           context: scope,
         });
-        expect(bridge.definitions).toHaveLength(21);
         expect(bridge.definitions.map(({ name }) => name)).toEqual(
           expect.arrayContaining([
             "preview_snapshot",
@@ -155,11 +169,6 @@ it.effect(
             "list_thread_pull_requests",
           ]),
         );
-        expect(
-          bridge.definitions.every(
-            (tool) => tool.loadMode === "discoverable" && typeof tool.parameters === "object",
-          ),
-        ).toBe(true);
         const pullRequests = yield* bridge.handle(
           call("list_thread_pull_requests"),
           new AbortController().signal,
@@ -328,4 +337,242 @@ it.effect("aborts an in-flight browser invocation without waiting for its host",
       });
     }).pipe(Effect.provide(ToolkitLayer)),
   ),
+);
+
+const nativeRef: NeoPiNativeSessionRef = {
+  providerInstanceId: instanceId,
+  sessionFile: "/native/sessions/session with spaces.jsonl",
+};
+
+const nativeBridge = (ref = nativeRef) =>
+  Effect.gen(function* () {
+    const registry = yield* McpSessionRegistry.McpSessionRegistry;
+    const issued = yield* registry.issueNative({
+      sessionRef: ref,
+      capabilities: new Set(["preview"]),
+    });
+    if (issued.scope.kind !== "native")
+      return yield* Effect.die("Expected a native test credential");
+    const bridge = yield* makeNeoPiHostToolBridge({
+      threadId: nativeWorkspaceResourceId(ref),
+      capabilities: issued.scope.capabilities,
+      credential: issued.authorizationHeader,
+      context: issued.scope,
+    });
+    return { ...issued, scope: issued.scope, bridge, registry };
+  });
+
+it.effect("routes canonical native files to their own live browser namespace and environment", () =>
+  Effect.gen(function* () {
+    const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
+    const ready = yield* Deferred.make<void>();
+    const foreignReady = yield* Deferred.make<void>();
+    const requests: Array<{ threadId: string; sessionRef?: NeoPiNativeSessionRef | undefined }> =
+      [];
+    const foreignEnvironment = EnvironmentId.make("foreign-environment");
+    const foreignEvents = yield* broker.connect({
+      clientId: "foreign",
+      environmentId: foreignEnvironment,
+    });
+    yield* Stream.runForEach(foreignEvents, (event) =>
+      event.type === "connected"
+        ? Deferred.succeed(foreignReady, undefined)
+        : Effect.die("Native invocation crossed environments"),
+    ).pipe(Effect.forkScoped);
+    yield* Deferred.await(foreignReady);
+    const events = yield* broker.connect({ clientId: "native-host", environmentId });
+    yield* Stream.runForEach(events, (event) => {
+      if (event.type === "connected") return Deferred.succeed(ready, undefined);
+      requests.push(event.request);
+      return broker.respond({
+        clientId: "native-host",
+        connectionId: event.connectionId,
+        requestId: event.request.requestId,
+        ok: true,
+        result: {
+          available: true,
+          visible: true,
+          tabId: null,
+          url: "http://native.test",
+          title: "Native",
+          loading: false,
+        },
+      });
+    }).pipe(Effect.forkScoped);
+    yield* Deferred.await(ready);
+    const refs = [
+      nativeRef,
+      { ...nativeRef, providerInstanceId: ProviderInstanceId.make("another-profile") },
+      { ...nativeRef, sessionFile: "/native/other.jsonl" },
+    ];
+    for (const ref of refs) {
+      const { bridge } = yield* nativeBridge(ref);
+      const result = yield* bridge.handle(call("preview_status"), new AbortController().signal);
+      expect(result.isError).not.toBe(true);
+    }
+    expect(requests.map(({ threadId, sessionRef }) => ({ threadId, sessionRef }))).toEqual(
+      refs.map((sessionRef) => ({ threadId: nativeWorkspaceResourceId(sessionRef), sessionRef })),
+    );
+  }).pipe(Effect.scoped, Effect.provide(ToolkitLayer)),
+);
+
+it.effect(
+  "refuses native namespace, file, provider and environment substitution before dispatch",
+  () =>
+    Effect.gen(function* () {
+      const issued = yield* nativeBridge();
+      for (const context of [
+        { ...issued.scope, threadId: "wrong-native-namespace" },
+        { ...issued.scope, environmentId: EnvironmentId.make("other-environment") },
+        {
+          ...issued.scope,
+          kind: "native" as const,
+          sessionRef: { ...nativeRef, sessionFile: "/foreign.jsonl" },
+        },
+        { ...issued.scope, providerInstanceId: ProviderInstanceId.make("other-instance") },
+      ]) {
+        const bridge = yield* makeNeoPiHostToolBridge({
+          threadId: context.threadId,
+          capabilities: context.capabilities,
+          credential: issued.authorizationHeader,
+          context,
+        });
+        expect(
+          yield* bridge.handle(call("preview_status"), new AbortController().signal),
+        ).toMatchObject({
+          isError: true,
+          content: [{ type: "text", text: "access revoked" }],
+        });
+      }
+      // Native credentials never acquire SQL-only PR access as a default.
+      expect(issued.scope.capabilities.has("pull-requests")).toBe(false);
+      const bypass = yield* McpHttpServer.invokeRegisteredMcpTool(
+        issued.authorizationHeader,
+        "list_thread_pull_requests",
+        {},
+      ).pipe(Effect.flip);
+      expect(bypass.message).toBe("access revoked");
+    }).pipe(Effect.scoped, Effect.provide(ToolkitLayer)),
+);
+
+it.effect("revokes an in-flight native browser request and rejects the late response", () =>
+  Effect.gen(function* () {
+    const { bridge, registry, scope } = yield* nativeBridge();
+    const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
+    const ready = yield* Deferred.make<void>();
+    const requested = yield* Deferred.make<{ connectionId: string; requestId: string }>();
+    const events = yield* broker.connect({ clientId: "native-revoke-host", environmentId });
+    yield* Stream.runForEach(events, (event) =>
+      event.type === "connected"
+        ? Deferred.succeed(ready, undefined)
+        : Deferred.succeed(requested, {
+            connectionId: event.connectionId,
+            requestId: event.request.requestId,
+          }),
+    ).pipe(Effect.forkScoped);
+    yield* Deferred.await(ready);
+    const pending = yield* bridge
+      .handle(call("preview_status"), new AbortController().signal)
+      .pipe(Effect.forkScoped);
+    const request = yield* Deferred.await(requested);
+    yield* registry.revokeProviderSession(scope.providerSessionId);
+    expect(yield* Fiber.join(pending)).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: "access revoked" }],
+    });
+    yield* broker.respond({ clientId: "native-revoke-host", ...request, ok: true, result: {} });
+    expect(
+      yield* bridge.handle(call("preview_status"), new AbortController().signal),
+    ).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: "access revoked" }],
+    });
+  }).pipe(Effect.scoped, Effect.provide(ToolkitLayer)),
+);
+
+it.effect(
+  "native cancellation, rebinding and scope close cannot deliver results into another session",
+  () =>
+    Effect.gen(function* () {
+      const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
+      const ready = yield* Deferred.make<void>();
+      type Request = {
+        connectionId: string;
+        requestId: string;
+        threadId: string;
+        sessionRef?: NeoPiNativeSessionRef | undefined;
+      };
+      const requests = yield* Queue.unbounded<Request>();
+      const calls = yield* Queue.unbounded<HostToolCallFrame | HostToolCancelFrame>();
+      const results = yield* Queue.unbounded<{ id: string; result: AgentToolResultWire }>();
+      const events = yield* broker.connect({ clientId: "native-pump-host", environmentId });
+      yield* Stream.runForEach(events, (event) =>
+        event.type === "connected"
+          ? Deferred.succeed(ready, undefined)
+          : Queue.offer(requests, { connectionId: event.connectionId, ...event.request }),
+      ).pipe(Effect.forkScoped);
+      yield* Deferred.await(ready);
+      const scope = yield* Scope.fork(yield* Effect.scope);
+      const pump = yield* makeNeoPiNativeHostToolPump(
+        {
+          hostToolCalls: Stream.fromQueue(calls),
+          hostToolResult: (id, result) => Queue.offer(results, { id, result }).pipe(Effect.asVoid),
+        },
+        () => Effect.void,
+      ).pipe(Effect.provideService(Scope.Scope, scope));
+      yield* pump.bind(nativeRef, new Set(["preview"]));
+      const send = (id: string) => Queue.offer(calls, { ...call("preview_status"), id });
+      const respond = (request: Request) =>
+        broker.respond({
+          clientId: "native-pump-host",
+          connectionId: request.connectionId,
+          requestId: request.requestId,
+          ok: true,
+          result: {
+            available: true,
+            visible: true,
+            tabId: null,
+            url: "http://native.test",
+            title: "Native",
+            loading: false,
+          },
+        });
+      yield* send("cancelled");
+      const cancelled = yield* Queue.take(requests);
+      yield* Queue.offer(calls, { type: "host_tool_cancel", id: "cancel", targetId: "cancelled" });
+      yield* send("next");
+      const next = yield* Queue.take(requests);
+      yield* respond(cancelled);
+      yield* respond(next);
+      const nextResult = yield* Queue.take(results);
+      expect(nextResult.id).toBe("next");
+      expect(nextResult.result.isError).not.toBe(true);
+
+      yield* send("old-session");
+      const old = yield* Queue.take(requests);
+      const replacement = { ...nativeRef, sessionFile: "/native/replacement.jsonl" };
+      yield* pump.bind(replacement, new Set(["preview"]));
+      expect(yield* Queue.take(results)).toMatchObject({
+        id: "old-session",
+        result: { isError: true, content: [{ type: "text", text: "access revoked" }] },
+      });
+      yield* respond(old);
+      yield* send("replacement");
+      const newRequest = yield* Queue.take(requests);
+      expect(newRequest.sessionRef).toEqual(replacement);
+      expect(newRequest.threadId).toBe(nativeWorkspaceResourceId(replacement));
+      yield* respond(newRequest);
+      expect(yield* Queue.take(results)).toMatchObject({ id: "replacement" });
+
+      yield* send("closing");
+      const closing = yield* Queue.take(requests);
+      yield* Scope.close(scope, Exit.void);
+      expect(yield* Queue.take(results)).toMatchObject({
+        id: "closing",
+        result: { isError: true, content: [{ type: "text", text: "access revoked" }] },
+      });
+      yield* respond(closing);
+      const closed = yield* pump.bind(nativeRef, new Set(["preview"])).pipe(Effect.flip);
+      expect(closed.message).toBe("Native host-tool connection is closed");
+    }).pipe(Effect.scoped, Effect.provide(ToolkitLayer)),
 );

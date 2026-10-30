@@ -1,10 +1,6 @@
 import { DeviceHostUpdates } from "./DeviceHostUpdates";
-import type {
-  DevicePlatform,
-  DeviceServiceState,
-  DeviceSummary,
-  ScopedThreadRef,
-} from "@t3tools/contracts";
+import type { DevicePlatform, DeviceServiceState, DeviceSummary } from "@t3tools/contracts";
+import { workspaceResourceId, type WorkspaceRef } from "@t3tools/client-runtime/environment";
 import { Smartphone, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -33,12 +29,13 @@ const deviceKey = (device: Pick<DeviceSummary, "hostId" | "id">) =>
 /** Each surface owns one host/device; only the visible surface streams. */
 export function DevicePanel(props: {
   readonly mode: PreviewPanelMode;
-  readonly threadRef: ScopedThreadRef;
+  readonly threadRef: WorkspaceRef;
   readonly surface: Extract<RightPanelSurface, { kind: "device" }>;
   readonly visible: boolean;
   readonly onDismissSetup: () => void;
 }) {
-  const { environmentId, threadId } = props.threadRef;
+  const { environmentId } = props.threadRef;
+  const threadId = workspaceResourceId(props.threadRef);
   const { state, loaded } = useDeviceState(environmentId);
   const list = useAtomCommand(deviceEnvironment.list, { reportFailure: false });
   const open = useAtomCommand(deviceEnvironment.open);

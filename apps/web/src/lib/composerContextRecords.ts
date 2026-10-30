@@ -396,7 +396,7 @@ export function resolveUserMessageContext(message: {
 
 export function terminalContextDraftFromRecord(
   record: TerminalContextRecord,
-  threadId: ThreadId,
+  threadId: string,
 ): TerminalContextDraft {
   return {
     id: producerIdFromComposerContextId("terminal", record.contextId),

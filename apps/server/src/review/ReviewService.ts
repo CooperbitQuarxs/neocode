@@ -19,14 +19,21 @@ import * as ServerConfig from "../config.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 
+/** Server-resolved authority only; never populated from a generic review RPC payload. */
+export interface ReviewWorkspaceScope {
+  readonly workspaceRoot: string;
+}
+
 export class ReviewService extends Context.Service<
   ReviewService,
   {
     readonly getDiffPreview: (
       input: ReviewDiffPreviewInput,
+      scope?: ReviewWorkspaceScope,
     ) => Effect.Effect<ReviewDiffPreviewResult, ReviewDiffPreviewError>;
     readonly getDiffFileContents: (
       input: ReviewDiffFileContentsInput,
+      scope?: ReviewWorkspaceScope,
     ) => Effect.Effect<ReviewDiffFileContentsResult, ReviewDiffPreviewError>;
   }
 >()("t3/review/ReviewService") {}
@@ -66,16 +73,14 @@ export const make = Effect.gen(function* () {
   const assertWorkspaceBoundCwd = Effect.fn("ReviewService.assertWorkspaceBoundCwd")(function* (
     operation: "ReviewService.getDiffPreview" | "ReviewService.getDiffFileContents",
     cwd: string,
+    scope?: ReviewWorkspaceScope,
   ) {
-    const [candidate, workspaceRoot, worktreesRoot] = yield* Effect.all([
-      canonicalizePath(cwd),
-      canonicalizePath(config.cwd),
-      canonicalizePath(config.worktreesDir),
-    ]);
+    const candidate = yield* canonicalizePath(cwd);
+    const roots = yield* Effect.all(
+      (scope ? [scope.workspaceRoot] : [config.cwd, config.worktreesDir]).map(canonicalizePath),
+    );
 
-    if (isWithinRoot(candidate, workspaceRoot) || isWithinRoot(candidate, worktreesRoot)) {
-      return;
-    }
+    if (roots.some((root) => isWithinRoot(candidate, root))) return;
 
     return yield* new VcsRepositoryDetectionError({
       operation,
@@ -89,8 +94,8 @@ export const make = Effect.gen(function* () {
 
   const getDiffPreview: ReviewService["Service"]["getDiffPreview"] = Effect.fn(
     "ReviewService.getDiffPreview",
-  )(function* (input) {
-    yield* assertWorkspaceBoundCwd("ReviewService.getDiffPreview", input.cwd);
+  )(function* (input, scope) {
+    yield* assertWorkspaceBoundCwd("ReviewService.getDiffPreview", input.cwd, scope);
 
     const handle = yield* vcsRegistry.detect({ cwd: input.cwd, requestedKind: "auto" });
     if (!handle) {
@@ -118,8 +123,8 @@ export const make = Effect.gen(function* () {
 
   const getDiffFileContents: ReviewService["Service"]["getDiffFileContents"] = Effect.fn(
     "ReviewService.getDiffFileContents",
-  )(function* (input) {
-    yield* assertWorkspaceBoundCwd("ReviewService.getDiffFileContents", input.cwd);
+  )(function* (input, scope) {
+    yield* assertWorkspaceBoundCwd("ReviewService.getDiffFileContents", input.cwd, scope);
 
     const handle = yield* vcsRegistry.detect({ cwd: input.cwd, requestedKind: "auto" });
     if (handle?.kind !== "git") {

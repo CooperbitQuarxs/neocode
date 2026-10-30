@@ -1,10 +1,10 @@
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef, SnapShotSource } from "@t3tools/contracts";
+import { workspaceKey } from "@t3tools/client-runtime/environment";
+import type { SnapShotSource } from "@t3tools/contracts";
 
-import type { DraftId } from "../composerDraftStore";
+import type { ComposerThreadTarget } from "../composerDraftStore";
 import { getDesktopSnapShotBridge } from "./desktopSnapShot";
 
-type SnapShotTarget = DraftId | ScopedThreadRef;
+type SnapShotTarget = ComposerThreadTarget;
 
 export type PendingSnapShotAnimation = {
   readonly id: string;
@@ -26,7 +26,7 @@ export function shouldAnimateSnapShotArrival(capturedAt: string, now = Date.now(
 }
 
 function targetKey(target: SnapShotTarget): string {
-  return typeof target === "string" ? target.trim() : scopedThreadKey(target);
+  return typeof target === "string" ? target.trim() : workspaceKey(target);
 }
 
 function emitChange(): void {

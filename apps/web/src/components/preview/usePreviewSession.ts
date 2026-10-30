@@ -1,8 +1,12 @@
 "use client";
 
 import { useAtomValue } from "@effect/atom-react";
-import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import {
+  parseWorkspaceKey,
+  workspaceKey,
+  workspaceResourceId,
+  type WorkspaceRef,
+} from "@t3tools/client-runtime/environment";
 import * as Schema from "effect/Schema";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 
@@ -23,14 +27,14 @@ class PreviewSessionThreadKeyParseError extends Schema.TaggedError<PreviewSessio
 }
 
 const previewSessionSyncAtom = Atom.family((threadKey: string) => {
-  const threadRef = parseScopedThreadKey(threadKey);
+  const threadRef = parseWorkspaceKey(threadKey);
   if (threadRef === null) {
     throw new PreviewSessionThreadKeyParseError({ threadKey });
   }
 
   const sessionsAtom = previewEnvironment.list({
     environmentId: threadRef.environmentId,
-    input: { threadId: threadRef.threadId },
+    input: { threadId: workspaceResourceId(threadRef) },
   });
   const eventsAtom = previewEnvironment.events({
     environmentId: threadRef.environmentId,
@@ -47,7 +51,11 @@ const previewSessionSyncAtom = Atom.family((threadKey: string) => {
     };
 
     const applyLatestEvent = (result: Atom.Type<typeof eventsAtom>) => {
-      if (!AsyncResult.isSuccess(result) || result.value.threadId !== threadRef.threadId) return;
+      if (
+        !AsyncResult.isSuccess(result) ||
+        result.value.threadId !== workspaceResourceId(threadRef)
+      )
+        return;
       const currentEpoch = readThreadPreviewState(threadRef).serverEpoch;
       if (currentEpoch !== null && currentEpoch !== result.value.serverEpoch) {
         get.refresh(sessionsAtom);
@@ -78,6 +86,6 @@ const previewSessionSyncAtom = Atom.family((threadKey: string) => {
   }).pipe(Atom.setIdleTTL(1_000), Atom.withLabel(`preview:session-sync:${threadKey}`));
 });
 
-export function usePreviewSession(threadRef: ScopedThreadRef): void {
-  useAtomValue(previewSessionSyncAtom(scopedThreadKey(threadRef)));
+export function usePreviewSession(threadRef: WorkspaceRef): void {
+  useAtomValue(previewSessionSyncAtom(workspaceKey(threadRef)));
 }

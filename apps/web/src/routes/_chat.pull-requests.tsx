@@ -423,6 +423,15 @@ function PullRequestsRouteView() {
     () => pullRequestFilterProjects(projects, environmentLabels, scopedProject),
     [environmentLabels, projects, scopedProject],
   );
+  const rowScopeFilters = useMemo(
+    () => ({
+      state: search.state,
+      projectId: scopedProjectId,
+      host: search.host,
+      ...(projectsKnown ? { projects } : {}),
+    }),
+    [projects, projectsKnown, scopedProjectId, search.host, search.state],
+  );
 
   // A link from a thread or the sidebar only knows the repository, so the owning project is
   // resolved here; an explicit `projectId` in the URL still wins.
@@ -1055,13 +1064,9 @@ function PullRequestsRouteView() {
     if (loaded === null || loaded.environmentKey !== environmentKey || loaded.scope === scopeKey) {
       return null;
     }
-    const entries = narrowPullRequestsToFilters(loaded.data.entries, {
-      state: search.state,
-      projectId: scopedProjectId,
-      host: search.host,
-    });
+    const entries = narrowPullRequestsToFilters(loaded.data.entries, rowScopeFilters);
     return entries.length === 0 ? null : { ...loaded.data, entries };
-  }, [environmentKey, loaded, scopeKey, scopedProjectId, search.host, search.state]);
+  }, [environmentKey, loaded, rowScopeFilters, scopeKey]);
   // With nothing typed and nothing to carry on from, the answer is taken from the read that is
   // keyed to exactly that question. Otherwise a search's answer lingers for a render after the
   // text has gone — the data cannot say which question it belongs to, but the read it came from
@@ -1261,7 +1266,10 @@ function PullRequestsRouteView() {
   );
 
   const entries = useMemo(() => {
-    const known = ordered?.key === filterKey ? ordered.entries : (listData?.entries ?? []);
+    const known = narrowPullRequestsToFilters(
+      ordered?.key === filterKey ? ordered.entries : (listData?.entries ?? []),
+      rowScopeFilters,
+    );
     const involvementEntries = filterPullRequestsByInvolvement(known, viewers, search.involvement);
     // The hosts search more than the row shows — a body, a review, a commit message — so once
     // their answer is in, narrowing it again here would throw away matches the reader asked for.
@@ -1297,6 +1305,7 @@ function PullRequestsRouteView() {
     listData,
     ordered,
     querySettled,
+    rowScopeFilters,
     search.involvement,
     searchingHosts,
     showingCarried,
@@ -1340,12 +1349,15 @@ function PullRequestsRouteView() {
     // The priority reads answer the same question the feed does, so they take the same local
     // narrowing: a host that cannot filter for itself would otherwise put rows into Authored
     // that the filters above just took out of the feed.
-    const narrow = (rows: ReadonlyArray<EnvironmentPullRequestEntry> | undefined) =>
-      rows === undefined || !hasLocalFilters
-        ? rows
-        : rows.filter((entry) =>
+    const narrow = (rows: ReadonlyArray<EnvironmentPullRequestEntry> | undefined) => {
+      if (rows === undefined) return undefined;
+      const scoped = narrowPullRequestsToFilters(rows, rowScopeFilters);
+      return !hasLocalFilters
+        ? scoped
+        : scoped.filter((entry) =>
             matchesPullRequestFilters(entry, localFilters, pullRequestEntryViewer(entry, viewers)),
           );
+    };
     const authored = narrow(
       partitionsWanted ? (authoredQuery.data?.entries ?? held?.authored) : undefined,
     );
@@ -1365,6 +1377,7 @@ function PullRequestsRouteView() {
     loaded,
     partitionsWanted,
     reviewingQuery.data?.entries,
+    rowScopeFilters,
     scopeKey,
     search.involvement,
     viewers,

@@ -1,12 +1,15 @@
 /**
- * Single Zustand store for terminal UI state keyed by scoped thread identity.
+ * Single Zustand store for terminal UI state keyed by workspace identity.
  *
  * Terminal UI transition helpers are intentionally private to keep the public
  * API constrained to store actions/selectors.
  */
 
-import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
-import { type ScopedThreadRef } from "@t3tools/contracts";
+import {
+  parseWorkspaceKey,
+  workspaceKey,
+  type WorkspaceRef,
+} from "@t3tools/client-runtime/environment";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "./lib/storage";
@@ -47,7 +50,7 @@ export function migratePersistedTerminalUiStateStoreState(
     candidate.terminalUiStateByThreadKey ?? candidate.terminalStateByThreadKey ?? {};
   const terminalUiStateByThreadKey = Object.fromEntries(
     Object.entries(persistedUiStateByThreadKey).filter(([threadKey]) =>
-      parseScopedThreadKey(threadKey),
+      parseWorkspaceKey(threadKey),
     ),
   );
 
@@ -239,8 +242,8 @@ function isValidTerminalId(terminalId: string): boolean {
   return terminalId.trim().length > 0;
 }
 
-function terminalThreadKey(threadRef: ScopedThreadRef): string {
-  return scopedThreadKey(threadRef);
+function terminalThreadKey(threadRef: WorkspaceRef): string {
+  return workspaceKey(threadRef);
 }
 
 function copyTerminalGroups(groups: ThreadTerminalGroup[]): ThreadTerminalGroup[] {
@@ -479,9 +482,9 @@ function reconcileThreadTerminalSessionIds(
 
 export function selectThreadTerminalUiState(
   terminalUiStateByThreadKey: Record<string, ThreadTerminalUiState>,
-  threadRef: ScopedThreadRef | null | undefined,
+  threadRef: WorkspaceRef | null | undefined,
 ): ThreadTerminalUiState {
-  if (!threadRef || threadRef.threadId.length === 0) {
+  if (!threadRef || ("threadId" in threadRef && threadRef.threadId.length === 0)) {
     return getDefaultThreadTerminalUiState();
   }
   return (
@@ -491,10 +494,10 @@ export function selectThreadTerminalUiState(
 
 function updateTerminalUiStateByThreadKey(
   terminalUiStateByThreadKey: Record<string, ThreadTerminalUiState>,
-  threadRef: ScopedThreadRef,
+  threadRef: WorkspaceRef,
   updater: (state: ThreadTerminalUiState) => ThreadTerminalUiState,
 ): Record<string, ThreadTerminalUiState> {
-  if (threadRef.threadId.length === 0) {
+  if ("threadId" in threadRef && threadRef.threadId.length === 0) {
     return terminalUiStateByThreadKey;
   }
 
@@ -521,7 +524,7 @@ function updateTerminalUiStateByThreadKey(
 
 function updateSuppressedTerminalId(
   suppressedTerminalIdsByThreadKey: Record<string, string[]>,
-  threadRef: ScopedThreadRef,
+  threadRef: WorkspaceRef,
   terminalId: string,
   suppressed: boolean,
 ): Record<string, string[]> {
@@ -564,21 +567,21 @@ interface TerminalUiStateStoreState {
   terminalUiStateByThreadKey: Record<string, ThreadTerminalUiState>;
   /** Closed ids hidden from stale server metadata until that id is explicitly opened again. */
   suppressedTerminalIdsByThreadKey: Record<string, string[]>;
-  setTerminalOpen: (threadRef: ScopedThreadRef, open: boolean) => void;
-  setTerminalHeight: (threadRef: ScopedThreadRef, height: number) => void;
-  splitTerminal: (threadRef: ScopedThreadRef, terminalId: string) => void;
-  splitTerminalVertical: (threadRef: ScopedThreadRef, terminalId: string) => void;
-  newTerminal: (threadRef: ScopedThreadRef, terminalId: string) => void;
+  setTerminalOpen: (threadRef: WorkspaceRef, open: boolean) => void;
+  setTerminalHeight: (threadRef: WorkspaceRef, height: number) => void;
+  splitTerminal: (threadRef: WorkspaceRef, terminalId: string) => void;
+  splitTerminalVertical: (threadRef: WorkspaceRef, terminalId: string) => void;
+  newTerminal: (threadRef: WorkspaceRef, terminalId: string) => void;
   ensureTerminal: (
-    threadRef: ScopedThreadRef,
+    threadRef: WorkspaceRef,
     terminalId: string,
     options?: { open?: boolean; active?: boolean },
   ) => void;
-  setActiveTerminal: (threadRef: ScopedThreadRef, terminalId: string) => void;
-  closeTerminal: (threadRef: ScopedThreadRef, terminalId: string) => void;
-  reconcileTerminalIds: (threadRef: ScopedThreadRef, nextIds: string[]) => void;
-  clearTerminalUiState: (threadRef: ScopedThreadRef) => void;
-  removeTerminalUiState: (threadRef: ScopedThreadRef) => void;
+  setActiveTerminal: (threadRef: WorkspaceRef, terminalId: string) => void;
+  closeTerminal: (threadRef: WorkspaceRef, terminalId: string) => void;
+  reconcileTerminalIds: (threadRef: WorkspaceRef, nextIds: string[]) => void;
+  clearTerminalUiState: (threadRef: WorkspaceRef) => void;
+  removeTerminalUiState: (threadRef: WorkspaceRef) => void;
   removeOrphanedTerminalUiStates: (activeThreadKeys: Set<string>) => void;
 }
 
@@ -586,7 +589,7 @@ export const useTerminalUiStateStore = create<TerminalUiStateStoreState>()(
   persist(
     (set, get) => {
       const updateTerminal = (
-        threadRef: ScopedThreadRef,
+        threadRef: WorkspaceRef,
         updater: (
           state: ThreadTerminalUiState,
           suppressedTerminalIds: readonly string[],
@@ -748,7 +751,11 @@ export const useTerminalUiStateStore = create<TerminalUiStateStoreState>()(
               [
                 ...Object.keys(state.terminalUiStateByThreadKey),
                 ...Object.keys(state.suppressedTerminalIdsByThreadKey),
-              ].filter((key) => !activeThreadKeys.has(key)),
+              ].filter((key) => {
+                const target = parseWorkspaceKey(key);
+                // SQL shell snapshots cannot establish native-session deletion.
+                return target === null || ("threadId" in target && !activeThreadKeys.has(key));
+              }),
             );
             if (orphanedIds.size === 0) {
               return state;

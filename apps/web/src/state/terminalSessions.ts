@@ -7,7 +7,6 @@ import {
   type TerminalSessionState,
 } from "@t3tools/client-runtime/state/terminal";
 import {
-  ThreadId,
   type EnvironmentId,
   type TerminalAttachInput,
   type TerminalSummary,
@@ -22,7 +21,7 @@ const EMPTY_KNOWN_TERMINAL_SESSIONS = Object.freeze<ReadonlyArray<KnownTerminalS
 interface TerminalMetadataIndex {
   readonly all: ReadonlyArray<TerminalSummary>;
   readonly byThreadId: ReadonlyMap<string, ReadonlyArray<TerminalSummary>>;
-  readonly views: Map<EnvironmentId, Map<ThreadId | null, ReadonlyArray<KnownTerminalSession>>>;
+  readonly views: Map<EnvironmentId, Map<string | null, ReadonlyArray<KnownTerminalSession>>>;
 }
 
 const metadataIndexes = new WeakMap<ReadonlyArray<TerminalSummary>, TerminalMetadataIndex>();
@@ -50,7 +49,7 @@ function knownSession(
   const session = {
     target: {
       environmentId,
-      threadId: ThreadId.make(summary.threadId),
+      threadId: summary.threadId,
       terminalId: summary.terminalId,
     },
     state: combineTerminalSessionState(summary, EMPTY_TERMINAL_BUFFER_STATE),
@@ -84,7 +83,7 @@ function terminalMetadataIndex(metadata: ReadonlyArray<TerminalSummary>): Termin
 export function selectKnownTerminalSessions(
   metadata: ReadonlyArray<TerminalSummary> | null,
   environmentId: EnvironmentId | null,
-  threadId: ThreadId | null,
+  threadId: string | null,
 ): ReadonlyArray<KnownTerminalSession> {
   if (environmentId === null || metadata === null || metadata.length === 0) {
     return EMPTY_KNOWN_TERMINAL_SESSIONS;
@@ -159,7 +158,7 @@ export function useAttachedTerminalSession(input: {
 
 export function useKnownTerminalSessions(input: {
   readonly environmentId: EnvironmentId | null;
-  readonly threadId: ThreadId | null;
+  readonly threadId: string | null;
 }): ReadonlyArray<KnownTerminalSession> {
   const metadata = useEnvironmentQuery(
     input.environmentId === null
@@ -177,7 +176,7 @@ export function useKnownTerminalSessions(input: {
 
 export function useThreadRunningTerminalIds(input: {
   readonly environmentId: EnvironmentId | null;
-  readonly threadId: ThreadId | null;
+  readonly threadId: string | null;
 }): ReadonlyArray<string> {
   const sessions = useKnownTerminalSessions(input);
   return useMemo(() => selectRunningSubprocessTerminalIds(sessions), [sessions]);
