@@ -21,6 +21,15 @@ sent to it unchanged. Use the model button or `Alt+P` for NeoCode's graphical
 switcher. If no enabled NeoPi runtime is available, the composer keeps your draft;
 open **Settings → NeoCore** to enable or configure one.
 
+When NeoPi fails to start a turn in a saved conversation, web and desktop return
+the unsent prompt and its attachments to an empty composer. If you've already
+started another draft there, it stays unchanged: send or clear it before using
+**Restore prompt** on the error notice. Recovery stays with the original
+conversation when you visit Settings, open a fresh draft, or switch conversations;
+it never fills the destination composer. Dismissing that notice discards its
+retained failed prompt. Recover it before reloading or closing the window:
+the pending recovery copy is kept only in that window's memory.
+
 ## Attach files
 
 Attach up to 100 files per message. Each image can be up to 10 MiB, with at most

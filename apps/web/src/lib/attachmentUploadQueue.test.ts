@@ -1,4 +1,5 @@
-import { EnvironmentId } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { EnvironmentId, EventId, ThreadId } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { Atom, AsyncResult } from "effect/unstable/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -10,6 +11,7 @@ import {
   type ComposerFileAttachment,
   type ComposerImageAttachment,
 } from "../composerDraftStore";
+import { useFailedSendDraftStore } from "../components/chat/failedSendDraftRecovery";
 
 const mocks = vi.hoisted(() => ({
   connectionStateAtom: vi.fn(),
@@ -21,7 +23,8 @@ const mocks = vi.hoisted(() => ({
   readPreparedConnection: vi.fn(),
 }));
 
-vi.mock("@t3tools/client-runtime/state/runtime", () => ({
+vi.mock("@t3tools/client-runtime/state/runtime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@t3tools/client-runtime/state/runtime")>()),
   executeAtomQuery: mocks.executeAtomQuery,
   runAtomCommand: mocks.runAtomCommand,
   squashAtomCommandFailure: (result: { readonly error: unknown }) => result.error,
@@ -924,4 +927,113 @@ describe("attachmentUploadQueue", () => {
     TestXmlHttpRequest.requests[4]!.complete();
     await awaitAttachmentUploads([images[3]!.id]);
   });
+  it("transfers a hydrated file's pending upload through delayed failure and guarded restore", async () => {
+    const target = scopeThreadRef(firstEnvironment, ThreadId.make("failed-hydrated-send"));
+    const recovery = useFailedSendDraftStore.getState();
+    const drafts = useComposerDraftStore.getState();
+    const file: ComposerFileAttachment = {
+      ...makeFile("recovery-hydrated"),
+      file: null,
+      uploadedAttachmentId: "pending-recovery-hydrated",
+      uploadEnvironmentId: firstEnvironment,
+    };
+    startAttachmentUpload({ environmentId: firstEnvironment, image: file });
+    await awaitAttachmentUploads([file.id]);
+    recovery.capture(target, "hydrated-message", {
+      prompt: "Keep the uploaded bytes",
+      images: [],
+      files: [file],
+      terminalContexts: [],
+      previewAnnotations: [],
+      reviewComments: [],
+    });
+    // Admission and leaving the composer transfer ownership to recovery, not DELETE.
+    drafts.setPrompt(target, "A newer draft");
+    expect(
+      mocks.runAtomCommand.mock.calls.filter(([, command]) => command === mocks.removeUpload),
+    ).toEqual([]);
+    recovery.fail(target, "hydrated-message");
+    expect(recovery.restore(target, "hydrated-message")).toBeNull();
+    expect(readAttachmentUpload(file.id)).toMatchObject({
+      status: "ready",
+      attachmentId: file.uploadedAttachmentId,
+    });
+    drafts.clearComposerContent(target);
+    const restored = recovery.restore(target, "hydrated-message")!;
+    expect(restored.files[0]).toMatchObject({
+      file: null,
+      uploadedAttachmentId: file.uploadedAttachmentId,
+      uploadEnvironmentId: firstEnvironment,
+    });
+    startAttachmentUpload({
+      environmentId: firstEnvironment,
+      image: restored.files[0]!,
+      draftTarget: target,
+    });
+    await awaitAttachmentUploads([file.id]);
+    expect(
+      getUploadedAttachments({ environmentId: firstEnvironment, images: restored.files }),
+    ).toEqual([expect.objectContaining({ id: file.uploadedAttachmentId, name: file.name })]);
+    expect(TestXmlHttpRequest.requests).toEqual([]);
+    expect(
+      mocks.runAtomCommand.mock.calls.filter(([, command]) => command === mocks.removeUpload),
+    ).toEqual([]);
+    expect(useFailedSendDraftStore.getState().submissionsByThreadKey).toEqual({});
+    // The composer is now the sole owner. Its ordinary user discard deletes once.
+    releaseDraftAttachment(restored.files[0]!);
+    expect(
+      mocks.runAtomCommand.mock.calls.filter(([, command]) => command === mocks.removeUpload),
+    ).toHaveLength(1);
+    drafts.clearComposerContent(target);
+  });
+
+  it.each(["success", "discard", "delete"])(
+    "releases a retained hydrated upload exactly once on %s",
+    async (outcome) => {
+      const target = scopeThreadRef(firstEnvironment, ThreadId.make(`recovery-${outcome}`));
+      const recovery = useFailedSendDraftStore.getState();
+      const file: ComposerFileAttachment = {
+        ...makeFile(`recovery-${outcome}`),
+        file: null,
+        uploadedAttachmentId: `pending-recovery-${outcome}`,
+        uploadEnvironmentId: firstEnvironment,
+      };
+      startAttachmentUpload({ environmentId: firstEnvironment, image: file });
+      await awaitAttachmentUploads([file.id]);
+      recovery.capture(target, "retained-message", {
+        prompt: "Captured prompt",
+        images: [],
+        files: [file],
+        terminalContexts: [],
+        previewAnnotations: [],
+        reviewComments: [],
+      });
+      expect(
+        mocks.runAtomCommand.mock.calls.filter(([, command]) => command === mocks.removeUpload),
+      ).toEqual([]);
+      if (outcome === "success") {
+        const success = {
+          id: EventId.make("accepted-retained-message"),
+          kind: "provider.turn.start.succeeded",
+          summary: "Provider accepted prompt",
+          tone: "info" as const,
+          turnId: null,
+          payload: { requestId: "retained-message", timelineBypass: true },
+          createdAt: "2026-10-30T10:00:00.000Z",
+        };
+        recovery.reconcile(target, [success]);
+        recovery.reconcile(target, [success]);
+      } else {
+        recovery.fail(target, "retained-message");
+        if (outcome === "discard") recovery.discard(target, "retained-message");
+        else recovery.discardThread(target);
+        recovery.discard(target, "retained-message");
+      }
+      expect(useFailedSendDraftStore.getState().submissionsByThreadKey).toEqual({});
+      expect(readAttachmentUpload(file.id)).toBeUndefined();
+      expect(
+        mocks.runAtomCommand.mock.calls.filter(([, command]) => command === mocks.removeUpload),
+      ).toHaveLength(1);
+    },
+  );
 });

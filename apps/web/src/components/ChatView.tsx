@@ -320,6 +320,7 @@ import {
   useQueuedMessageStore,
 } from "../queuedMessageStore";
 import { sendQueuedMessage } from "./chat/sendQueuedMessage";
+import { useFailedSendDraftStore } from "./chat/failedSendDraftRecovery";
 import { type ReviewCommentContext } from "../reviewCommentContext";
 import { environmentCatalog } from "../connection/catalog";
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
@@ -7959,6 +7960,17 @@ export default function ChatView(props: ChatViewProps) {
         }),
       );
     }
+    const recoveryTarget = nativeConversationBound ? activeThreadRef : null;
+    if (recoveryTarget) {
+      useFailedSendDraftStore.getState().capture(recoveryTarget, messageIdForSend, {
+        prompt: messageTextForSend,
+        images: composerImagesSnapshot,
+        files: composerFilesSnapshot,
+        terminalContexts: composerTerminalContextsSnapshot,
+        previewAnnotations: composerPreviewAnnotationsSnapshot,
+        reviewComments: composerReviewCommentsSnapshot,
+      });
+    }
     promptRef.current = "";
     clearComposerDraftContent(composerDraftTarget);
     composerRef.current?.resetCursorState();
@@ -8149,11 +8161,10 @@ export default function ChatView(props: ChatViewProps) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
-        // The turn is under way and will spend quota, so that thread's limits
-        // snapshot is stale. Uploads may have outlasted a navigation, so only
-        // the sending thread's panel clears.
+        // Admission invalidates the sending thread's limits, even after navigation.
+        // Native recovery still owns uploads until the provider accepts the prompt.
         clearUsageLimitsFor(routeThreadKey);
-        if (turnUsesAttachmentUploads) {
+        if (turnUsesAttachmentUploads && recoveryTarget === null) {
           releaseDraftAttachments(composerAttachmentsSnapshot);
         }
         acknowledgeActiveThreadWoke();
@@ -8196,7 +8207,14 @@ export default function ChatView(props: ChatViewProps) {
         );
         clearBackgroundDraftSubmissionByRef(scopeThreadRef(environmentId, threadIdForSend));
       }
-      if (
+      if (recoveryTarget) {
+        setOptimisticUserMessages((existing) => {
+          const removed = existing.filter((message) => message.id === messageIdForSend);
+          for (const message of removed) revokeUserMessagePreviewUrls(message);
+          return existing.filter((message) => message.id !== messageIdForSend);
+        });
+        useFailedSendDraftStore.getState().fail(recoveryTarget, messageIdForSend);
+      } else if (
         backgroundDraftOpened
           ? !composerDraftHasUserContent(
               useComposerDraftStore.getState().getComposerDraft(composerDraftTarget),

@@ -1255,6 +1255,28 @@ const make = Effect.gen(function* () {
         createdAt: event.payload.createdAt,
         requestId: event.payload.messageId,
       });
+    // Admission precedes the asynchronous provider send. Persist its actual
+    // outcome with the original message id so clients can release recovery
+    // ownership even after navigating away or reconnecting.
+    const appendTurnStartSuccess = (turnId: TurnId | null) =>
+      Effect.gen(function* () {
+        const createdAt = DateTime.formatIso(yield* DateTime.now);
+        yield* orchestrationEngine.dispatch({
+          type: "thread.activity.append",
+          commandId: yield* serverCommandId("provider-turn-start-succeeded"),
+          threadId: event.payload.threadId,
+          activity: {
+            id: yield* serverEventId(),
+            tone: "info",
+            kind: "provider.turn.start.succeeded",
+            summary: "Provider accepted prompt",
+            payload: { requestId: event.payload.messageId, timelineBypass: true },
+            turnId,
+            createdAt,
+          },
+          createdAt,
+        });
+      }).pipe(Effect.ignore({ log: true, message: "failed to record provider turn acceptance" }));
     if (resumed && turnsAfterCompaction.get(event.payload.threadId) !== resumed.queued) {
       return yield* appendTurnStartFailure(
         "Queued message was not sent",
@@ -1288,7 +1310,6 @@ const make = Effect.gen(function* () {
           }),
         ),
       );
-
 
     yield* ensureThreadWorktree(thread);
 
@@ -1410,6 +1431,7 @@ const make = Effect.gen(function* () {
           event.payload.messageId,
         );
       }).pipe(
+        Effect.andThen(appendTurnStartSuccess(null)),
         Effect.andThen(restoreCompaction(event.payload.threadId, true)),
         Effect.andThen(clearCompacting),
         Effect.andThen(resumeTurnsAfterCompaction(event.payload.threadId)),
@@ -1464,9 +1486,11 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const send = providerService
-      .sendTurn(sendTurnRequest.value)
-      .pipe(Effect.asVoid, Effect.catchCause(recoverTurnStartFailure));
+    const send = providerService.sendTurn(sendTurnRequest.value).pipe(
+      Effect.tap((result) => appendTurnStartSuccess(result.turnId)),
+      Effect.asVoid,
+      Effect.catchCause(recoverTurnStartFailure),
+    );
     // The forked send settles `sent` from here on, so drop the entry the post-processing hook uses.
     if (resumed && event.commandId !== null) resumedTurnStarts.delete(event.commandId);
     yield* send.pipe(

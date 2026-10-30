@@ -291,6 +291,37 @@ function makeThread(
 }
 
 describe("buildThreadFeed", () => {
+  it("hides correlated provider acceptance bookkeeping but retains provider failures", () => {
+    const accepted = makeActivity({
+      id: EventId.make("provider-accepted"),
+      kind: "provider.turn.start.succeeded",
+      summary: "Provider accepted prompt",
+      payload: { requestId: "message", timelineBypass: true },
+      createdAt: "2026-10-30T10:00:00.000Z",
+    });
+    const thread = makeThread({
+      id: ThreadId.make("provider-outcomes"),
+      projectId: ProjectId.make("project-1"),
+      title: "Provider outcomes",
+      activities: [accepted],
+    });
+    expect(buildThreadFeed(thread)).toEqual([]);
+    const failed = makeActivity({
+      id: EventId.make("provider-failed"),
+      kind: "provider.turn.start.failed",
+      summary: "Provider turn start failed",
+      tone: "error",
+      payload: { requestId: "failed-message", detail: "Unavailable native session" },
+      createdAt: "2026-10-30T10:00:01.000Z",
+    });
+    const feed = buildThreadFeed({ ...thread, activities: [accepted, failed] });
+    expect(feed).toHaveLength(1);
+    expect(feed[0]).toMatchObject({
+      type: "activity-group",
+      activities: [{ id: failed.id }],
+    });
+  });
+
   it("reuses unchanged feed and presentation rows during an assistant text update", () => {
     const completedTurnId = TurnId.make("completed-turn");
     const activeTurnId = TurnId.make("active-turn");
