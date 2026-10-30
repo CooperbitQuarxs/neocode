@@ -101,10 +101,10 @@ const harness = <E, R>(
 
 const makeAtomHarness = Effect.fn("NativeSessionAtomsTest.makeHarness")(function* () {
   const subscriptions = yield* Queue.unbounded<{
-    readonly events: Queue.Queue<NativeSessionUpdate>;
+    readonly events: Queue.Queue<NativeSessionUpdate, StateReadError>;
     readonly detached: Deferred.Deferred<void>;
   }>();
-  const active = new Set<Queue.Queue<NativeSessionUpdate>>();
+  const active = new Set<Queue.Queue<NativeSessionUpdate, StateReadError>>();
   let opens = 0;
   let closes = 0;
   let prompts = 0;
@@ -138,7 +138,7 @@ const makeAtomHarness = Effect.fn("NativeSessionAtomsTest.makeHarness")(function
     [WS_METHODS.neopiNativeSessionsWatch]: () =>
       Stream.unwrap(
         Effect.gen(function* () {
-          const events = yield* Queue.unbounded<NativeSessionUpdate>();
+          const events = yield* Queue.unbounded<NativeSessionUpdate, StateReadError>();
           const detached = yield* Deferred.make<void>();
           yield* Effect.acquireRelease(
             Effect.sync(() => active.add(events)),
@@ -286,6 +286,62 @@ describe("native session observation lifetime", () => {
           remount();
         }),
       ),
+  );
+
+  it.effect("recovers a failed observer when the same connected session is reopened", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const h = yield* makeAtomHarness();
+        const unmount = h.registry.mount(h.watch);
+        const first = yield* Queue.take(h.subscriptions);
+        yield* h.observe((feed) => feed.connected);
+        yield* Queue.offer(
+          first.events,
+          event({ type: "command_output", text: "Before observer failure" }),
+        );
+        const before = yield* h.observe((feed) => feed.commandOutputs.length === 1);
+
+        yield* Queue.fail(first.events, new StateReadError({ message: "Native observer failed." }));
+        const failed = yield* h.observe((feed) => !feed.connected && feed.error !== null);
+        yield* Deferred.await(first.detached);
+        expect(failed.error).toContain("Native observer failed.");
+        expect(failed.conversation.entries).toEqual([user]);
+        expect(failed.commandOutputs).toEqual(before.commandOutputs);
+        expect(h.counts()).toEqual({ opens: 1, closes: 0, prompts: 0, active: 0 });
+        expect(yield* SubscriptionRef.get(h.sessionRef)).toEqual(Option.some(h.connection));
+
+        unmount();
+        h.flush();
+        const opened = yield* Effect.promise(() =>
+          h.atoms.open.run(h.registry, { environmentId: h.target.environmentId, input: ref }),
+        );
+        expect(opened).toMatchObject({ _tag: "Success", value: { ref } });
+        const remount = h.registry.mount(h.watch);
+        yield* Effect.yieldNow;
+        const reopened = yield* AtomRegistry.getResult(h.registry, h.watch);
+        expect(reopened.connected).toBe(true);
+        expect(reopened.error).toBeNull();
+        expect(reopened.conversation.entries).toEqual([user]);
+        expect(reopened.commandOutputs).toEqual(before.commandOutputs);
+
+        const second = yield* Queue.take(h.subscriptions);
+        yield* Queue.offer(
+          second.events,
+          event({
+            type: "message_update",
+            messageId: "recovered-live",
+            message: { role: "assistant", content: "Delivered after observer recovery" },
+          }),
+        );
+        const live = yield* h.observe(
+          (feed) =>
+            feed.conversation.pending[0]?.message.content === "Delivered after observer recovery",
+        );
+        expect(live.connected).toBe(true);
+        expect(h.counts()).toEqual({ opens: 3, closes: 0, prompts: 0, active: 1 });
+        remount();
+      }),
+    ),
   );
 
   it.effect("keeps a running observation warm through switch-away and switch-back", () =>
