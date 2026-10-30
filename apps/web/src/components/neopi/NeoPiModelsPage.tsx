@@ -786,40 +786,45 @@ function ModelRow({
           </TableCell>
         </MenuTrigger>
         <MenuPopup align="start">
-          <MenuSub>
-            <MenuSubTrigger>Assign to role</MenuSubTrigger>
-            <MenuSubPopup>
-              {roles.map((role) => {
-                const resolution = role.scopedResolutions[scope];
-                const using =
-                  resolution?.provider === model.provider && resolution.modelId === model.id;
-                const currentModel =
-                  resolution &&
-                  models.find(
-                    (candidate) =>
-                      candidate.provider === resolution.provider &&
-                      candidate.id === resolution.modelId,
+          {/* Keep role/catalog resolution out of the thousands of closed table rows. */}
+          {open ? (
+            <MenuSub>
+              <MenuSubTrigger>Assign to role</MenuSubTrigger>
+              <MenuSubPopup>
+                {roles.map((role) => {
+                  const resolution = role.scopedResolutions[scope];
+                  const using =
+                    resolution?.provider === model.provider && resolution.modelId === model.id;
+                  const currentModel =
+                    resolution &&
+                    models.find(
+                      (candidate) =>
+                        candidate.provider === resolution.provider &&
+                        candidate.id === resolution.modelId,
+                    );
+                  const current = currentModel
+                    ? modelDisplayName(currentModel)
+                    : resolution?.modelId;
+                  return (
+                    <MenuItem
+                      key={role.id}
+                      disabled={pending}
+                      onClick={() => {
+                        void assign(role, selector);
+                      }}
+                    >
+                      {using ? <CheckIcon className="size-3" /> : null}
+                      <span>{role.id}</span>
+                      <span className="ml-auto max-w-48 truncate text-xs text-muted-foreground">
+                        {current ??
+                          (modelRoleForScope(role, scope).selector ? "Not available" : "Automatic")}
+                      </span>
+                    </MenuItem>
                   );
-                const current = currentModel ? modelDisplayName(currentModel) : resolution?.modelId;
-                return (
-                  <MenuItem
-                    key={role.id}
-                    disabled={pending}
-                    onClick={() => {
-                      void assign(role, selector);
-                    }}
-                  >
-                    {using ? <CheckIcon className="size-3" /> : null}
-                    <span>{role.id}</span>
-                    <span className="ml-auto max-w-48 truncate text-xs text-muted-foreground">
-                      {current ??
-                        (modelRoleForScope(role, scope).selector ? "Not available" : "Automatic")}
-                    </span>
-                  </MenuItem>
-                );
-              })}
-            </MenuSubPopup>
-          </MenuSub>
+                })}
+              </MenuSubPopup>
+            </MenuSub>
+          ) : null}
           {setThreadModel ? (
             <MenuItem
               onClick={() => {
