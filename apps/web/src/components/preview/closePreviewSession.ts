@@ -1,10 +1,6 @@
+import { workspaceResourceId, type WorkspaceRef } from "@t3tools/client-runtime/environment";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
-import type {
-  EnvironmentId,
-  PreviewCloseInput,
-  PreviewSessionSnapshot,
-  ScopedThreadRef,
-} from "@t3tools/contracts";
+import type { EnvironmentId, PreviewCloseInput, PreviewSessionSnapshot } from "@t3tools/contracts";
 
 import { beginPreviewSessionClose, cancelPreviewSessionClose } from "~/previewStateStore";
 
@@ -15,7 +11,7 @@ interface ClosePreviewSessionInput<E> {
   }) => Promise<AtomCommandResult<void, E>>;
   readonly snapshot: PreviewSessionSnapshot | null;
   readonly tabId: string;
-  readonly threadRef: ScopedThreadRef;
+  readonly threadRef: WorkspaceRef;
 }
 
 /**
@@ -28,7 +24,7 @@ export async function closePreviewSession<E>(
   beginPreviewSessionClose(input.threadRef, input.tabId);
   const result = await input.closePreview({
     environmentId: input.threadRef.environmentId,
-    input: { threadId: input.threadRef.threadId, tabId: input.tabId },
+    input: { threadId: workspaceResourceId(input.threadRef), tabId: input.tabId },
   });
   if (result._tag === "Failure") {
     cancelPreviewSessionClose(input.threadRef, input.snapshot, input.tabId);

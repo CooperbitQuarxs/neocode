@@ -46,9 +46,7 @@ generation. The same rows edit environment defaults or project overrides dependi
 project crumb.
 
 The Project category, shown while a project is selected, holds the project's name, icon, actions,
-checkouts and removal. Actions belong to a project: editing them creates the project's own list
-on each selected environment, and reset returns to the environment's shared list. A project's
-`t3.json` actions can be imported there.
+checkouts and removal. A project's `t3.json` actions can be imported there.
 
 Settings a repository can also declare in `t3.json`, such as the workspace for new threads,
 resolve in one order: a project override, then the environment setting, then `t3.json`, then the
@@ -61,6 +59,27 @@ selected to override it there) to **Top level only** to stop at the ones the rep
 itself, or **Skip** to leave them for a setup script. It resolves in the same order as the
 workspace default: a `"worktreeSubmodules"` value in the `t3.json` of the branch being checked out
 applies when the project and environment are both on **Inherit**.
+
+## Reusable actions
+
+Open **Settings → General → Actions** with **All projects** selected to define a command once
+for every project on the selected environments. Select a project to add a project-only action,
+override an inherited action, or hide it there. Other inherited actions keep following environment
+changes. **Reset action** removes that action's override; **Restore action** unhides it. Existing
+project action lists are preserved.
+
+Run actions from the chat header's actions menu or their configured shortcuts. They run on the
+selected project's environment, in the active worktree or checkout. They do not run on the viewing
+device when connected remotely.
+
+For example, name an action **Open in Neovide** and set its command to `neovide -- .`. The literal
+`.` opens the action's working directory without putting a path containing spaces or shell
+characters into the command. Neovide must already be installed on that environment and able to
+reach its graphical session. This is an ordinary shell action, not an editor integration.
+
+The scope picker is a bulk edit across connected environments, not a cloud-synced global
+registry. Offline environments keep their own settings. Shortcuts are shared by action ID on
+each environment. **Continue in terminal** remains a separate NeoPi session operation.
 
 ## Storage cleanup
 

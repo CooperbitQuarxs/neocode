@@ -160,6 +160,7 @@ export interface NeoPiRole {
   readonly id: string;
   readonly alias: string;
   readonly name: string;
+  readonly description?: string;
   readonly tag?: string;
   readonly section?: string;
   readonly source: "builtin" | "configured";
@@ -170,7 +171,7 @@ export interface NeoPiRole {
     readonly modelId: string;
     readonly thinkingLevel?: string;
   };
-  readonly hidden: boolean;
+  readonly hidden?: boolean;
 }
 
 export interface GetRolesResult {
@@ -206,6 +207,7 @@ export type Frame =
   | SessionEventFrame;
 
 export interface PromptImage {
+  readonly type: "image";
   readonly data: string;
   readonly mimeType: string;
 }

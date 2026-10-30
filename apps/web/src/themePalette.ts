@@ -77,23 +77,6 @@ type CustomThemeLibrarySnapshot =
   | Readonly<{ status: "unavailable"; reason: "storage-unavailable"; cause: unknown }>;
 
 let customThemeLibrarySnapshot: CustomThemeLibrarySnapshot | null = null;
-const themePreviewListeners = new Set<() => void>();
-let themePreviewSidebarArtwork: boolean | null = null;
-
-export function getThemePreviewSidebarArtwork(): boolean | null {
-  return themePreviewSidebarArtwork;
-}
-
-export function subscribeToThemePreview(listener: () => void): () => void {
-  themePreviewListeners.add(listener);
-  return () => themePreviewListeners.delete(listener);
-}
-
-function setThemePreviewSidebarArtwork(next: boolean | null): void {
-  if (themePreviewSidebarArtwork === next) return;
-  themePreviewSidebarArtwork = next;
-  for (const listener of themePreviewListeners) listener();
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -329,10 +312,9 @@ function legacyThemeMode(theme: ThemePreference): ThemeAppearance | null {
 }
 
 /**
- * The standard T3 Code look as a theme palette, for seeding a new theme when
- * no theme is installed. Distinct from {@link getDefaultThemeColors}, which
- * carries the flagship T3 Chat palette used to fill roles omitted by theme
- * files.
+ * NeoCode's default Neo palette, for seeding a theme from the current look.
+ * Distinct from {@link getDefaultThemeColors}, which carries the optional
+ * T3 Chat palette used to fill roles omitted by theme files.
  */
 export function getStandardThemeColors(appearance: ThemeAppearance): ThemeColors {
   if (appearance === "dark") {
@@ -803,6 +785,110 @@ export function createVividThemeColors(
   };
 }
 
+/** Native semantic colors share the graphical geometry, not its old theme catalog. */
+export function neoPiThemeColors(
+  appearance: ThemeAppearance,
+  native: Readonly<Record<string, string>>,
+): ThemeColors {
+  const defaults = getDefaultThemeColors(appearance);
+  const valid = (value: string | undefined, fallback: string) =>
+    value && isThemeColor(value) ? value : fallback;
+  const canvas = valid(native.pageBg ?? native.statusLineBg, defaults.canvas);
+  const accent = valid(native.accent, defaults.accent);
+  let colors = createVividThemeColors(appearance, canvas, accent);
+  const canvasRgb = parseThemeRgbColor(canvas, THEME_BLACK_FOREGROUND);
+  const canvasLuminance = themeRelativeLuminance(canvasRgb);
+  const darkCanvas = canvasLuminance < 0.179;
+  const stableSurface = (value: string) => {
+    const source = parseThemeRgbColor(value, canvasRgb);
+    let surface = source;
+    for (let step = 1; step <= 20; step++) {
+      const lightness = themeRelativeLuminance(surface);
+      if (
+        darkCanvas
+          ? lightness <= Math.max(canvasLuminance, 0.12)
+          : lightness >= Math.min(canvasLuminance, 0.3)
+      )
+        break;
+      surface = mixThemeRgbColors(source, canvasRgb, step / 20);
+    }
+    return themeRgbToThemeColor(surface);
+  };
+  const pairs: ReadonlyArray<readonly [ThemeColorRole, string | undefined]> = [
+    ["surface", native.cardBg],
+    ["surfaceRaised", native.infoBg],
+    ["surfaceOverlay", native.infoBg],
+    ["sidebar", native.statusLineBg],
+    ["sidebarRowSelected", native.selectedBg],
+    ["messageSurface", native.userMessageBg],
+    ["codeBackground", native.toolSuccessBg ?? native.cardBg],
+    ["border", native.borderMuted ?? native.border],
+    ["error", native.error],
+    ["warning", native.warning],
+  ];
+  for (const [role, value] of pairs) {
+    if (value && isThemeColor(value)) {
+      const sharedSurface =
+        role === "surface" || role === "surfaceRaised" || role === "surfaceOverlay";
+      colors = updateThemeColorFamily(
+        appearance,
+        colors,
+        role,
+        sharedSurface ? stableSurface(value) : value,
+      );
+    }
+  }
+  const rgb = (value: string) => parseThemeRgbColor(value, THEME_BLACK_FOREGROUND);
+  const on = (background: string, candidate: string, ratio = 4.6) => {
+    const parsed = parseThemeColor(candidate)!;
+    return themeOklchToThemeColor(
+      solveOklchLightness(
+        parsed.color,
+        rgb(background),
+        ratio,
+        themeRelativeLuminance(rgb(background)) < 0.179 ? "lighter" : "darker",
+      ),
+    );
+  };
+  const sharedBackground = [
+    colors.canvas,
+    colors.surface,
+    colors.surfaceRaised,
+    colors.surfaceOverlay,
+  ].reduce((worst, surface) =>
+    (
+      darkCanvas
+        ? themeRelativeLuminance(rgb(surface)) > themeRelativeLuminance(rgb(worst))
+        : themeRelativeLuminance(rgb(surface)) < themeRelativeLuminance(rgb(worst))
+    )
+      ? surface
+      : worst,
+  );
+  const text = valid(native.text, colors.text);
+  const muted = valid(native.muted, colors.textMuted);
+  const textMuted = on(sharedBackground, muted);
+  return {
+    ...colors,
+    text: on(sharedBackground, text),
+    toolbarForeground: on(colors.toolbar, text),
+    toolbarControlForeground: on(colors.toolbarControl, text),
+    sidebarForeground: on(colors.sidebar, text),
+    messageForeground: on(colors.messageSurface, valid(native.userMessageText, text)),
+    codeForeground: on(colors.codeBackground, text),
+    textMuted,
+    mutedForeground: on(colors.muted, muted),
+    placeholder: on(colors.surfaceRaised, muted),
+    secondaryLabel: textMuted,
+    iconMuted: textMuted,
+    sidebarMutedForeground: on(colors.sidebar, muted),
+    focus: on(sharedBackground, valid(native.borderAccent, accent), 3),
+    // Keep the owner's purple send action independent of native terminal accents.
+    messageAction: defaults.messageAction,
+    messageActionForeground: defaults.messageActionForeground,
+    messageActionHover: defaults.messageActionHover,
+  };
+}
+
 function themeContrastRatio(first: ThemeRgbColor, second: ThemeRgbColor): number {
   const firstLuminance = themeRelativeLuminance(first);
   const secondLuminance = themeRelativeLuminance(second);
@@ -1078,15 +1164,6 @@ export function getThemeDefinition(theme: ThemePreference): ThemeDefinition | nu
     // machine happens to publish under the same id.
     environmentThemeDefinitions.find((definition) => definition.id === themeId) ??
     null
-  );
-}
-
-/** Artwork palettes are reviewed alongside built-ins; user themes always use the pill fallback. */
-export function themeAllowsSidebarArtwork(theme: ThemePreference): boolean {
-  const themeId = themeIdFromPreference(theme);
-  return (
-    BUILT_IN_THEME_DEFINITIONS.find((definition) => definition.id === themeId)?.sidebarArtwork ===
-    true
   );
 }
 
@@ -1502,9 +1579,6 @@ export function applyThemeColorPreview(colors: ThemeColors, appearance: ThemeApp
   const root = document.documentElement;
   if (!root?.style) return;
 
-  // Drafts become user-controlled themes when saved, so their preview keeps
-  // the fixed stage artwork hidden even when it was seeded from a built-in.
-  setThemePreviewSidebarArtwork(false);
   root.dataset.themeId = THEME_PREVIEW_ID;
   root.classList.toggle("dark", appearance === "dark");
   for (const [role, value] of Object.entries(colors) as Array<[ThemeColorRole, string]>) {
@@ -1519,7 +1593,6 @@ export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppe
   const root = document.documentElement;
   if (!root?.style) return;
 
-  setThemePreviewSidebarArtwork(null);
   const palette = getThemeDefinition(theme);
 
   if (palette) {

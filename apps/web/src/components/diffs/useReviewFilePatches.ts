@@ -1,6 +1,10 @@
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import type { FileDiffMetadata } from "@pierre/diffs";
-import type { EnvironmentId, ReviewDiffPreviewSource } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  NeoPiNativeSessionRef,
+  ReviewDiffPreviewSource,
+} from "@t3tools/contracts";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import * as Atom from "effect/unstable/reactivity/Atom";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -10,6 +14,7 @@ import { reviewEnvironment } from "~/state/review";
 export function useReviewFilePatches({
   environmentId,
   cwd,
+  nativeRef,
   source,
   baseRef,
   ignoreWhitespace,
@@ -19,6 +24,7 @@ export function useReviewFilePatches({
 }: {
   environmentId: EnvironmentId | undefined;
   cwd: string | undefined;
+  nativeRef?: NeoPiNativeSessionRef;
   source: ReviewDiffPreviewSource | null;
   baseRef: string | null;
   ignoreWhitespace: boolean;
@@ -30,6 +36,8 @@ export function useReviewFilePatches({
   const scope = JSON.stringify([
     environmentId,
     cwd,
+    nativeRef?.providerInstanceId,
+    nativeRef?.sessionFile,
     source?.kind,
     source?.diffHash,
     baseRef,
@@ -49,7 +57,7 @@ export function useReviewFilePatches({
   );
   const queries = useMemo(
     () =>
-      !environmentId || !cwd || !source
+      !environmentId || (!nativeRef && !cwd) || !source
         ? []
         : indices
             .filter((index) => index < files.length)
@@ -57,25 +65,42 @@ export function useReviewFilePatches({
               const file = files[index]!;
               return {
                 index,
-                query: reviewEnvironment.diffFilePatch({
-                  environmentId,
-                  input: {
-                    cacheKey: scope,
-                    request: {
-                      cwd,
-                      ...(baseRef ? { baseRef } : {}),
-                      ignoreWhitespace,
-                      file: {
-                        path: file.path,
-                        previousPath: file.previousPath,
-                        sourceKind: source.kind,
+                query: nativeRef
+                  ? reviewEnvironment.nativeDiffFilePatch({
+                      environmentId,
+                      input: {
+                        cacheKey: scope,
+                        request: {
+                          ref: nativeRef,
+                          ...(baseRef ? { baseRef } : {}),
+                          ignoreWhitespace,
+                          file: {
+                            path: file.path,
+                            previousPath: file.previousPath,
+                            sourceKind: source.kind,
+                          },
+                        },
                       },
-                    },
-                  },
-                }),
+                    })
+                  : reviewEnvironment.diffFilePatch({
+                      environmentId,
+                      input: {
+                        cacheKey: scope,
+                        request: {
+                          cwd: cwd!,
+                          ...(baseRef ? { baseRef } : {}),
+                          ignoreWhitespace,
+                          file: {
+                            path: file.path,
+                            previousPath: file.previousPath,
+                            sourceKind: source.kind,
+                          },
+                        },
+                      },
+                    }),
               };
             }),
-    [environmentId, cwd, source, files, indices, scope, baseRef, ignoreWhitespace],
+    [environmentId, cwd, nativeRef, source, files, indices, scope, baseRef, ignoreWhitespace],
   );
   const previousPreview = useRef({ scope, revision, queries: [] as typeof queries });
   useEffect(() => {
@@ -90,13 +115,14 @@ export function useReviewFilePatches({
       if (changed || cached) registry.refresh(query);
     }
   }, [scope, revision, queries, registry]);
+  const renderCacheScope = nativeRef ? `diff-panel:${theme}:${scope}` : `diff-panel:${theme}`;
   // Derived atoms parse each query result once, even when another file finishes loading.
   const parsedQuery = useMemo(
     () =>
-      Atom.family((query: ReturnType<typeof reviewEnvironment.diffFilePatch>) =>
+      Atom.family((query: (typeof queries)[number]["query"]) =>
         Atom.map(query, (result) =>
           AsyncResult.map(result, (source) => {
-            let patch = getRenderablePatch(source.diff, `diff-panel:${theme}`, {
+            let patch = getRenderablePatch(source.diff, renderCacheScope, {
               compactPartialHunkOffsets: true,
             });
             if (patch?.kind === "files" && patch.files.length === 1 && source.files?.length === 1) {
@@ -110,7 +136,7 @@ export function useReviewFilePatches({
           }),
         ),
       ),
-    [theme],
+    [renderCacheScope],
   );
   const patches = useAtomValue(
     useMemo(

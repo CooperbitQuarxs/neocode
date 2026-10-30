@@ -11,11 +11,17 @@ export function ProjectActionsList({
   keybindings,
   disabled,
   onEdit,
+  origin,
+  onReset,
+  canReset,
 }: {
   scripts: readonly ProjectScript[];
   keybindings: ResolvedKeybindingsConfig;
   disabled: boolean;
   onEdit: (script: ProjectScript) => void;
+  origin: (id: string) => string;
+  onReset: (id: string) => void;
+  canReset: (id: string) => boolean;
 }) {
   if (scripts.length === 0)
     return (
@@ -33,6 +39,7 @@ export function ProjectActionsList({
           <span className="flex min-w-0 items-center gap-2">
             <ScriptIcon icon={script.icon} className="size-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 truncate">{script.name}</span>
+            <span className="text-xs font-normal text-muted-foreground">{origin(script.id)}</span>
             {script.runOnWorktreeCreate ? (
               <span className="shrink-0 rounded-sm border border-border/60 px-1.5 py-px text-2xs font-normal text-muted-foreground">
                 setup
@@ -48,6 +55,16 @@ export function ProjectActionsList({
         description={<code className="block max-w-full truncate font-mono">{script.command}</code>}
         control={
           <>
+            {canReset(script.id) ? (
+              <Button
+                size="xs"
+                variant="ghost"
+                disabled={disabled}
+                onClick={() => onReset(script.id)}
+              >
+                Reset action
+              </Button>
+            ) : null}
             {shortcutLabel ? (
               <span className="text-xs text-muted-foreground">{shortcutLabel}</span>
             ) : null}

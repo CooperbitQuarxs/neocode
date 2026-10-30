@@ -14,6 +14,7 @@ import {
 
 import type {
   EnvironmentId,
+  NeoPiNativeSessionRef,
   ReviewDiffFileStat,
   ReviewDiffPreviewSource,
 } from "@t3tools/contracts";
@@ -121,6 +122,7 @@ export function useReviewDiffData(input: {
   readonly threadKey: string | null;
   readonly environmentId: EnvironmentId | undefined;
   readonly cwd: string | null;
+  readonly nativeRef?: NeoPiNativeSessionRef;
   readonly selectedSection: ReviewSectionItem | null;
   readonly revision: string | undefined;
   readonly draftMessage: string;
@@ -143,10 +145,12 @@ export function useReviewDiffData(input: {
     [lazySource, selectedSection?.diff, selectedSection?.id, threadKey],
   );
   const registry = useContext(RegistryContext);
-  const { environmentId, cwd } = input;
+  const { environmentId, cwd, nativeRef } = input;
   const scope = JSON.stringify([
     environmentId,
     cwd,
+    nativeRef?.providerInstanceId,
+    nativeRef?.sessionFile,
     source?.kind,
     source?.baseRef,
     source?.diffHash,
@@ -158,32 +162,44 @@ export function useReviewDiffData(input: {
   );
   const queries = useMemo(
     () =>
-      !environmentId || !cwd || !lazySource
+      !environmentId || (!nativeRef && !cwd) || !lazySource
         ? []
-        : (lazySource.files ?? []).map((file, index) =>
-            indices.has(index)
-              ? reviewEnvironment.diffFilePatch({
+        : (lazySource.files ?? []).map((file, index) => {
+            if (!indices.has(index)) return null;
+            const fileInput = {
+              path: file.path,
+              previousPath: file.previousPath,
+              sourceKind: lazySource.kind,
+            };
+            return nativeRef
+              ? reviewEnvironment.nativeDiffFilePatch({
                   environmentId,
                   input: {
                     cacheKey: scope,
                     request: {
-                      cwd,
+                      ref: nativeRef,
                       ...(lazySource.baseRef ? { baseRef: lazySource.baseRef } : {}),
-                      file: {
-                        path: file.path,
-                        previousPath: file.previousPath,
-                        sourceKind: lazySource.kind,
-                      },
+                      file: fileInput,
                     },
                   },
                 })
-              : null,
-          ),
-    [environmentId, cwd, lazySource, indices, scope],
+              : reviewEnvironment.diffFilePatch({
+                  environmentId,
+                  input: {
+                    cacheKey: scope,
+                    request: {
+                      cwd: cwd!,
+                      ...(lazySource.baseRef ? { baseRef: lazySource.baseRef } : {}),
+                      file: fileInput,
+                    },
+                  },
+                });
+          }),
+    [environmentId, cwd, nativeRef, lazySource, indices, scope],
   );
   const parsedQuery = useMemo(
     () =>
-      Atom.family((query: ReturnType<typeof reviewEnvironment.diffFilePatch>) =>
+      Atom.family((query: NonNullable<(typeof queries)[number]>) =>
         Atom.map(query, (result) =>
           AsyncResult.map(result, (source) => ({
             source,

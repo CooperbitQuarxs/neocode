@@ -1,4 +1,6 @@
-const NIGHTLY_SERVER_VERSION_PATTERN = /^[^-+]+-(?:nightly|preview)\.\d{8}\.\d+$/;
+// Release runs may end in a numeric attempt or a pinned canary's git revision.
+const NIGHTLY_SERVER_VERSION_PATTERN =
+  /^[^-+]+-(?:nightly|preview)\.\d{8}\.\d+(?:\.(?:\d+|[a-f0-9]{7,40}))?$/;
 
 export function formatAppDisplayName(input: {
   readonly baseName: string;

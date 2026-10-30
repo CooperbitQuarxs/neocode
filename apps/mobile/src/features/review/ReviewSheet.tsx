@@ -1,4 +1,6 @@
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { workspaceKey } from "@t3tools/client-runtime/environment";
+import type { NativeSessionTarget } from "@t3tools/client-runtime/neopi-native-sessions";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";
 import { ScreenHeader } from "../../components/ScreenHeader";
@@ -40,7 +42,7 @@ import { useEnvironmentPresentation } from "../../state/presentation";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { IOS_NAV_BAR_HEIGHT } from "../../lib/layoutMetrics";
-import { useThreadDraftForThread } from "../../state/use-thread-composer-state";
+import { useComposerDraft } from "../../state/use-composer-drafts";
 import { EnvironmentConnectionNotice } from "../connection/EnvironmentConnectionNotice";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import {
@@ -68,18 +70,27 @@ import { resolveSelectedReviewFileId } from "./reviewPaneSelection";
 import { buildReviewSectionMenu } from "./review-section-menu";
 import { reportShowcaseSceneRendered } from "../showcase/showcaseRenderSignal";
 
-function ReviewHeader(
-  props: Parameters<typeof useReviewHeaderPresentation>[0] & {
-    readonly iconColor: string;
-    readonly sectionMenu: ReturnType<typeof buildReviewSectionMenu>;
-    readonly showSectionToolbar: boolean;
-    readonly showChangedFilesToggle: boolean;
-    readonly onSelectSection: (sectionId: string) => void;
-    readonly onReturnToThread: () => void;
+type ReviewHeaderProps = Parameters<typeof useReviewHeaderPresentation>[0] & {
+  readonly iconColor: string;
+  readonly sectionMenu: ReturnType<typeof buildReviewSectionMenu>;
+  readonly showSectionToolbar: boolean;
+  readonly showChangedFilesToggle: boolean;
+  readonly onSelectSection: (sectionId: string) => void;
+  readonly onReturnToThread: () => void;
+};
+
+function ReviewHeader(props: ReviewHeaderProps) {
+  const presentation = useReviewHeaderPresentation(props);
+  return <ReviewHeaderContent {...props} presentation={presentation} />;
+}
+
+function ReviewHeaderContent(
+  props: Omit<ReviewHeaderProps, "threadId"> & {
+    readonly presentation: ReturnType<typeof useReviewHeaderPresentation>;
   },
 ) {
   const { panes, toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
-  const presentation = useReviewHeaderPresentation(props);
+  const presentation = props.presentation;
   const sectionAction = (
     section: ReviewSectionItem | null,
     title: string,
@@ -441,10 +452,10 @@ function ReviewFileNavigator({
   );
 }
 
-type ReviewSheetProps = StaticScreenProps<{
-  readonly environmentId: EnvironmentId;
-  readonly threadId: ThreadId;
-}>;
+type ReviewSheetProps = StaticScreenProps<
+  | { readonly environmentId: EnvironmentId; readonly threadId: ThreadId }
+  | { readonly target: NativeSessionTarget; readonly cwd: string }
+>;
 
 export function ReviewSheet(props: ReviewSheetProps) {
   const { nativeReviewDiffStyle } = useAppearanceCodeSurface();
@@ -454,13 +465,23 @@ export function ReviewSheet(props: ReviewSheetProps) {
   const insets = useSafeAreaInsets();
   const { themeAppearance: selectedTheme } = useAppearancePreferences();
   const headerIcon = String(useUniwindTheme()["--color-icon"]);
-  const { environmentId, threadId } = props.route.params;
+  const params = props.route.params;
+  const workspaceRef =
+    "target" in params
+      ? params.target
+      : {
+          environmentId: params.environmentId,
+          threadId: params.threadId,
+        };
+  const environmentId = workspaceRef.environmentId;
+  const threadId = "threadId" in workspaceRef ? workspaceRef.threadId : undefined;
   const environment = useEnvironmentPresentation(environmentId);
   const retryEnvironment = useAtomCommand(environmentCatalog.retryNow, "environment retry");
   const isEnvironmentReady = environment.presentation?.connection.phase === "connected";
-  const { draftMessage } = useThreadDraftForThread({ environmentId, threadId });
-  const reviewCache = useReviewCacheForThread({ environmentId, threadId });
-  const { selectedThreadCwd } = useSelectedThreadWorktree();
+  const draftMessage = useComposerDraft(workspaceKey(workspaceRef)).text;
+  const reviewCache = useReviewCacheForThread({ workspaceRef });
+  const { selectedThreadCwd: legacyCwd } = useSelectedThreadWorktree();
+  const selectedThreadCwd = "target" in params ? params.cwd : legacyCwd;
   // With a solid (non-overlay) header the content lays out below the header
   // natively, so no manual top inset is needed. (Android renders its own
   // in-flow AndroidScreenHeader, so it needs no inset either.)
@@ -468,7 +489,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
 
   useEffect(() => {
     showAuxiliaryPane("inspector");
-  }, [environmentId, showAuxiliaryPane, threadId]);
+  }, [environmentId, showAuxiliaryPane, reviewCache.threadKey]);
   const {
     error,
     reviewSections,
@@ -480,7 +501,8 @@ export function ReviewSheet(props: ReviewSheetProps) {
   } = useReviewSections({
     enabled: isEnvironmentReady,
     environmentId,
-    threadId,
+    ...(threadId ? { threadId } : {}),
+    ...("target" in params ? { nativeRef: params.target.ref } : {}),
     reviewCache,
   });
   useReviewDiffPrewarming({
@@ -499,6 +521,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
     threadKey: reviewCache.threadKey,
     environmentId,
     cwd: selectedThreadCwd,
+    ...("target" in params ? { nativeRef: params.target.ref } : {}),
     selectedSection,
     revision: diffPreviewRevision,
     draftMessage,
@@ -536,7 +559,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
   const { collapsedFileIds, toggleExpandedFile, toggleViewedFile, viewedFileIds } = fileVisibility;
   const commentSelection = useReviewCommentSelectionController({
     environmentId,
-    threadId,
+    workspaceRef,
     selectedSection,
     nativeReviewDiffData,
   });
@@ -649,11 +672,15 @@ export function ReviewSheet(props: ReviewSheetProps) {
       navigation.goBack();
       return;
     }
+    if ("ref" in workspaceRef) {
+      navigation.navigate("NativeSession", { environmentId, ...workspaceRef.ref });
+      return;
+    }
     navigation.navigate("Thread", {
       environmentId: String(environmentId),
-      threadId: String(threadId),
+      threadId: String(workspaceRef.threadId),
     });
-  }, [environmentId, navigation, threadId]);
+  }, [environmentId, navigation, workspaceRef]);
   const androidHeaderSubtitle = [
     selectedSection?.title,
     headerDiffSummary.additions,
@@ -714,25 +741,43 @@ export function ReviewSheet(props: ReviewSheetProps) {
     .filter(Boolean)
     .join(" · ");
   const headerTitleText = selectedSection?.title ?? "Review changes";
+  const headerProps = {
+    environmentId,
+    title: headerTitleText,
+    subtitle: headerSubtitle,
+    androidSubtitle: androidHeaderSubtitle,
+    iconColor: headerIcon,
+    selectedThreadCwd,
+    sectionMenu,
+    selectedSection,
+    showSectionToolbar,
+    showChangedFilesToggle,
+    onRefresh: handlePullToRefresh,
+    onSelectSection: selectSection,
+    onReturnToThread: handleReturnToThread,
+  };
 
   return (
     <>
-      <ReviewHeader
-        environmentId={environmentId}
-        threadId={threadId}
-        title={headerTitleText}
-        subtitle={headerSubtitle}
-        androidSubtitle={androidHeaderSubtitle}
-        iconColor={headerIcon}
-        selectedThreadCwd={selectedThreadCwd}
-        sectionMenu={sectionMenu}
-        selectedSection={selectedSection}
-        showSectionToolbar={showSectionToolbar}
-        showChangedFilesToggle={showChangedFilesToggle}
-        onRefresh={handlePullToRefresh}
-        onSelectSection={selectSection}
-        onReturnToThread={handleReturnToThread}
-      />
+      {threadId ? (
+        <ReviewHeader {...headerProps} threadId={threadId} />
+      ) : (
+        <ReviewHeaderContent
+          {...headerProps}
+          presentation={{
+            title: headerTitleText,
+            subtitle: headerSubtitle,
+            gitMenu: null,
+            menuIcon: "ellipsis",
+            refreshAction: {
+              id: "refresh",
+              title: "Refresh current diff",
+              disabled: !selectedSection || selectedSection.isLoading,
+              onPress: () => void handlePullToRefresh(),
+            },
+          }}
+        />
+      )}
 
       <MaterialScreenContent>
         <View className="flex-1 bg-sheet android:bg-sheet-solid">

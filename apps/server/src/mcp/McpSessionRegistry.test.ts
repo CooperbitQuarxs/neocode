@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { nativeWorkspaceResourceId } from "@t3tools/shared/neopiWorkspace";
 import * as Effect from "effect/Effect";
 import { HttpServer } from "effect/unstable/http";
 import * as NetAddress from "effect/unstable/net/NetAddress";
@@ -192,4 +193,67 @@ it.effect("revoking an active thread removes its credential and provider configu
       Effect.provide(NodeServices.layer),
     ),
   ),
+);
+
+it.effect(
+  "isolates native grants and revocation from legacy threads and other native profiles/files",
+  () =>
+    Effect.gen(function* () {
+      let timestamp = 1_000;
+      const registry = yield* makeRegistry(() => timestamp);
+      const ref = {
+        providerInstanceId: ProviderInstanceId.make("native"),
+        sessionFile: "/native/session.jsonl",
+      };
+      const native = yield* registry.issueNative({
+        sessionRef: ref,
+        capabilities: new Set(["preview"]),
+      });
+      const otherFile = yield* registry.issueNative({
+        sessionRef: { ...ref, sessionFile: "/native/other.jsonl" },
+        capabilities: new Set(["device"]),
+      });
+      const otherProfile = yield* registry.issueNative({
+        sessionRef: { ...ref, providerInstanceId: ProviderInstanceId.make("other-native") },
+        capabilities: new Set(),
+      });
+      const legacyThread = ThreadId.make("legacy-thread");
+      const legacy = yield* registry.issue({
+        threadId: legacyThread,
+        providerInstanceId: ref.providerInstanceId,
+        capabilities: new Set(["preview"]),
+      });
+      const resolve = (header: string) => registry.resolve(header.slice("Bearer ".length));
+      expect(native.scope).toMatchObject({
+        kind: "native",
+        sessionRef: ref,
+        threadId: nativeWorkspaceResourceId(ref),
+        environmentId,
+      });
+      expect([...native.scope.capabilities]).toEqual(["preview"]);
+      expect(
+        new Set([native.scope.threadId, otherFile.scope.threadId, otherProfile.scope.threadId])
+          .size,
+      ).toBe(3);
+      yield* registry.revokeThread(legacyThread);
+      expect(yield* resolve(legacy.config.authorizationHeader)).toBeUndefined();
+      expect(yield* resolve(native.authorizationHeader)).toBeDefined();
+      timestamp += 101;
+      // Native liveness belongs to the owning connection, not unrelated SQL turn traffic.
+      expect(yield* resolve(native.authorizationHeader)).toBeDefined();
+      yield* registry.revokeProviderSession(native.scope.providerSessionId);
+      expect(native.scope.revoked?.aborted).toBe(true);
+      expect(yield* resolve(native.authorizationHeader)).toBeUndefined();
+      expect(yield* resolve(otherFile.authorizationHeader)).toMatchObject({
+        sessionRef: { sessionFile: "/native/other.jsonl" },
+      });
+      expect(yield* resolve(otherProfile.authorizationHeader)).toMatchObject({
+        providerInstanceId: "other-native",
+      });
+      yield* registry.revokeAll;
+      expect(otherFile.scope.revoked?.aborted).toBe(true);
+      expect(otherProfile.scope.revoked?.aborted).toBe(true);
+      expect(yield* resolve(otherFile.authorizationHeader)).toBeUndefined();
+      expect(yield* resolve(otherProfile.authorizationHeader)).toBeUndefined();
+    }),
 );

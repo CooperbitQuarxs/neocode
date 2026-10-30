@@ -14,7 +14,7 @@
  */
 import { Schema } from "effect";
 
-import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 export const DevicePlatform = Schema.Literals(["ios", "android"]);
 export type DevicePlatform = typeof DevicePlatform.Type;
@@ -119,7 +119,7 @@ export type DeviceHostStatus = typeof DeviceHostStatus.Type;
  * device may be open in several threads, since the stream is shared.
  */
 export const DeviceSession = Schema.Struct({
-  threadId: ThreadId,
+  threadId: TrimmedNonEmptyString,
   hostId: DeviceHostId,
   deviceId: DeviceId,
   platform: DevicePlatform,
@@ -144,7 +144,7 @@ export const DeviceServiceState = Schema.Struct({
   devices: Schema.Array(DeviceSummary),
   sessions: Schema.Array(DeviceSession),
   bootingDevices: Schema.optional(
-    Schema.Array(Schema.Struct({ ...DeviceSummary.fields, threadId: ThreadId })),
+    Schema.Array(Schema.Struct({ ...DeviceSummary.fields, threadId: TrimmedNonEmptyString })),
   ),
   onboardingCompleted: Schema.Boolean,
   agentAccessEnabled: Schema.Boolean,
@@ -172,7 +172,7 @@ export const DeviceConfigureInput = Schema.Struct({
 export type DeviceConfigureInput = typeof DeviceConfigureInput.Type;
 
 export const DeviceOpenInput = Schema.Struct({
-  threadId: ThreadId,
+  threadId: TrimmedNonEmptyString,
   hostId: Schema.optional(DeviceHostId),
   deviceId: DeviceId,
   platform: DevicePlatform,
@@ -183,7 +183,7 @@ export type DeviceOpenInput = typeof DeviceOpenInput.Type;
 
 export const DeviceCloseInput = Schema.Struct({
   hostId: Schema.optional(DeviceHostId),
-  threadId: ThreadId,
+  threadId: TrimmedNonEmptyString,
   /** Omit to close every device session for the thread. */
   deviceId: Schema.optional(DeviceId),
   /** Also shut the simulator or emulator down. Defaults to false. */

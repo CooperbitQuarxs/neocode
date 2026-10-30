@@ -1,20 +1,29 @@
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import { workspaceResourceId, type WorkspaceRef } from "@t3tools/client-runtime/environment";
+import { randomUUID } from "../lib/utils";
+
+const rendererId = randomUUID();
 
 /**
  * The server only guarantees preview tab ids are unique within one process.
- * Desktop resources live across every connected environment, so they need a
- * stronger identity that also changes when a server process restarts.
+ * Each renderer owns its webviews, even when windows share the same environment
+ * and thread. A reload gets a new identity rather than adopting dead guests.
  */
 export function previewRuntimeTabId(
-  threadRef: ScopedThreadRef,
+  threadRef: WorkspaceRef,
   serverEpoch: string | null,
   tabId: string,
 ): string {
-  return JSON.stringify([threadRef.environmentId, threadRef.threadId, serverEpoch, tabId]);
+  return JSON.stringify([
+    rendererId,
+    threadRef.environmentId,
+    workspaceResourceId(threadRef),
+    serverEpoch,
+    tabId,
+  ]);
 }
 
 export function isCurrentPreviewRuntimeTab(
-  threadRef: ScopedThreadRef,
+  threadRef: WorkspaceRef,
   serverEpoch: string | null,
   tabId: string,
   runtimeTabId: string,

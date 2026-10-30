@@ -1,11 +1,23 @@
-import type { ThreadId } from "@t3tools/contracts";
-import type { AgentToolResultWire, HostToolCallFrame } from "effect-neopi-rpc/client";
+import type { NeoPiNativeSessionRef, NeoPiNativeSessionsError } from "@t3tools/contracts";
+import { nativeWorkspaceResourceId } from "@t3tools/shared/neopiWorkspace";
+import type {
+  AgentToolResultWire,
+  HostToolCallFrame,
+  NeoPiRpcTransport,
+} from "effect-neopi-rpc/client";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Scope from "effect/Scope";
+import * as Semaphore from "effect/Semaphore";
+import * as Stream from "effect/Stream";
 import { Tool } from "effect/unstable/ai";
 import { invokeRegisteredMcpTool, McpInProcessToolError } from "../../mcp/McpHttpServer.ts";
 import type { McpCapability, McpInvocationScope } from "../../mcp/McpInvocationContext.ts";
-import { resolveActiveMcpCredential } from "../../mcp/McpSessionRegistry.ts";
+import {
+  issueActiveNativeMcpCredential,
+  resolveActiveMcpCredential,
+  revokeActiveMcpProviderSession,
+} from "../../mcp/McpSessionRegistry.ts";
 import { DeviceToolkit } from "../../mcp/toolkits/device/tools.ts";
 import { PreviewToolkit } from "../../mcp/toolkits/preview/tools.ts";
 import { PullRequestsToolkit } from "../../mcp/toolkits/pullRequests/tools.ts";
@@ -36,20 +48,24 @@ const failed = (message: string): AgentToolResultWire => ({
   isError: true,
 });
 
-/** The same registered handlers used by Codex over MCP, but without RPC bearer frames. */
+/** Uses the existing registered MCP handlers with a revocable SQL or canonical native scope. */
 export const makeNeoPiHostToolBridge = Effect.fn("NeoPiHostToolBridge.make")(function* (input: {
-  readonly threadId: ThreadId;
+  readonly threadId: string;
   readonly capabilities: ReadonlySet<McpCapability>;
   readonly credential: string;
   readonly context: McpInvocationScope;
 }) {
+  const granted = new Set(
+    [...input.capabilities].filter((capability) => input.context.capabilities.has(capability)),
+  );
   const definitions = [
-    ...(input.capabilities.has("preview") ? definitionsFor(PreviewToolkit.tools) : []),
-    ...(input.capabilities.has("device") ? definitionsFor(DeviceToolkit.tools) : []),
-    ...(input.capabilities.has("pull-requests") ? definitionsFor(PullRequestsToolkit.tools) : []),
+    ...(granted.has("preview") ? definitionsFor(PreviewToolkit.tools) : []),
+    ...(granted.has("device") ? definitionsFor(DeviceToolkit.tools) : []),
+    ...(granted.has("pull-requests") ? definitionsFor(PullRequestsToolkit.tools) : []),
   ];
   const names = new Set(definitions.map((definition) => definition.name));
   const handle: NeoPiHostToolBridge["handle"] = (call, signal) => {
+    if (signal.aborted) return Effect.succeed(failed("Host tool cancelled"));
     if (!names.has(call.toolName)) {
       return Effect.succeed(failed(`Unsupported host tool: ${call.toolName}`));
     }
@@ -58,8 +74,17 @@ export const makeNeoPiHostToolBridge = Effect.fn("NeoPiHostToolBridge.make")(fun
       if (
         !scope ||
         scope.threadId !== input.threadId ||
+        scope.environmentId !== input.context.environmentId ||
+        scope.kind !== input.context.kind ||
         scope.providerSessionId !== input.context.providerSessionId ||
-        scope.providerInstanceId !== input.context.providerInstanceId
+        scope.providerInstanceId !== input.context.providerInstanceId ||
+        scope.revoked?.aborted ||
+        (scope.kind === "native" &&
+          (input.context.kind !== "native" ||
+            scope.sessionRef.providerInstanceId !== scope.providerInstanceId ||
+            scope.sessionRef.providerInstanceId !== input.context.sessionRef.providerInstanceId ||
+            scope.sessionRef.sessionFile !== input.context.sessionRef.sessionFile ||
+            scope.threadId !== nativeWorkspaceResourceId(scope.sessionRef)))
       ) {
         return failed("access revoked");
       }
@@ -108,4 +133,108 @@ export const makeNeoPiHostToolBridge = Effect.fn("NeoPiHostToolBridge.make")(fun
     );
   };
   return { definitions, handle } satisfies NeoPiHostToolBridge;
+});
+
+/** Each pump belongs to one transport; terminal registration requires connection_owned_host_tools. */
+export const makeNeoPiNativeHostToolPump = Effect.fn("NeoPiHostToolBridge.nativePump")(function* (
+  peer: Pick<NeoPiRpcTransport, "hostToolCalls" | "hostToolResult">,
+  validate: (ref: NeoPiNativeSessionRef) => Effect.Effect<void, NeoPiNativeSessionsError>,
+) {
+  const lifetime = yield* Effect.scope;
+  const workScope = yield* Scope.fork(lifetime);
+  const mutation = yield* Semaphore.make(1);
+  let closed = false;
+  const pending = new Map<string, AbortController>();
+  let binding:
+    | {
+        readonly ref: NeoPiNativeSessionRef;
+        readonly bridge: NeoPiHostToolBridge;
+        readonly providerSessionId: string;
+      }
+    | undefined;
+  const revoke = Effect.gen(function* () {
+    const previous = binding;
+    binding = undefined;
+    const requests = Array.from(pending);
+    pending.clear();
+    for (const [, controller] of requests) controller.abort();
+    if (previous) yield* revokeActiveMcpProviderSession(previous.providerSessionId);
+    for (const [id] of requests)
+      yield* peer
+        .hostToolResult(id, failed("access revoked"), true)
+        .pipe(
+          Effect.catch((cause) =>
+            Effect.logWarning("Native host-tool revocation response failed", { cause }),
+          ),
+        );
+  });
+  const bind = Effect.fnUntraced(
+    function* (ref: NeoPiNativeSessionRef, capabilities: ReadonlySet<McpCapability>) {
+      if (closed)
+        return yield* new McpInProcessToolError({
+          message: "Native host-tool connection is closed",
+        });
+      yield* revoke;
+      const credential = yield* issueActiveNativeMcpCredential({ sessionRef: ref, capabilities });
+      if (!credential)
+        return yield* new McpInProcessToolError({
+          message: "Native host-tool credential registry is unavailable",
+        });
+      const bridge = yield* makeNeoPiHostToolBridge({
+        threadId: nativeWorkspaceResourceId(ref),
+        capabilities,
+        credential: credential.authorizationHeader,
+        context: credential.scope,
+      });
+      binding = { ref: { ...ref }, bridge, providerSessionId: credential.scope.providerSessionId };
+      return bridge.definitions;
+    },
+    mutation.withPermit,
+    Effect.uninterruptible,
+  );
+  yield* Stream.runForEach(peer.hostToolCalls, (call) =>
+    Effect.gen(function* () {
+      if (call.type === "host_tool_cancel") {
+        pending.get(call.targetId)?.abort();
+        pending.delete(call.targetId);
+        return;
+      }
+      const current = binding;
+      const controller = new AbortController();
+      // A duplicate native request id must not leave its previous execution running.
+      pending.get(call.id)?.abort();
+      pending.set(call.id, controller);
+      yield* Effect.gen(function* () {
+        if (!current) return failed("Native host tools are not bound to a canonical session");
+        const valid = yield* validate(current.ref).pipe(Effect.result);
+        if (valid._tag === "Failure") {
+          yield* revokeActiveMcpProviderSession(current.providerSessionId);
+          return failed(
+            valid.failure instanceof Error ? valid.failure.message : String(valid.failure),
+          );
+        }
+        if (binding !== current || controller.signal.aborted) return failed("access revoked");
+        return yield* current.bridge.handle(call, controller.signal);
+      }).pipe(
+        Effect.flatMap((result) =>
+          pending.get(call.id) === controller && !controller.signal.aborted
+            ? peer.hostToolResult(call.id, result, result.isError)
+            : Effect.void,
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (pending.get(call.id) === controller) pending.delete(call.id);
+          }),
+        ),
+        Effect.catch((cause) => Effect.logWarning("Native host-tool response failed", { cause })),
+        Effect.forkIn(workScope),
+      );
+    }),
+  ).pipe(Effect.forkIn(workScope));
+  // Revoke and answer pending calls before the worker scope is interrupted.
+  yield* Effect.addFinalizer(() => {
+    closed = true;
+    return mutation.withPermit(revoke);
+  });
+  return { bind, revoke: mutation.withPermit(revoke).pipe(Effect.uninterruptible) };
 });

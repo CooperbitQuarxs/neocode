@@ -11,7 +11,7 @@ import {
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-const DEFAULT_PROVIDER_DRIVER_KIND = ProviderDriverKind.make("codex");
+const DEFAULT_PROVIDER_DRIVER_KIND = ProviderDriverKind.make("neopi");
 
 export interface SelectableModelOption {
   slug: string;
@@ -20,9 +20,11 @@ export interface SelectableModelOption {
 }
 
 export function createModelCapabilities(input: {
+  reasoning?: boolean | undefined;
   optionDescriptors: ReadonlyArray<ProviderOptionDescriptor>;
 }): ModelCapabilities {
   return {
+    ...(input.reasoning !== undefined ? { reasoning: input.reasoning } : {}),
     optionDescriptors: input.optionDescriptors.map(cloneDescriptor),
   };
 }
@@ -83,12 +85,6 @@ function resolveDescriptorChoiceValue(
   if (descriptor.options.length === 0) {
     return trimmed;
   }
-  if (
-    descriptor.promptInjectedValues?.includes(trimmed) &&
-    descriptor.options.some((option) => option.id === trimmed)
-  ) {
-    return descriptor.options.find((option) => option.isDefault)?.id;
-  }
   if (descriptor.options.some((option) => option.id === trimmed)) {
     return trimmed;
   }
@@ -100,9 +96,6 @@ function cloneDescriptor(descriptor: ProviderOptionDescriptor): ProviderOptionDe
     ? {
         ...descriptor,
         options: [...descriptor.options],
-        ...(descriptor.promptInjectedValues
-          ? { promptInjectedValues: [...descriptor.promptInjectedValues] }
-          : {}),
       }
     : { ...descriptor };
 }
@@ -221,15 +214,6 @@ export function buildExplicitProviderOptionSelectionsFromDescriptors(
   return normalized && normalized.length > 0 ? normalized : undefined;
 }
 
-export function isClaudeUltrathinkPrompt(text: string | null | undefined): boolean {
-  return typeof text === "string" && /\bultrathink\b/i.test(text);
-}
-
-/** Compare Codex model families without changing provider-owned dispatch identifiers. */
-export function codexModelFamily(slug: string): string {
-  return slug.startsWith("openai.gpt-") ? slug.slice("openai.".length) : slug;
-}
-
 export function normalizeModelSlug(
   model: string | null | undefined,
   provider: ProviderDriverKind = DEFAULT_PROVIDER_DRIVER_KIND,
@@ -296,7 +280,10 @@ export function readCustomModelEntries(value: unknown): CustomModelDefinition[] 
       slug,
       name,
       capabilities: capabilities
-        ? createModelCapabilities({ optionDescriptors: capabilities.optionDescriptors ?? [] })
+        ? createModelCapabilities({
+            reasoning: capabilities.reasoning,
+            optionDescriptors: capabilities.optionDescriptors ?? [],
+          })
         : null,
     });
   }
@@ -309,13 +296,15 @@ export function readCustomModelEntries(value: unknown): CustomModelDefinition[] 
  */
 export function toCustomModelSetting(entry: CustomModelDefinition): CustomModelSetting {
   const descriptors = entry.capabilities?.optionDescriptors ?? [];
+  const reasoning = entry.capabilities?.reasoning;
+  const hasCapabilities = descriptors.length > 0 || reasoning !== undefined;
   const name = entry.name !== entry.slug ? entry.name : undefined;
-  if (!name && descriptors.length === 0) return entry.slug;
+  if (!name && !hasCapabilities) return entry.slug;
   return {
     slug: entry.slug,
     ...(name ? { name } : {}),
-    ...(descriptors.length > 0
-      ? { capabilities: createModelCapabilities({ optionDescriptors: descriptors }) }
+    ...(hasCapabilities
+      ? { capabilities: createModelCapabilities({ reasoning, optionDescriptors: descriptors }) }
       : {}),
   };
 }
@@ -384,48 +373,4 @@ export function createModelSelection(
     model,
   };
   return selections.length > 0 ? { ...base, options: selections } : base;
-}
-
-/**
- * Returns the effort value if it is a prompt-injected value according to
- * any select descriptor in the given capabilities, or null otherwise.
- *
- * Unlike a single `find`, this checks every descriptor so that the
- * correct descriptor's `promptInjectedValues` list is consulted even when
- * multiple select descriptors exist.
- */
-export function resolvePromptInjectedEffort(
-  caps: ModelCapabilities,
-  rawEffort: string | null | undefined,
-): string | null {
-  const trimmed = trimOrNull(rawEffort);
-  if (!trimmed) return null;
-  const descriptors = getProviderOptionDescriptors({ caps });
-  for (const descriptor of descriptors) {
-    if (descriptor.type === "select" && descriptor.promptInjectedValues?.includes(trimmed)) {
-      return trimmed;
-    }
-  }
-  return null;
-}
-
-export function applyClaudePromptEffortPrefix(
-  text: string,
-  effort: string | null | undefined,
-): string {
-  const trimmed = text.trim();
-  if (!trimmed) {
-    return trimmed;
-  }
-  // Prefixing a slash command turns it into plain prose, so Claude never
-  // runs it. Command names come from arbitrary file names ("/deploy.prod",
-  // "/plugin:skill"), so accept any first token without a second slash;
-  // absolute paths like "/home/theo/app.ts" keep the prefix.
-  if (effort !== "ultrathink" || /^\/[^\s/]+(?:\s|$)/u.test(trimmed)) {
-    return trimmed;
-  }
-  if (trimmed.startsWith("Ultrathink:")) {
-    return trimmed;
-  }
-  return `Ultrathink:\n${trimmed}`;
 }

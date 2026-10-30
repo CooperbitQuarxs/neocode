@@ -1,12 +1,12 @@
 "use client";
 
-import type {
-  DesktopPreviewTabState,
-  PreviewReportStatusInput,
-  ScopedThreadRef,
-  ThreadId,
-} from "@t3tools/contracts";
-import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
+import type { DesktopPreviewTabState, PreviewReportStatusInput } from "@t3tools/contracts";
+import {
+  parseWorkspaceKey,
+  workspaceKey,
+  workspaceResourceId,
+  type WorkspaceRef,
+} from "@t3tools/client-runtime/environment";
 import * as Option from "effect/Option";
 import { useEffect, useEffectEvent, useMemo, useRef } from "react";
 
@@ -36,7 +36,7 @@ function originOf(url: string): string | null {
  * events back to the server. Webview lifetime is owned by ElectronBrowserHost.
  */
 export function usePreviewBridge(input: {
-  threadRef: ScopedThreadRef;
+  threadRef: WorkspaceRef;
   tabId: string;
   runtimeTabId: string;
 }): void {
@@ -44,9 +44,9 @@ export function usePreviewBridge(input: {
   const clearBrowserPointer = useBrowserPointerStore((state) => state.clear);
   const reportStatus = useAtomCommand(previewEnvironment.reportStatus, "preview status report");
   const bridge = previewBridge;
-  const threadKey = scopedThreadKey(threadRef);
+  const threadKey = workspaceKey(threadRef);
   const stableThreadRef = useMemo(() => {
-    const parsed = parseScopedThreadKey(threadKey);
+    const parsed = parseWorkspaceKey(threadKey);
     if (!parsed) throw new Error(`Invalid scoped thread key: ${threadKey}`);
     return parsed;
   }, [threadKey]);
@@ -73,7 +73,7 @@ export function usePreviewBridge(input: {
         recordFaviconForThread(stableThreadRef, state.favicon, projectRef, environmentHostname);
       }
       const reported = buildReportInput({
-        threadId: stableThreadRef.threadId,
+        threadId: workspaceResourceId(stableThreadRef),
         tabId,
         state,
         lastReportedUrl: lastReportedUrl.current,
@@ -96,7 +96,7 @@ export function usePreviewBridge(input: {
     return bridge.onStateChange(handleStateChange);
   }, [bridge, runtimeTabId, stableThreadRef, tabId]);
   useEffect(() => {
-    if (!projectRef) return;
+    if (!projectRef && !("ref" in stableThreadRef)) return;
     flushPendingFaviconsForThread(stableThreadRef, projectRef, environmentHostname);
   }, [environmentHostname, projectRef, stableThreadRef]);
 }
@@ -139,7 +139,7 @@ export function projectDesktopState(state: DesktopPreviewTabState): DesktopPrevi
  * - LoadFailed always reports (the server uses it to emit `failed`).
  */
 function buildReportInput(args: {
-  readonly threadId: ThreadId;
+  readonly threadId: string;
   readonly tabId: string;
   readonly state: DesktopPreviewTabState;
   readonly lastReportedUrl: string | null;

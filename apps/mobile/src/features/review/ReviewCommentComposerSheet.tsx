@@ -1,6 +1,7 @@
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { TextInputWrapper } from "expo-paste-input";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { WorkspaceRef } from "@t3tools/client-runtime/environment";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 import { KeyboardAvoidingView, KeyboardStickyView } from "react-native-keyboard-controller";
@@ -34,10 +35,10 @@ import {
 
 const REVIEW_COMMENT_PREVIEW_MAX_LINES = 5;
 
-type ReviewCommentComposerSheetProps = StaticScreenProps<{
-  readonly environmentId: EnvironmentId;
-  readonly threadId: ThreadId;
-}>;
+type ReviewCommentComposerSheetProps = StaticScreenProps<
+  | { readonly environmentId: EnvironmentId; readonly threadId: ThreadId }
+  | { readonly workspaceRef: WorkspaceRef }
+>;
 
 export function ReviewCommentComposerSheet(props: ReviewCommentComposerSheetProps) {
   const isAndroid = Platform.OS === "android";
@@ -47,7 +48,13 @@ export function ReviewCommentComposerSheet(props: ReviewCommentComposerSheetProp
   const { themeAppearance: selectedTheme } = useAppearancePreferences();
   const target = useReviewCommentTarget();
   const { codeSurface } = useAppearanceCodeSurface();
-  const { environmentId, threadId } = props.route.params;
+  const workspaceRef =
+    "workspaceRef" in props.route.params
+      ? props.route.params.workspaceRef
+      : {
+          environmentId: props.route.params.environmentId,
+          threadId: props.route.params.threadId,
+        };
   const [commentText, setCommentText] = useState("");
   const [highlightedLinesById, setHighlightedLinesById] = useState<
     Record<string, ReadonlyArray<ReviewHighlightedToken>>
@@ -63,8 +70,7 @@ export function ReviewCommentComposerSheet(props: ReviewCommentComposerSheetProp
   const lastLine = selectedLines[selectedLines.length - 1] ?? null;
   const firstNumber = firstLine ? getReviewUnifiedLineNumber(firstLine) : null;
   const lastNumber = lastLine ? getReviewUnifiedLineNumber(lastLine) : null;
-  const canSubmit =
-    commentText.trim().length > 0 && target !== null && !!environmentId && !!threadId;
+  const canSubmit = commentText.trim().length > 0 && target !== null;
   const selectionLabel =
     selectedLines.length === 1
       ? firstNumber !== null
@@ -137,19 +143,21 @@ export function ReviewCommentComposerSheet(props: ReviewCommentComposerSheetProp
   }
 
   const handleSubmit = useCallback(() => {
-    if (!target || !environmentId || !threadId || commentText.trim().length === 0) {
+    if (!target || commentText.trim().length === 0) {
       return;
     }
 
-    appendReviewCommentToDraft({
-      environmentId,
-      threadId,
-      text: formatReviewCommentContext(target, commentText),
-      attachments,
-    });
+    if (
+      !appendReviewCommentToDraft({
+        workspaceRef,
+        text: formatReviewCommentContext(target, commentText),
+        attachments,
+      })
+    )
+      return;
     setAttachments([]);
     dismissComposer();
-  }, [attachments, commentText, dismissComposer, environmentId, target, threadId]);
+  }, [attachments, commentText, dismissComposer, target, workspaceRef]);
 
   return (
     <View className="flex-1 bg-sheet">

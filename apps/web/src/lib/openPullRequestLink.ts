@@ -1,4 +1,5 @@
-import type { EnvironmentId, PullRequestRef, ScopedThreadRef } from "@t3tools/contracts";
+import type { EnvironmentId, PullRequestRef } from "@t3tools/contracts";
+import type { WorkspaceRef } from "@t3tools/client-runtime/environment";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import { type MouseEvent, useCallback, useMemo } from "react";
@@ -205,15 +206,15 @@ export function shouldOpenPullRequestExternally(
 }
 
 export function useOpenChangeRequestLink(
-  threadRef?: ScopedThreadRef,
-  panelRef?: ScopedThreadRef,
+  threadRef?: WorkspaceRef,
+  panelRef?: WorkspaceRef,
 ): (
   event: Pick<
     MouseEvent<HTMLElement>,
     "preventDefault" | "stopPropagation" | "metaKey" | "ctrlKey"
   >,
   targetUrl: string,
-  targetThreadRef?: ScopedThreadRef,
+  targetThreadRef?: WorkspaceRef,
   targetEnvironmentId?: EnvironmentId,
 ) => boolean {
   const navigate = useNavigate();
@@ -322,11 +323,11 @@ export function useOpenChangeRequestLink(
   );
 }
 
-export function useOpenPrLink(threadRef?: ScopedThreadRef) {
+export function useOpenPrLink(threadRef?: WorkspaceRef) {
   const openChangeRequest = useOpenChangeRequestLink(threadRef);
   const openLink = useOpenLink(threadRef);
   return useCallback(
-    (event: MouseEvent<HTMLElement>, prUrl: string, targetThreadRef?: ScopedThreadRef) => {
+    (event: MouseEvent<HTMLElement>, prUrl: string, targetThreadRef?: WorkspaceRef) => {
       event.stopPropagation();
       const openInBrowser = shouldOpenPullRequestExternally(event);
       const isAnchor =

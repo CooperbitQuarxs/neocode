@@ -1,5 +1,5 @@
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { DevicePlatform, ScopedThreadRef } from "@t3tools/contracts";
+import { workspaceKey, type WorkspaceRef } from "@t3tools/client-runtime/environment";
+import type { DevicePlatform } from "@t3tools/contracts";
 import { create } from "zustand";
 
 export interface PreviewMiniPlayerPosition {
@@ -32,16 +32,16 @@ export interface PreviewMiniPlayerState {
 
 interface PreviewMiniPlayerStoreState {
   readonly byThreadKey: Record<string, PreviewMiniPlayerState>;
-  readonly open: (ref: ScopedThreadRef, source: PreviewMiniPlayerSource) => void;
-  readonly close: (ref: ScopedThreadRef) => void;
+  readonly open: (ref: WorkspaceRef, source: PreviewMiniPlayerSource) => void;
+  readonly close: (ref: WorkspaceRef) => void;
   /** `sourceKey` guards against a drag that outlives the source it started on. */
   readonly move: (
-    ref: ScopedThreadRef,
+    ref: WorkspaceRef,
     sourceKey: string,
     position: PreviewMiniPlayerPosition,
   ) => void;
-  readonly resize: (ref: ScopedThreadRef, sourceKey: string, width: number) => void;
-  readonly removeThread: (ref: ScopedThreadRef) => void;
+  readonly resize: (ref: WorkspaceRef, sourceKey: string, width: number) => void;
+  readonly removeThread: (ref: WorkspaceRef) => void;
 }
 
 export function previewMiniPlayerSourceKey(source: PreviewMiniPlayerSource): string {
@@ -59,7 +59,7 @@ export const usePreviewMiniPlayerStore = create<PreviewMiniPlayerStoreState>()((
   byThreadKey: {},
   open: (ref, source) =>
     set((state) => {
-      const threadKey = scopedThreadKey(ref);
+      const threadKey = workspaceKey(ref);
       const current = state.byThreadKey[threadKey];
       if (
         current &&
@@ -80,14 +80,14 @@ export const usePreviewMiniPlayerStore = create<PreviewMiniPlayerStoreState>()((
     }),
   close: (ref) =>
     set((state) => {
-      const threadKey = scopedThreadKey(ref);
+      const threadKey = workspaceKey(ref);
       if (!(threadKey in state.byThreadKey)) return state;
       const { [threadKey]: _closed, ...byThreadKey } = state.byThreadKey;
       return { byThreadKey };
     }),
   move: (ref, sourceKey, position) =>
     set((state) => {
-      const threadKey = scopedThreadKey(ref);
+      const threadKey = workspaceKey(ref);
       const current = state.byThreadKey[threadKey];
       if (!current || previewMiniPlayerSourceKey(current.source) !== sourceKey) return state;
       if (current.position?.x === position.x && current.position.y === position.y) return state;
@@ -100,7 +100,7 @@ export const usePreviewMiniPlayerStore = create<PreviewMiniPlayerStoreState>()((
     }),
   resize: (ref, sourceKey, width) =>
     set((state) => {
-      const threadKey = scopedThreadKey(ref);
+      const threadKey = workspaceKey(ref);
       const current = state.byThreadKey[threadKey];
       if (
         !current ||
@@ -118,7 +118,7 @@ export const usePreviewMiniPlayerStore = create<PreviewMiniPlayerStoreState>()((
     }),
   removeThread: (ref) =>
     set((state) => {
-      const threadKey = scopedThreadKey(ref);
+      const threadKey = workspaceKey(ref);
       if (!(threadKey in state.byThreadKey)) return state;
       const { [threadKey]: _removed, ...byThreadKey } = state.byThreadKey;
       return { byThreadKey };
@@ -127,16 +127,16 @@ export const usePreviewMiniPlayerStore = create<PreviewMiniPlayerStoreState>()((
 
 export function selectThreadPreviewMiniPlayer(
   byThreadKey: Record<string, PreviewMiniPlayerState>,
-  ref: ScopedThreadRef | null | undefined,
+  ref: WorkspaceRef | null | undefined,
 ): PreviewMiniPlayerState | null {
   if (!ref) return null;
-  return byThreadKey[scopedThreadKey(ref)] ?? null;
+  return byThreadKey[workspaceKey(ref)] ?? null;
 }
 
 /** The floating browser tab, or null when nothing floats or a device does. */
 export function selectThreadPreviewMiniPlayerTabId(
   byThreadKey: Record<string, PreviewMiniPlayerState>,
-  ref: ScopedThreadRef | null | undefined,
+  ref: WorkspaceRef | null | undefined,
 ): string | null {
   const source = selectThreadPreviewMiniPlayer(byThreadKey, ref)?.source;
   return source?.kind === "browser" ? source.tabId : null;

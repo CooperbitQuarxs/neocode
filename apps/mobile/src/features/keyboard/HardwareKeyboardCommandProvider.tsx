@@ -13,6 +13,9 @@ import {
   type ReactNode,
 } from "react";
 
+import { Alert } from "react-native";
+import { nativeSessionAtoms } from "../../state/neopiNativeSessions";
+import { useOpenNativeSession } from "../threads/NativeSessionBrowser";
 import { tryCopyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { T3KeyboardCommands } from "../../native/T3KeyboardCommands";
 import { useThreadShell } from "../../state/entities";
@@ -26,6 +29,7 @@ import {
   parseActiveThreadPath,
   subscribeToHardwareKeyboardCommandRegistrations,
   type HardwareKeyboardCommand,
+  type resolveNativeWorkspaceRoute,
 } from "./hardwareKeyboardCommands";
 
 const EMPTY_COPY_FEEDBACK: GitActionProgress = {
@@ -45,8 +49,18 @@ export function HardwareKeyboardCommandOverlay() {
 export function HardwareKeyboardCommandProvider({
   children,
   pathname,
-}: PropsWithChildren<{ readonly pathname: string }>) {
+  nativeWorkspace,
+}: PropsWithChildren<{
+  readonly pathname: string;
+  readonly nativeWorkspace?: ReturnType<typeof resolveNativeWorkspaceRoute>;
+}>) {
   const navigation = useNavigation();
+  const openNativeSession = useOpenNativeSession();
+  const nativeCwd = nativeWorkspace
+    ? (nativeSessionAtoms.cached(nativeWorkspace.target)?.session?.cwd ??
+      nativeWorkspace.cwd ??
+      null)
+    : null;
   const [paletteOpen, setPaletteOpen] = useState(false);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const activeThreadRef = useMemo(() => parseActiveThreadPath(pathname), [pathname]);
@@ -112,8 +126,13 @@ export function HardwareKeyboardCommandProvider({
       commands.add("review");
       if (pathname.split("/")[4] !== "terminal") commands.add("copyThreadReference");
     }
+    if (nativeWorkspace && nativeCwd !== null) {
+      commands.add("files");
+      commands.add("terminal");
+      commands.add("review");
+    }
     return [...commands];
-  }, [activeThreadRef, pathname, registrationVersion, navigation]);
+  }, [activeThreadRef, pathname, registrationVersion, navigation, nativeWorkspace, nativeCwd]);
 
   const onCommand = useCallback(
     (command: HardwareKeyboardCommand) => {
@@ -148,6 +167,15 @@ export function HardwareKeyboardCommandProvider({
       }
 
       if (command === "newTask") {
+        if (nativeWorkspace) {
+          const { target } = nativeWorkspace;
+          const cwd = nativeSessionAtoms.cached(target)?.session?.cwd ?? nativeWorkspace.cwd;
+          void openNativeSession(target.environmentId, {
+            providerInstanceId: target.ref.providerInstanceId,
+            ...(cwd === undefined ? {} : { cwd }),
+          }).catch((cause) => Alert.alert("Could not create session", String(cause)));
+          return;
+        }
         navigation.navigate("NewTaskSheet", { screen: "NewTask" });
         return;
       }
@@ -160,6 +188,23 @@ export function HardwareKeyboardCommandProvider({
         return;
       }
 
+      if (nativeWorkspace) {
+        const { target } = nativeWorkspace;
+        const cwd = nativeSessionAtoms.cached(target)?.session?.cwd ?? nativeWorkspace.cwd;
+        if (cwd === undefined) return;
+        if (command === "files" && !/\/files(?:\/|$)/.test(pathname))
+          navigation.navigate("ThreadFiles", {
+            environmentId: target.environmentId,
+            nativeRef: target.ref,
+            cwd,
+            projectName: cwd,
+          });
+        if (command === "terminal" && !/\/terminal(?:\/|$)/.test(pathname))
+          navigation.navigate("ThreadTerminal", { target, cwd });
+        if (command === "review" && !/\/review(?:\/|$)/.test(pathname))
+          navigation.navigate("ThreadReview", { target, cwd });
+        return;
+      }
       const thread = parseActiveThreadPath(pathname);
       if (!thread) return;
       if (command === "files" && !/\/files(?:\/|$)/.test(pathname)) {
@@ -172,15 +217,20 @@ export function HardwareKeyboardCommandProvider({
         navigation.navigate("ThreadReview", thread);
       }
     },
-    [copyTarget, navigation, pathname, showCopyFeedback],
+    [copyTarget, navigation, pathname, showCopyFeedback, nativeWorkspace, openNativeSession],
   );
 
   const palette = useMemo(
     () =>
       paletteOpen ? (
-        <CommandPalette pathname={pathname} onClose={closePalette} onCommand={onCommand} />
+        <CommandPalette
+          pathname={pathname}
+          workspaceCommands={enabledCommands}
+          onClose={closePalette}
+          onCommand={onCommand}
+        />
       ) : null,
-    [closePalette, onCommand, paletteOpen, pathname],
+    [closePalette, onCommand, paletteOpen, pathname, enabledCommands],
   );
 
   return (

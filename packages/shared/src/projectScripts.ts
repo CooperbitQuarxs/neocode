@@ -1,22 +1,25 @@
-import type { ProjectId, ProjectScript, ServerSettings } from "@t3tools/contracts";
+import type {
+  ProjectId,
+  ProjectScript,
+  ServerSettings,
+  ServerSettingsPatch,
+} from "@t3tools/contracts";
+import { clearProjectSettingsOverrides } from "./projectSettings.ts";
 
 type ProjectScriptSettings = Pick<
   ServerSettings,
   | "defaultProjectScripts"
+  | "actions"
   | "projectScriptOverrides"
   | "projectSettingsOverrides"
   | "projectSettingsFolded"
 >;
 
-/**
- * The project's override wins, then environment defaults. Until the legacy
- * fields have been folded into `projectSettingsOverrides`, the old map (null
- * there meant "reset to machine defaults") and the aggregate's own scripts
- * still count, so a server that has not run the fold yet behaves as before.
- */
-export function resolveProjectScripts(
+type ScriptProject = { id: ProjectId; scripts: readonly ProjectScript[] };
+
+function legacyProjectScripts(
   settings: ProjectScriptSettings,
-  project: { id: ProjectId; scripts: readonly ProjectScript[] },
+  project: ScriptProject,
 ): readonly ProjectScript[] {
   const override = settings.projectSettingsOverrides[project.id]?.defaultProjectScripts;
   if (override !== undefined) return override;
@@ -24,6 +27,68 @@ export function resolveProjectScripts(
   const legacy = settings.projectScriptOverrides[project.id];
   if (legacy === null) return settings.defaultProjectScripts;
   return legacy ?? (project.scripts.length > 0 ? project.scripts : settings.defaultProjectScripts);
+}
+
+/**
+ * Preserve legacy whole-list selection, then overlay reusable environment
+ * actions and project deltas by ID. Null hides one ID, never the whole list.
+ */
+export function resolveProjectScripts(
+  settings: ProjectScriptSettings,
+  project: ScriptProject | null,
+): readonly ProjectScript[] {
+  const baseline = project ? legacyProjectScripts(settings, project) : settings.defaultProjectScripts;
+  const local = project ? settings.projectSettingsOverrides[project.id]?.actions : undefined;
+  if (Object.keys(settings.actions).length === 0 && !local) return baseline;
+  const scripts = new Map(baseline.map((script) => [script.id, script]));
+  for (const layer of [settings.actions, local]) {
+    if (!layer) continue;
+    for (const [id, script] of Object.entries(layer)) {
+      if (script === null) scripts.delete(id);
+      else scripts.set(id, script.id === id ? script : { ...script, id });
+    }
+  }
+  return [...scripts.values()];
+}
+
+/**
+ * Only changed IDs are stored. Unchanged inherited actions keep following
+ * future environment edits, even after a project adds its own actions.
+ */
+export function projectActionsPatch(
+  settings: ServerSettings,
+  project: ScriptProject | null,
+  nextScripts: readonly ProjectScript[] | null,
+  resetId?: string,
+): ServerSettingsPatch {
+  const current = resolveProjectScripts(settings, project);
+  const actions = {
+    ...(project ? settings.projectSettingsOverrides[project.id]?.actions : settings.actions),
+  };
+  if (resetId !== undefined) {
+    delete actions[resetId];
+  } else if (nextScripts !== null) {
+    const next = new Map(nextScripts.map((script) => [script.id, script]));
+    for (const script of current) {
+      const updated = next.get(script.id);
+      if (JSON.stringify(updated) !== JSON.stringify(script)) {
+        if (updated) actions[script.id] = updated;
+        else if (project || settings.defaultProjectScripts.some((entry) => entry.id === script.id)) {
+          actions[script.id] = null;
+        } else {
+          delete actions[script.id];
+        }
+      }
+      next.delete(script.id);
+    }
+    for (const [id, script] of next) actions[id] = script;
+  }
+  if (!project) return { actions: nextScripts === null ? {} : actions };
+  const entry =
+    nextScripts === null
+      ? clearProjectSettingsOverrides(settings, project.id, ["actions", "defaultProjectScripts"])
+      : { ...settings.projectSettingsOverrides[project.id], actions };
+  return { projectSettingsOverrides: { [project.id]: entry } };
 }
 
 export function projectScriptsInheritDefaults(

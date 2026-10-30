@@ -889,6 +889,54 @@ layer("GitHubPullRequestCli.layer", (it) => {
     }),
   );
 
+  it.effect("lists authored fork work for the verified account without upstream discovery", () =>
+    Effect.gen(function* () {
+      const host = "github.fork.test";
+      const repository = "fork-owner/editor";
+      mockedExecute
+        .mockReturnValueOnce(Effect.succeed(output("fork-reader-credential")))
+        .mockReturnValueOnce(Effect.succeed(output('{"id":42,"login":"current-reader"}')))
+        .mockReturnValueOnce(Effect.succeed(output("[]")))
+        .mockReturnValueOnce(
+          Effect.succeed(
+            output(
+              pullRequests(1, 7, () => ({
+                author: { login: "current-reader" },
+                state: "OPEN",
+                url: `https://${host}/${repository}/pull/7`,
+              })),
+            ),
+          ),
+        );
+      const cli = yield* GitHubPullRequestCli.GitHubPullRequestCli;
+      const viewer = yield* cli.getViewerLogin({ cwd: "/fork", host });
+      const batch = yield* cli.listPullRequests({
+        cwd: "/fork",
+        repository,
+        host,
+        state: "open",
+        involvement: "authored",
+        viewer,
+        limit: 10,
+      });
+
+      expect(viewer).toBe("current-reader");
+      expect(batch.items.map((item) => item.author?.login)).toEqual(["current-reader"]);
+      expect(batch.items.map((item) => item.url)).toEqual([`https://${host}/${repository}/pull/7`]);
+      expect(mockedExecute).toHaveBeenCalledTimes(4);
+      for (const index of [2, 3]) {
+        const args = callAt(index).args;
+        expect(args.slice(0, 4)).toEqual(["pr", "list", "--repo", `${host}/${repository}`]);
+        expect(args.slice(args.indexOf("--author"), args.indexOf("--author") + 2)).toEqual([
+          "--author",
+          viewer,
+        ]);
+      }
+      expect(searchOfCall(2)).toBe("sort:updated-desc");
+      expect(searchOfCall(3)).toBeUndefined();
+    }),
+  );
+
   it.effect("narrows through search on the reviewing tab", () =>
     Effect.gen(function* () {
       mockedExecute.mockReturnValue(Effect.succeed(output("[]")));

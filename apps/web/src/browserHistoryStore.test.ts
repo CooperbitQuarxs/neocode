@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { workspaceKey } from "@t3tools/client-runtime/environment";
 
 const { readPreparedConnection } = vi.hoisted(() => ({
   readPreparedConnection: vi.fn<() => { httpBaseUrl: string } | null>(() => null),
@@ -440,5 +441,39 @@ describe("mergeBrowserHistoryState", () => {
     expect(merged.projectKeyByThreadKey).toEqual({ good: "b" });
     expect(merged.pendingVisitsByThreadKey).toEqual({});
     expect(merged.pendingTitlesByThreadKey).toEqual({});
+  });
+});
+
+describe("native browser history", () => {
+  beforeEach(resetBrowserHistoryForTests);
+
+  it("persists visits and titles without project registration and keeps sessions independent", () => {
+    const target = {
+      environmentId: EnvironmentId.make("native-environment"),
+      ref: {
+        providerInstanceId: ProviderInstanceId.make("profile-a"),
+        sessionFile: "/sessions/a session.jsonl",
+      },
+    };
+    const other = { ...target, ref: { ...target.ref, sessionFile: "/sessions/b.jsonl" } };
+    recordVisitForThread(target, "https://example.com/a", 100);
+    recordVisitForThread(other, "https://example.com/b", 200);
+    setTitleForThreadUrl(target, "https://example.com/a", "Session A");
+    const persisted = useBrowserHistoryStore.getState();
+    const restored = mergeBrowserHistoryState(
+      { byProjectKey: persisted.byProjectKey, projectKeyByThreadKey: {} },
+      persisted,
+    );
+    expect(restored.byProjectKey[workspaceKey(target)]).toEqual([
+      { url: "https://example.com/a", lastVisitedAt: 100, title: "Session A" },
+    ]);
+    expect(restored.byProjectKey[workspaceKey(other)]).toEqual([
+      { url: "https://example.com/b", lastVisitedAt: 200 },
+    ]);
+    removeUrlForThread(target, "https://example.com/a");
+    expect(useBrowserHistoryStore.getState().byProjectKey[workspaceKey(target)]).toBeUndefined();
+    expect(useBrowserHistoryStore.getState().byProjectKey[workspaceKey(other)]).toEqual(
+      restored.byProjectKey[workspaceKey(other)],
+    );
   });
 });

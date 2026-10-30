@@ -1,4 +1,6 @@
 import { afterEach, assert, it } from "vite-plus/test";
+import { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
+import { workspaceKey } from "@t3tools/client-runtime/environment";
 
 import { appAtomRegistry } from "../../state/atom-registry";
 import { getCachedNativeReviewDiffData } from "./nativeReviewDiffAdapter";
@@ -44,6 +46,30 @@ it("stores review async loading and error state in atoms", () => {
     loadingTurnIds: {},
     error: null,
   });
+});
+
+it("keeps native workspace review caches independent of another profile, file and legacy thread", () => {
+  const target = {
+    environmentId: EnvironmentId.make("env-local"),
+    ref: { providerInstanceId: ProviderInstanceId.make("neopi"), sessionFile: "/sessions/a.jsonl" },
+  };
+  const key = workspaceKey(target);
+  const section = { ...reviewInput, threadKey: key, sectionId: "working-tree" };
+  const parsed = getCachedReviewParsedDiff(section);
+  setReviewAsyncError(key, "offline");
+  for (const otherKey of [
+    workspaceKey({
+      ...target,
+      ref: { ...target.ref, providerInstanceId: ProviderInstanceId.make("other") },
+    }),
+    workspaceKey({ ...target, ref: { ...target.ref, sessionFile: "/sessions/b.jsonl" } }),
+    reviewInput.threadKey,
+  ]) {
+    assert.notStrictEqual(getCachedReviewParsedDiff({ ...section, threadKey: otherKey }), parsed);
+    assert.strictEqual(getReviewAsyncStateSnapshot(otherKey).error, null);
+  }
+  assert.strictEqual(getCachedReviewParsedDiff(section), parsed);
+  assert.strictEqual(getReviewAsyncStateSnapshot(key).error, "offline");
 });
 
 it("reuses unchanged parsed diffs and replaces changed sections", () => {

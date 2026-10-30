@@ -23,9 +23,11 @@ import {
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
@@ -43,6 +45,7 @@ import { OrchestrationEngineService } from "../../orchestration/Services/Orchest
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { layerTest as settingsLayer } from "../../serverSettings.ts";
 import type { ProviderInstance } from "../ProviderDriver.ts";
+import { ProviderAdapterRequestError } from "../Errors.ts";
 import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
 import {
   ProviderSessionDirectory,
@@ -58,7 +61,7 @@ import { makeNeoPiDiscoveryHub } from "./NeoPiDiscovery.ts";
 
 const projectId = ProjectId.make("project");
 const instanceId = ProviderInstanceId.make("neopi-personal");
-const cwd = "/tmp/neocode-session-catalog-workspace";
+const cwd = process.cwd();
 const now = "2026-10-18T12:00:00.000Z";
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decodeProbeCommand = Schema.decodeUnknownSync(
@@ -126,12 +129,26 @@ const projectedThread = (
   ...overrides,
 });
 
+const sessionWorkspace = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const scratch = NodePath.join(NodeOS.homedir(), ".cache/npi-canary");
+  yield* fs.makeDirectory(scratch, { recursive: true });
+  const directory = yield* fs.makeTempDirectoryScoped({
+    directory: scratch,
+    prefix: "neocode-session-paths-",
+  });
+  return yield* fs.realPath(directory);
+});
+
 const harness = (options?: {
   instance?: ProviderInstance;
   nativeCommands?: boolean;
   configuration?: NeoPiSessionCatalogSource["configuration"];
+  observeConfiguration?: NeoPiSessionCatalogSource["observeConfiguration"];
+  domainEvents?: PubSub.PubSub<OrchestrationEvent>;
   workspaceRoot?: string;
   capabilities?: string[];
+  projects?: OrchestrationProjectShell[];
   rows?: object[];
   listOutput?: string | NeoPiSessionError;
   bindings?: ProviderRuntimeBindingWithMetadata[];
@@ -149,11 +166,13 @@ const harness = (options?: {
 }) =>
   Effect.gen(function* () {
     const testProject = { ...project, workspaceRoot: options?.workspaceRoot ?? cwd };
+    const projects = [testProject, ...(options?.projects ?? [])];
     const calls: NeoPiSessionCommandInput[] = [];
     const commands: OrchestrationCommand[] = [];
     const bindings = [...(options?.bindings ?? [])];
     const threads = new Map((options?.threads ?? []).map((thread) => [thread.id, thread]));
     const order: string[] = [];
+    const registryChanges = yield* PubSub.sliding<void>(1);
     const adapterHarness = yield* makeTestProviderAdapterHarness({
       provider: ProviderDriverKind.make("neopi"),
     });
@@ -183,6 +202,9 @@ const harness = (options?: {
       capabilities,
       probe: { status: "compatible" as const, version: "1.2.3" },
       ...(options?.configuration ? { configuration: options.configuration } : {}),
+      ...(options?.observeConfiguration
+        ? { observeConfiguration: options.observeConfiguration }
+        : {}),
     };
     const instance = registerNeoPiSessionCatalogSource(
       {
@@ -204,7 +226,6 @@ const harness = (options?: {
         snapshot: {
           getSnapshot: Effect.succeed(snapshot),
           refresh: Effect.succeed(snapshot),
-          resolveMaintenance: () => Effect.die("unused"),
           streamChanges: Stream.empty,
           applyUsageLimits: () => Effect.void,
         },
@@ -250,8 +271,8 @@ const harness = (options?: {
           (entry) => entry.instanceId === input.source.profile,
         );
         const output = extra?.listOutput ?? options?.listOutput;
-        if (output instanceof NeoPiSessionError) return yield* output;
-        if (output !== undefined) return output;
+        if (typeof output === "string") return output;
+        if (output !== undefined) return yield* output;
         return encodeJson({
           version: 1,
           sessions: extra?.rows ?? options?.rows ?? [session("free")],
@@ -264,15 +285,17 @@ const harness = (options?: {
         Layer.mergeAll(
           Layer.mock(ProviderInstanceRegistry)({
             listInstances: Effect.succeed(allInstances),
+            subscribeChanges: PubSub.subscribe(registryChanges),
             getInstance: (id) =>
               Effect.succeed(allInstances.find((entry) => entry.instanceId === id)),
           }),
           Layer.mock(ProjectionSnapshotQuery)({
-            getProjectShellById: () => Effect.succeedSome(testProject),
+            getProjectShellById: (id) =>
+              Effect.sync(() => Option.fromUndefinedOr(projects.find((entry) => entry.id === id))),
             getShellSnapshot: () =>
               Effect.succeed({
                 snapshotSequence: 0,
-                projects: [testProject],
+                projects,
                 threads: Array.from(threads.values(), (thread) => ({
                   ...thread,
                   latestUserMessageAt: null,
@@ -304,44 +327,61 @@ const harness = (options?: {
               }),
           }),
           Layer.mock(OrchestrationEngineService)({
-            subscribeDomainEvents: Effect.succeed(
-              Stream.suspend(() =>
-                Stream.fromIterable(
-                  commands
-                    .filter((command) => command.type === "thread.session.stop")
-                    .map((command): OrchestrationEvent => ({
-                      type: "thread.session-set",
-                      sequence: 1,
-                      eventId: EventId.make("stop-receipt"),
-                      aggregateKind: "thread",
-                      aggregateId: command.threadId,
-                      occurredAt: now,
-                      commandId: command.commandId,
-                      causationEventId: null,
-                      correlationId: null,
-                      metadata: {},
-                      payload: {
-                        threadId: command.threadId,
-                        session: {
-                          threadId: command.threadId,
-                          status: "stopped",
-                          providerName: "neopi",
-                          runtimeMode: "full-access",
-                          activeTurnId: null,
-                          lastError: null,
-                          updatedAt: now,
-                        },
-                      },
-                    })),
+            subscribeDomainEvents: options?.domainEvents
+              ? PubSub.subscribe(options.domainEvents).pipe(
+                  Effect.map((subscription) => Stream.fromEffectRepeat(PubSub.take(subscription))),
+                )
+              : Effect.succeed(
+                  Stream.suspend(() =>
+                    Stream.fromIterable(
+                      commands
+                        .filter((command) => command.type === "thread.session.stop")
+                        .map((command): OrchestrationEvent => ({
+                          type: "thread.session-set",
+                          sequence: 1,
+                          eventId: EventId.make("stop-receipt"),
+                          aggregateKind: "thread",
+                          aggregateId: command.threadId,
+                          occurredAt: now,
+                          commandId: command.commandId,
+                          causationEventId: null,
+                          correlationId: null,
+                          metadata: {},
+                          payload: {
+                            threadId: command.threadId,
+                            session: {
+                              threadId: command.threadId,
+                              status: "stopped",
+                              providerName: "neopi",
+                              runtimeMode: "full-access",
+                              activeTurnId: null,
+                              lastError: null,
+                              updatedAt: now,
+                            },
+                          },
+                        })),
+                    ),
+                  ),
                 ),
-              ),
-            ),
             dispatch: (command) =>
               Effect.sync(() => {
                 commands.push(command);
                 order.push(command.type);
+                if (command.type === "project.create")
+                  projects.push({
+                    ...project,
+                    id: command.projectId,
+                    title: command.title,
+                    workspaceRoot: command.workspaceRoot,
+                  });
                 if (command.type === "thread.create")
-                  threads.set(command.threadId, projectedThread(command.threadId));
+                  threads.set(
+                    command.threadId,
+                    projectedThread(command.threadId, {
+                      projectId: command.projectId,
+                      worktreePath: command.worktreePath,
+                    }),
+                  );
                 if (command.type === "thread.session.stop") {
                   const index = bindings.findIndex((entry) => entry.threadId === command.threadId);
                   if (index >= 0) bindings[index] = { ...bindings[index]!, status: "stopped" };
@@ -379,6 +419,8 @@ const harness = (options?: {
       source,
       capabilities,
       providerSettings,
+      allInstances,
+      notifyRegistry: PubSub.publish(registryChanges, undefined),
     };
   });
 
@@ -666,6 +708,31 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
   );
 
   describe("list", () => {
+    it.effect("matches workspace symlinks in either direction without registering projects", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* sessionWorkspace;
+        const canonical = NodePath.join(root, "canonical");
+        const alias = NodePath.join(root, "alias");
+        yield* fs.makeDirectory(canonical);
+        yield* fs.symlink(canonical, alias);
+        for (const [workspaceRoot, nativeCwd] of [
+          [alias, canonical],
+          [canonical, alias],
+        ] as const) {
+          const { catalog, commands, bindings } = yield* harness({
+            workspaceRoot,
+            rows: [session("free", { cwd: nativeCwd })],
+          });
+          const result = yield* catalog.list({ projectId, scope: "project" });
+          expect(
+            result.status === "available" && result.sessions.map((row) => row.projectId),
+          ).toEqual([projectId]);
+          expect(commands).toEqual([]);
+          expect(bindings).toEqual([]);
+        }
+      }),
+    );
     it.effect("maps free, terminal-owned and NeoCode-owned sessions and workspace identities", () =>
       Effect.gen(function* () {
         const { catalog, calls } = yield* harness({
@@ -719,7 +786,7 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
         expect(result.status === "available" && result.sessions.map((row) => row.owner)).toEqual([
           { kind: "process", pid: 1, attachable: false },
         ]);
-        expect(calls[0]?.args).toEqual(["sessions", "list", "--json", "--cwd", cwd]);
+        expect(calls[0]?.args).toEqual(["sessions", "list", "--json", "--all"]);
       }),
     );
     it.effect("finds a bound worktree by its GUI title and owning project", () =>
@@ -891,6 +958,238 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
       }),
     );
   });
+  it.effect("resumes canonical and symlink workspaces into the same existing project", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* sessionWorkspace;
+      const canonical = NodePath.join(root, "canonical");
+      const alias = NodePath.join(root, "alias");
+      yield* fs.makeDirectory(canonical);
+      yield* fs.symlink(canonical, alias);
+      const row = session("free", { cwd: canonical });
+      const { catalog, commands, bindings, calls } = yield* harness({
+        workspaceRoot: alias,
+        rows: [row],
+        read: () => ({
+          version: 1,
+          session: { ...row, cwd: alias },
+          truncated: false,
+          branchEntryIds: [],
+          leafId: null,
+          messages: [],
+        }),
+      });
+      const result = yield* catalog.resume({
+        projectId,
+        providerInstanceId: instanceId,
+        sessionFile: row.path,
+      });
+      expect(result.created).toBe(true);
+      expect(commands).toMatchObject([
+        {
+          type: "thread.create",
+          projectId,
+          worktreePath: null,
+        },
+      ]);
+      expect(bindings[0]?.runtimePayload).toMatchObject({ cwd: canonical });
+      expect(calls.find((call) => call.args[1] === "read")?.cwd).toBe(canonical);
+    }),
+  );
+  it.effect("preserves the bound live thread and provider across aliased session files", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* sessionWorkspace;
+      const canonical = NodePath.join(root, "canonical");
+      const alias = NodePath.join(root, "alias");
+      yield* fs.makeDirectory(canonical);
+      yield* fs.symlink(canonical, alias);
+      const nativeFile = NodePath.join(canonical, "free.jsonl");
+      yield* fs.writeFileString(nativeFile, "");
+      const binding = {
+        ...bound("free", "running"),
+        resumeCursor: {
+          sessionFile: NodePath.join(alias, "free.jsonl"),
+          sessionId: "free",
+        },
+      };
+      const { catalog, commands, bindings, calls } = yield* harness({
+        workspaceRoot: canonical,
+        rows: [session("free", { path: nativeFile, cwd: alias, inUse: { pid: 123 } })],
+        bindings: [binding],
+        threads: [projectedThread(binding.threadId)],
+      });
+      expect(
+        yield* catalog.resume({
+          projectId,
+          providerInstanceId: ProviderInstanceId.make("not-the-bound-provider"),
+          sessionFile: nativeFile,
+        }),
+      ).toEqual({ threadId: binding.threadId, created: false });
+      expect(commands).toEqual([]);
+      expect(bindings).toEqual([binding]);
+      expect(calls.some((call) => call.args[1] === "read")).toBe(false);
+    }),
+  );
+  it.effect(
+    "reuses a foreign project and its native cwd without changing the selected project",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* sessionWorkspace;
+        const foreignProjectId = ProjectId.make("foreign");
+        const row = session("free", { cwd: root });
+        const { catalog, commands, bindings } = yield* harness({
+          projects: [{ ...project, id: foreignProjectId, workspaceRoot: root }],
+          rows: [row],
+          read: () => ({
+            version: 1,
+            session: row,
+            truncated: false,
+            branchEntryIds: [],
+            leafId: null,
+            messages: [],
+          }),
+        });
+        yield* catalog.resume({ projectId, providerInstanceId: instanceId, sessionFile: row.path });
+        expect(commands).toMatchObject([
+          {
+            type: "thread.create",
+            projectId: foreignProjectId,
+            worktreePath: null,
+          },
+        ]);
+        expect(bindings[0]?.runtimePayload).toMatchObject({ cwd: root });
+      }),
+  );
+  it.effect("registers an unrelated nested or prefix-sharing cwd only on explicit resume", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* sessionWorkspace;
+      const selectedRoot = NodePath.join(root, "project");
+      const nested = NodePath.join(selectedRoot, "nested");
+      const sibling = `${selectedRoot}-worktree`;
+      yield* fs.makeDirectory(nested, { recursive: true });
+      yield* fs.makeDirectory(sibling);
+      for (const nativeCwd of [nested, sibling]) {
+        const row = session("free", { cwd: nativeCwd });
+        const { catalog, commands, bindings } = yield* harness({
+          workspaceRoot: selectedRoot,
+          rows: [row],
+          read: () => ({
+            version: 1,
+            session: row,
+            truncated: false,
+            branchEntryIds: [],
+            leafId: null,
+            messages: [],
+          }),
+        });
+        const scoped = yield* catalog.list({ projectId, scope: "project" });
+        expect(scoped.status === "available" && scoped.sessions).toEqual([]);
+        const all = yield* catalog.list({ projectId, scope: "all" });
+        expect(all.status === "available" && all.sessions[0]?.projectId).toBeNull();
+        expect(commands).toEqual([]);
+        expect(bindings).toEqual([]);
+        const resumed = yield* catalog.resume({
+          projectId,
+          providerInstanceId: instanceId,
+          sessionFile: row.path,
+        });
+        const created = commands.find((command) => command.type === "project.create");
+        expect(created?.workspaceRoot).toBe(nativeCwd);
+        expect(created?.projectId).not.toBe(projectId);
+        expect(commands.find((command) => command.type === "thread.create")).toMatchObject({
+          projectId: created?.projectId,
+          worktreePath: null,
+        });
+        expect(
+          yield* catalog.resume({
+            projectId,
+            providerInstanceId: instanceId,
+            sessionFile: row.path,
+          }),
+        ).toEqual({ threadId: resumed.threadId, created: false });
+        expect(commands.filter((command) => command.type === "project.create")).toHaveLength(1);
+      }
+    }),
+  );
+  it.effect("imports an exact known worktree into its owning project", () =>
+    Effect.gen(function* () {
+      const worktreePath = yield* sessionWorkspace;
+      const row = session("free", { cwd: worktreePath });
+      const { catalog, commands, bindings } = yield* harness({
+        rows: [row],
+        threads: [projectedThread(ThreadId.make("other-native-session"), { worktreePath })],
+        read: () => ({
+          version: 1,
+          session: row,
+          truncated: false,
+          branchEntryIds: [],
+          leafId: null,
+          messages: [],
+        }),
+      });
+      const listed = yield* catalog.list({ projectId, scope: "project" });
+      expect(listed.status === "available" && listed.sessions[0]?.projectId).toBe(projectId);
+      yield* catalog.resume({ projectId, providerInstanceId: instanceId, sessionFile: row.path });
+      expect(commands).toMatchObject([{ type: "thread.create", projectId, worktreePath }]);
+      expect(bindings[0]?.runtimePayload).toMatchObject({ cwd: worktreePath });
+    }),
+  );
+  it.effect("rejects invalid native working directories before any persistent mutation", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* sessionWorkspace;
+      const file = NodePath.join(root, "not-a-directory");
+      yield* fs.writeFileString(file, "");
+      for (const [nativeCwd, reason] of [
+        ["", "no working directory"],
+        ["relative/path", "non-absolute working directory"],
+        [NodePath.join(root, "missing"), "Cannot access"],
+        [file, "not a directory"],
+      ]) {
+        const row = session("free", { cwd: nativeCwd });
+        const { catalog, commands, bindings, calls } = yield* harness({ rows: [row] });
+        const error = yield* catalog
+          .resume({
+            projectId,
+            providerInstanceId: instanceId,
+            sessionFile: row.path,
+          })
+          .pipe(Effect.flip);
+        expect(error.message).toContain(reason);
+        expect(commands).toEqual([]);
+        expect(bindings).toEqual([]);
+        expect(calls.some((call) => call.args[1] === "read")).toBe(false);
+      }
+    }),
+  );
+  it.effect("does not register a foreign cwd when native history validation fails", () =>
+    Effect.gen(function* () {
+      const root = yield* sessionWorkspace;
+      const row = session("free", { cwd: root });
+      const { catalog, commands, bindings } = yield* harness({
+        rows: [row],
+        read: () => ({
+          version: 1,
+          session: row,
+          truncated: false,
+          branchEntryIds: [],
+          leafId: "not-in-the-branch",
+          messages: [],
+        }),
+      });
+      yield* catalog
+        .resume({
+          projectId,
+          providerInstanceId: instanceId,
+          sessionFile: row.path,
+        })
+        .pipe(Effect.flip);
+      expect(commands).toEqual([]);
+      expect(bindings).toEqual([]);
+    }),
+  );
   it.effect(
     "installs the cursor before creating the thread, imports text, and resumes idempotently",
     () =>
@@ -973,7 +1272,7 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
       expect(calls.every((call) => call.source.profile === otherId)).toBe(true);
     }),
   );
-  it.effect("rejects unlisted files and mismatched workspaces without creating threads", () =>
+  it.effect("rejects unlisted files and missing workspaces without creating threads", () =>
     Effect.gen(function* () {
       const { catalog, commands } = yield* harness({
         rows: [session("foreign", { cwd: "/elsewhere" })],
@@ -1186,8 +1485,13 @@ it.layer(NodeServices.layer)("NeoPiSessionCatalog", (it) => {
   );
   it.effect("restores only the bound thread's own worktree", () =>
     Effect.gen(function* () {
-      const worktreePath = `${cwd}-worktree`;
-      for (const nativeCwd of [worktreePath, `${cwd}-foreign-worktree`]) {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* sessionWorkspace;
+      const worktreePath = NodePath.join(root, "worktree");
+      const foreignPath = NodePath.join(root, "foreign-worktree");
+      yield* fs.makeDirectory(worktreePath);
+      yield* fs.makeDirectory(foreignPath);
+      for (const nativeCwd of [worktreePath, foreignPath]) {
         const binding = {
           ...bound("free"),
           resumeCursor: {
@@ -1804,3 +2108,297 @@ describe("bound NeoPi configuration", () => {
     ).pipe(Effect.provide(NodeServices.layer)),
   );
 });
+
+describe("observed NeoPi configuration", () => {
+  it.live("subscribes before reading and coalesces changes racing the initial snapshot", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const binding = bound("observed", "running");
+        const changes = yield* PubSub.sliding<void>(1);
+        const entered = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        let model = "before";
+        let reads = 0;
+        let observers = 0;
+        const h = yield* harness({
+          bindings: [binding],
+          observeConfiguration: () =>
+            Effect.gen(function* () {
+              yield* Effect.acquireRelease(
+                Effect.sync(() => {
+                  observers++;
+                }),
+                () =>
+                  Effect.sync(() => {
+                    observers--;
+                  }),
+              );
+              const subscription = yield* PubSub.subscribe(changes);
+              return {
+                changes: Stream.fromEffectRepeat(PubSub.take(subscription)),
+                read: Effect.gen(function* () {
+                  const id = model;
+                  if (++reads === 1) {
+                    yield* Deferred.succeed(entered, undefined);
+                    yield* Deferred.await(release);
+                  }
+                  return {
+                    ...configurationSnapshot(instanceId, "observed"),
+                    model: { provider: "test", id, name: null },
+                  };
+                }),
+              };
+            }),
+        });
+        expect(reads).toBe(0);
+        const watching = yield* h.catalog
+          .watchConfiguration({ threadId: binding.threadId })
+          .pipe(Stream.take(2), Stream.runCollect, Effect.forkScoped);
+        yield* Deferred.await(entered);
+        model = "after";
+        for (let i = 0; i < 100; i++) yield* PubSub.publish(changes, undefined);
+        yield* Deferred.succeed(release, undefined);
+        const results = yield* Fiber.join(watching);
+        expect(results.map((result) => result.status === "available" && result.model?.id)).toEqual([
+          "before",
+          "after",
+        ]);
+        expect(reads).toBe(2);
+        expect(observers).toBe(0);
+        yield* PubSub.publish(changes, undefined);
+        expect(reads).toBe(2);
+        expect(h.commands).toEqual([]);
+        expect(h.calls).toEqual([]);
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.live("cancels observation and releases subscriptions without another native read", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const binding = bound("observed", "running");
+        const changes = yield* PubSub.sliding<void>(1);
+        const output = yield* Queue.unbounded<NeoPiSessionConfigurationResult>();
+        const closed = yield* Deferred.make<void>();
+        let reads = 0;
+        const h = yield* harness({
+          bindings: [binding],
+          observeConfiguration: () =>
+            Effect.gen(function* () {
+              yield* Effect.addFinalizer(() => Deferred.succeed(closed, undefined));
+              const subscription = yield* PubSub.subscribe(changes);
+              return {
+                changes: Stream.fromEffectRepeat(PubSub.take(subscription)),
+                read: Effect.sync(() => {
+                  reads++;
+                  return configurationSnapshot(instanceId, "observed");
+                }),
+              };
+            }),
+        });
+        const watching = yield* h.catalog.watchConfiguration({ threadId: binding.threadId }).pipe(
+          Stream.runForEach((result) => Queue.offer(output, result)),
+          Effect.forkScoped,
+        );
+        expect((yield* Queue.take(output)).status).toBe("available");
+        yield* Fiber.interrupt(watching);
+        yield* Deferred.await(closed);
+        yield* PubSub.publish(changes, undefined);
+        expect(reads).toBe(1);
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  for (const replacement of ["binding", "instance"] as const)
+    it.live(
+      `ends an idle observation on ${replacement} replacement without following its owner`,
+      () =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const binding = bound("observed", "running");
+            const output = yield* Queue.unbounded<NeoPiSessionConfigurationResult>();
+            let reads = 0;
+            const h = yield* harness({
+              bindings: [binding],
+              observeConfiguration: () =>
+                Effect.succeed({
+                  changes: Stream.never,
+                  read: Effect.sync(() => {
+                    reads++;
+                    return configurationSnapshot(instanceId, "observed");
+                  }),
+                }),
+            });
+            const watching = yield* h.catalog
+              .watchConfiguration({ threadId: binding.threadId })
+              .pipe(
+                Stream.runForEach((result) => Queue.offer(output, result)),
+                Effect.forkScoped,
+              );
+            expect((yield* Queue.take(output)).status).toBe("available");
+            if (replacement === "binding")
+              h.bindings[0] = { ...binding, adapterKey: "replacement-runtime" };
+            else h.allInstances[0] = { ...h.allInstances[0]! };
+            yield* h.notifyRegistry;
+            expect((yield* Queue.take(output)).status).toBe("unavailable");
+            yield* Fiber.join(watching);
+            expect(reads).toBe(1);
+          }),
+        ).pipe(Effect.provide(NodeServices.layer)),
+    );
+
+  it.live("rejects a binding change during an in-flight native snapshot", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const binding = bound("observed", "running");
+        const entered = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const h = yield* harness({
+          bindings: [binding],
+          observeConfiguration: () =>
+            Effect.succeed({
+              changes: Stream.never,
+              read: Effect.gen(function* () {
+                yield* Deferred.succeed(entered, undefined);
+                yield* Deferred.await(release);
+                return configurationSnapshot(instanceId, "observed");
+              }),
+            }),
+        });
+        const watching = yield* h.catalog
+          .watchConfiguration({ threadId: binding.threadId })
+          .pipe(Stream.runCollect, Effect.forkScoped);
+        yield* Deferred.await(entered);
+        h.bindings[0] = {
+          ...binding,
+          resumeCursor: { sessionId: "replacement", sessionFile: "/replacement.jsonl" },
+        };
+        yield* Deferred.succeed(release, undefined);
+        const results = yield* Fiber.join(watching);
+        expect(results.map((result) => result.status)).toEqual(["unavailable"]);
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
+
+it.live("invalidates an idle observation when orchestration reports its binding stopped", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const binding = bound("observed", "running");
+      const domainEvents = yield* PubSub.sliding<OrchestrationEvent>(1);
+      const output = yield* Queue.unbounded<NeoPiSessionConfigurationResult>();
+      let reads = 0;
+      const h = yield* harness({
+        bindings: [binding],
+        domainEvents,
+        observeConfiguration: () =>
+          Effect.succeed({
+            changes: Stream.never,
+            read: Effect.sync(() => {
+              reads++;
+              return configurationSnapshot(instanceId, "observed");
+            }),
+          }),
+      });
+      const watching = yield* h.catalog.watchConfiguration({ threadId: binding.threadId }).pipe(
+        Stream.runForEach((result) => Queue.offer(output, result)),
+        Effect.forkScoped,
+      );
+      expect((yield* Queue.take(output)).status).toBe("available");
+      h.bindings[0] = { ...binding, status: "stopped" };
+      yield* PubSub.publish(domainEvents, {
+        type: "thread.session-set",
+        sequence: 1,
+        eventId: EventId.make("observed-stop"),
+        aggregateKind: "thread",
+        aggregateId: binding.threadId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        payload: {
+          threadId: binding.threadId,
+          session: {
+            threadId: binding.threadId,
+            status: "stopped",
+            providerName: "neopi",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: now,
+          },
+        },
+      });
+      expect((yield* Queue.take(output)).status).toBe("unavailable");
+      yield* Fiber.join(watching);
+      expect(reads).toBe(1);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("reports native configuration read failures through the stream error channel", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const binding = bound("observed", "running");
+      const closed = yield* Deferred.make<void>();
+      const h = yield* harness({
+        bindings: [binding],
+        observeConfiguration: () =>
+          Effect.gen(function* () {
+            yield* Effect.addFinalizer(() => Deferred.succeed(closed, undefined));
+            return {
+              changes: Stream.never,
+              read: Effect.fail(
+                new ProviderAdapterRequestError({
+                  provider: ProviderDriverKind.make("neopi"),
+                  method: "configuration",
+                  detail: "NeoPi returned malformed session configuration.",
+                }),
+              ),
+            };
+          }),
+      });
+      const error = yield* h.catalog
+        .watchConfiguration({ threadId: binding.threadId })
+        .pipe(Stream.runCollect, Effect.flip);
+      expect(error.operation).toBe("configuration");
+      expect(error.message).toContain("malformed session configuration");
+      yield* Deferred.await(closed);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("interrupts a pending native snapshot when its observer disconnects", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const binding = bound("observed", "running");
+      const entered = yield* Deferred.make<void>();
+      const cancelled = yield* Deferred.make<void>();
+      const closed = yield* Deferred.make<void>();
+      const h = yield* harness({
+        bindings: [binding],
+        observeConfiguration: () =>
+          Effect.gen(function* () {
+            yield* Effect.addFinalizer(() => Deferred.succeed(closed, undefined));
+            return {
+              changes: Stream.never,
+              read: Deferred.succeed(entered, undefined).pipe(
+                Effect.andThen(Effect.never),
+                Effect.ensuring(Deferred.succeed(cancelled, undefined)),
+              ),
+            };
+          }),
+      });
+      const watching = yield* h.catalog
+        .watchConfiguration({ threadId: binding.threadId })
+        .pipe(Stream.runDrain, Effect.forkScoped);
+      yield* Deferred.await(entered);
+      yield* Fiber.interrupt(watching);
+      yield* Deferred.await(cancelled);
+      yield* Deferred.await(closed);
+      expect(h.calls).toEqual([]);
+      expect(h.commands).toEqual([]);
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);

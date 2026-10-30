@@ -8,6 +8,7 @@ import {
   type OrchestrationThreadShell,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
+import { nativeWorkspaceResourceId } from "@t3tools/shared/neopiWorkspace";
 import { describe, expect, it } from "@effect/vitest";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -131,6 +132,7 @@ function makeLink(
 
 interface HarnessOptions {
   readonly thread?: OrchestrationThreadShell | null;
+  readonly scope?: McpInvocationContext.McpInvocationScope;
   readonly project?: OrchestrationProjectShell | null;
   readonly reject?: (command: OrchestrationCommand) => OrchestrationCommandInvariantError | null;
 }
@@ -151,7 +153,9 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
   const dependencies = Layer.mergeAll(
     Layer.mock(ProjectionSnapshotQuery)({
       getThreadShellById: (threadId) =>
-        Effect.succeed(threadId === THREAD_ID ? Option.fromNullishOr(thread) : Option.none()),
+        options.scope?.kind === "native"
+          ? Effect.die("A native invocation attempted SQL conversation lookup")
+          : Effect.succeed(threadId === THREAD_ID ? Option.fromNullishOr(thread) : Option.none()),
       getProjectShellById: () => Effect.succeed(Option.fromNullishOr(project)),
     }),
     Layer.mock(OrchestrationEngineService)({
@@ -177,13 +181,46 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
       Effect.map(
         (chunk) => chunk.at(-1)!.result as Tool.Success<(typeof PullRequestsToolkit.tools)[Name]>,
       ),
-      Effect.provideService(McpInvocationContext.McpInvocationContext, invocation(capabilities)),
+      Effect.provideService(
+        McpInvocationContext.McpInvocationContext,
+        options.scope ?? invocation(capabilities),
+      ),
       Effect.provide(dependencies),
     );
   return { commands, call };
 });
 
 describe("pull request toolkit handlers", () => {
+  it.effect("rejects native conversation links before SQL lookup or orchestration dispatch", () =>
+    Effect.gen(function* () {
+      const sessionRef = {
+        providerInstanceId: ProviderInstanceId.make("native"),
+        sessionFile: "/native/session.jsonl",
+      };
+      const harness = yield* makeHarness({
+        scope: {
+          kind: "native",
+          sessionRef,
+          environmentId: EnvironmentId.make("environment-1"),
+          providerInstanceId: ProviderInstanceId.make("native"),
+          providerSessionId: "native-connection",
+          threadId: nativeWorkspaceResourceId(sessionRef),
+          capabilities: new Set(["pull-requests"]),
+          issuedAt: 1,
+        },
+      });
+      expect((yield* harness.call("list_thread_pull_requests", {}).pipe(Effect.result))._tag).toBe(
+        "Failure",
+      );
+      for (const name of ["link_pull_request", "unlink_pull_request"] as const)
+        expect(
+          (yield* harness
+            .call(name, { url: "https://github.com/owner/repo/pull/1" })
+            .pipe(Effect.result))._tag,
+        ).toBe("Failure");
+      expect(yield* Ref.get(harness.commands)).toEqual([]);
+    }),
+  );
   it.effect("refuses a credential without the pull-requests capability", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();

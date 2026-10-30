@@ -1,11 +1,10 @@
 import { Spinner } from "~/components/ui/spinner";
-import type {
-  ChatFileAttachment,
-  EditorId,
-  EnvironmentId,
-  ResolvedKeybindingsConfig,
-  ScopedThreadRef,
-} from "@t3tools/contracts";
+import type { ChatFileAttachment, EditorId, EnvironmentId } from "@t3tools/contracts";
+import {
+  workspaceFileResource,
+  workspaceKey,
+  type WorkspaceRef,
+} from "@t3tools/client-runtime/environment";
 import { filePreviewDelimiter } from "@t3tools/shared/delimitedPreview";
 import {
   isWorkspaceAudioPreviewPath,
@@ -42,7 +41,7 @@ import { isPreviewSupportedInRuntime } from "~/previewStateStore";
 import { isAbsolutePath, resolvePathLinkTarget } from "~/terminal-links";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
-import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
+import { type ComposerThreadTarget, useComposerDraftStore } from "~/composerDraftStore";
 import { buildFileReviewComment } from "~/reviewCommentContext";
 import { assetEnvironment } from "~/state/assets";
 import { useEnvironmentHttpBaseUrl, usePrimaryEnvironmentId } from "~/state/environments";
@@ -97,9 +96,8 @@ interface FilePreviewPanelProps {
   projectName: string;
   relativePath: string | null;
   attachment?: ChatFileAttachment;
-  threadRef: ScopedThreadRef;
-  composerDraftTarget: ScopedThreadRef | DraftId;
-  keybindings: ResolvedKeybindingsConfig;
+  threadRef: WorkspaceRef;
+  composerDraftTarget: ComposerThreadTarget;
   availableEditors: ReadonlyArray<EditorId>;
   revealLine: number | null;
   revealRequestId: number;
@@ -117,19 +115,15 @@ type FilePostRender = NonNullable<FileOptions<unknown>["onPostRender"]>;
 
 function WorkspaceImagePreview(props: {
   readonly environmentId: EnvironmentId;
-  readonly threadRef: ScopedThreadRef;
+  readonly threadRef: WorkspaceRef;
   readonly absolutePath: string;
   readonly workspaceRoot: string;
   readonly alt: string;
   readonly workspaceMutationId: string | null;
 }) {
   const resource = useMemo(
-    () => ({
-      _tag: "workspace-file" as const,
-      threadId: props.threadRef.threadId,
-      path: props.absolutePath,
-    }),
-    [props.threadRef.threadId, props.absolutePath],
+    () => workspaceFileResource(props.threadRef, props.absolutePath, "workspace-file"),
+    [props.threadRef, props.absolutePath],
   );
   const assetUrl = useAssetUrlState(props.environmentId, resource);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
@@ -182,7 +176,7 @@ function WorkspaceImagePreview(props: {
  */
 function WorkspaceBrowserPreview(props: {
   readonly environmentId: EnvironmentId;
-  readonly threadRef: ScopedThreadRef;
+  readonly threadRef: WorkspaceRef;
   readonly absolutePath: string;
   readonly workspaceRoot: string;
   readonly title: string;
@@ -191,12 +185,13 @@ function WorkspaceBrowserPreview(props: {
   const insideWorkspace =
     mediaFileReference(props.absolutePath, props.workspaceRoot).relativePath !== undefined;
   const resource = useMemo(
-    () => ({
-      _tag: insideWorkspace ? ("workspace-file" as const) : ("media-file" as const),
-      threadId: props.threadRef.threadId,
-      path: props.absolutePath,
-    }),
-    [insideWorkspace, props.threadRef.threadId, props.absolutePath],
+    () =>
+      workspaceFileResource(
+        props.threadRef,
+        props.absolutePath,
+        insideWorkspace ? "workspace-file" : "media-file",
+      ),
+    [insideWorkspace, props.threadRef, props.absolutePath],
   );
   const assetUrl = useAssetUrlState(props.environmentId, resource);
   const revisionSuffix =
@@ -229,19 +224,15 @@ function WorkspaceBrowserPreview(props: {
 
 function WorkspaceVideoPreview(props: {
   readonly environmentId: EnvironmentId;
-  readonly threadRef: ScopedThreadRef;
+  readonly threadRef: WorkspaceRef;
   readonly absolutePath: string;
   readonly workspaceRoot: string;
   readonly name: string;
   readonly workspaceMutationId: string | null;
 }) {
   const resource = useMemo(
-    () => ({
-      _tag: "media-file" as const,
-      threadId: props.threadRef.threadId,
-      path: props.absolutePath,
-    }),
-    [props.threadRef.threadId, props.absolutePath],
+    () => workspaceFileResource(props.threadRef, props.absolutePath, "media-file"),
+    [props.threadRef, props.absolutePath],
   );
   const assetUrl = useAssetUrlState(props.environmentId, resource);
   const refreshAssetUrl = useAssetUrlRefresh(props.environmentId, resource);
@@ -283,18 +274,14 @@ function WorkspaceVideoPreview(props: {
 
 function WorkspaceAudioPreview(props: {
   readonly environmentId: EnvironmentId;
-  readonly threadRef: ScopedThreadRef;
+  readonly threadRef: WorkspaceRef;
   readonly absolutePath: string;
   readonly name: string;
   readonly workspaceMutationId: string | null;
 }) {
   const resource = useMemo(
-    () => ({
-      _tag: "media-file" as const,
-      threadId: props.threadRef.threadId,
-      path: props.absolutePath,
-    }),
-    [props.threadRef.threadId, props.absolutePath],
+    () => workspaceFileResource(props.threadRef, props.absolutePath, "media-file"),
+    [props.threadRef, props.absolutePath],
   );
   const assetUrl = useAssetUrlState(props.environmentId, resource);
   const refreshAssetUrl = useAssetUrlRefresh(props.environmentId, resource);
@@ -547,7 +534,7 @@ interface EditableFileSurfaceProps {
   environmentId: EnvironmentId;
   cwd: string;
   relativePath: string;
-  composerDraftTarget: ScopedThreadRef | DraftId;
+  composerDraftTarget: ComposerThreadTarget;
   contents: string;
   resolvedTheme: "light" | "dark";
   revealRequestId: number;
@@ -853,7 +840,7 @@ function RenderedMarkdownSurface({
   | "wordWrap"
   | "onPostRender"
 > & {
-  threadRef: ScopedThreadRef;
+  threadRef: WorkspaceRef;
   readOnly: boolean;
 }) {
   const saveCoordinator = useFileSaveCoordinator({
@@ -911,7 +898,6 @@ export default function FilePreviewPanel({
   attachment,
   threadRef,
   composerDraftTarget,
-  keybindings,
   availableEditors,
   revealLine,
   revealRequestId,
@@ -1112,11 +1098,8 @@ export default function FilePreviewPanel({
           (environmentId === primaryEnvironmentId || remoteOpenState.mode !== "local-exec") ? (
             <OpenInPicker
               environmentId={environmentId}
-              keybindings={keybindings}
               availableEditors={availableEditors}
               openInCwd={absolutePath}
-              compact
-              enableShortcut={false}
             />
           ) : null}
           {canToggleRendered && renderedMode ? (
@@ -1190,7 +1173,7 @@ export default function FilePreviewPanel({
             />
           ) : relativePath && isVideo && absolutePath ? (
             <WorkspaceVideoPreview
-              key={`${environmentId}:${threadRef.threadId}:${absolutePath}`}
+              key={`${workspaceKey(threadRef)}:${absolutePath}`}
               environmentId={environmentId}
               threadRef={threadRef}
               absolutePath={absolutePath}
@@ -1200,7 +1183,7 @@ export default function FilePreviewPanel({
             />
           ) : relativePath && isAudio && absolutePath ? (
             <WorkspaceAudioPreview
-              key={`${environmentId}:${threadRef.threadId}:${absolutePath}`}
+              key={`${workspaceKey(threadRef)}:${absolutePath}`}
               environmentId={environmentId}
               threadRef={threadRef}
               absolutePath={absolutePath}

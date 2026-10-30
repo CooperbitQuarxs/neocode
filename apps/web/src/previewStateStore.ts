@@ -6,14 +6,17 @@
  * is the one place that must enumerate every live preview tab.
  */
 import { useAtomValue } from "@effect/atom-react";
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import {
+  workspaceKey,
+  workspaceResourceId,
+  type WorkspaceRef,
+} from "@t3tools/client-runtime/environment";
 import {
   type DesktopPreviewColorScheme,
   type DesktopPreviewFavicon,
   type PreviewEvent,
   type PreviewListResult,
   type PreviewSessionSnapshot,
-  type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
 
@@ -107,10 +110,10 @@ function syncActivePreviewThread(threadKey: string, state: ThreadPreviewState): 
 }
 
 function updateThreadPreviewState(
-  ref: ScopedThreadRef,
+  ref: WorkspaceRef,
   update: (current: ThreadPreviewState) => ThreadPreviewState,
 ): void {
-  const threadKey = scopedThreadKey(ref);
+  const threadKey = workspaceKey(ref);
   const atom = previewStateAtom(threadKey);
   let nextState = appAtomRegistry.get(atom);
   const changed = appAtomRegistry.modify(atom, (current) => {
@@ -160,8 +163,8 @@ const removeSession = (current: ThreadPreviewState, tabId: string): ThreadPrevie
   };
 };
 
-export function useThreadPreviewState(ref: ScopedThreadRef | null | undefined): ThreadPreviewState {
-  const atom = ref ? previewStateAtom(scopedThreadKey(ref)) : emptyPreviewStateAtom;
+export function useThreadPreviewState(ref: WorkspaceRef | null | undefined): ThreadPreviewState {
+  const atom = ref ? previewStateAtom(workspaceKey(ref)) : emptyPreviewStateAtom;
   return useAtomValue(atom);
 }
 
@@ -169,11 +172,12 @@ export function useActivePreviewSessions(): Record<string, ThreadPreviewState> {
   return useAtomValue(activePreviewSessionsAtom);
 }
 
-export function readThreadPreviewState(ref: ScopedThreadRef): ThreadPreviewState {
-  return appAtomRegistry.get(previewStateAtom(scopedThreadKey(ref)));
+export function readThreadPreviewState(ref: WorkspaceRef): ThreadPreviewState {
+  return appAtomRegistry.get(previewStateAtom(workspaceKey(ref)));
 }
 
-export function applyPreviewServerEvent(ref: ScopedThreadRef, event: PreviewEvent): void {
+export function applyPreviewServerEvent(ref: WorkspaceRef, event: PreviewEvent): void {
+  if (event.threadId !== workspaceResourceId(ref)) return;
   updateThreadPreviewState(ref, (current) => {
     if (current.serverEpoch !== null && event.serverEpoch !== current.serverEpoch) return current;
     if (event.revision < current.serverRevision) return current;
@@ -183,6 +187,7 @@ export function applyPreviewServerEvent(ref: ScopedThreadRef, event: PreviewEven
         case "navigated":
         case "resized": {
           const snapshot = event.snapshot;
+          if (snapshot.threadId !== workspaceResourceId(ref)) return current;
           if (current.suppressedTabIds.has(snapshot.tabId)) return current;
           const recentlySeenUrls =
             snapshot.navStatus._tag === "Idle"
@@ -241,9 +246,10 @@ export function applyPreviewServerEvent(ref: ScopedThreadRef, event: PreviewEven
 }
 
 export function applyPreviewServerSnapshot(
-  ref: ScopedThreadRef,
+  ref: WorkspaceRef,
   snapshot: PreviewSessionSnapshot | null,
 ): void {
+  if (snapshot && snapshot.threadId !== workspaceResourceId(ref)) return;
   updateThreadPreviewState(ref, (current) => {
     if (!snapshot && current.snapshot === null) return current;
     if (!snapshot) {
@@ -278,9 +284,10 @@ export function applyPreviewServerSnapshot(
  * authoritative for that tab, but it is not a request to focus the tab.
  */
 export function updatePreviewServerSnapshot(
-  ref: ScopedThreadRef,
+  ref: WorkspaceRef,
   snapshot: PreviewSessionSnapshot,
 ): void {
+  if (snapshot.threadId !== workspaceResourceId(ref)) return;
   updateThreadPreviewState(ref, (current) => {
     if (current.suppressedTabIds.has(snapshot.tabId)) return current;
     const existing = current.sessions[snapshot.tabId];
@@ -305,14 +312,12 @@ export function updatePreviewServerSnapshot(
  * Missing tabs are removed while the current active tab is preserved whenever
  * it still exists in the server result.
  */
-export function reconcilePreviewServerSessions(
-  ref: ScopedThreadRef,
-  result: PreviewListResult,
-): void {
+export function reconcilePreviewServerSessions(ref: WorkspaceRef, result: PreviewListResult): void {
   updateThreadPreviewState(ref, (current) => {
     const sameServer = current.serverEpoch === result.serverEpoch;
     if (sameServer && result.revision < current.serverRevision) return current;
-    const snapshots = result.sessions;
+    const resourceId = workspaceResourceId(ref);
+    const snapshots = result.sessions.filter((snapshot) => snapshot.threadId === resourceId);
     const sessions: Record<string, PreviewSessionSnapshot> = {};
     const currentSuppressedTabIds = sameServer ? current.suppressedTabIds : new Set<string>();
     let recentlySeenUrls = current.recentlySeenUrls;
@@ -380,7 +385,7 @@ function isPreviewStateEqual(
 }
 
 export function applyPreviewDesktopState(
-  ref: ScopedThreadRef,
+  ref: WorkspaceRef,
   tabId: string,
   overlay: DesktopPreviewOverlay | null,
 ): void {
@@ -399,7 +404,7 @@ export function applyPreviewDesktopState(
   });
 }
 
-export function beginPreviewSessionClose(ref: ScopedThreadRef, tabId: string): void {
+export function beginPreviewSessionClose(ref: WorkspaceRef, tabId: string): void {
   updateThreadPreviewState(ref, (current) => {
     const suppressedTabIds = new Set(current.suppressedTabIds);
     suppressedTabIds.add(tabId);
@@ -411,10 +416,11 @@ export function beginPreviewSessionClose(ref: ScopedThreadRef, tabId: string): v
 }
 
 export function cancelPreviewSessionClose(
-  ref: ScopedThreadRef,
+  ref: WorkspaceRef,
   snapshot: PreviewSessionSnapshot | null,
   tabId: string,
 ): void {
+  if (snapshot && snapshot.threadId !== workspaceResourceId(ref)) return;
   updateThreadPreviewState(ref, (current) => {
     if (!current.suppressedTabIds.has(tabId)) return current;
     const suppressedTabIds = new Set(current.suppressedTabIds);
@@ -438,7 +444,7 @@ export function cancelPreviewSessionClose(
   });
 }
 
-export function setActivePreviewTab(ref: ScopedThreadRef, tabId: string): void {
+export function setActivePreviewTab(ref: WorkspaceRef, tabId: string): void {
   updateThreadPreviewState(ref, (current) => {
     const snapshot = current.sessions[tabId];
     if (!snapshot || current.activeTabId === tabId) return current;
@@ -451,7 +457,7 @@ export function setActivePreviewTab(ref: ScopedThreadRef, tabId: string): void {
   });
 }
 
-export function rememberPreviewUrl(ref: ScopedThreadRef, url: string): void {
+export function rememberPreviewUrl(ref: WorkspaceRef, url: string): void {
   if (url.trim().length === 0) return;
   updateThreadPreviewState(ref, (current) => ({
     ...current,

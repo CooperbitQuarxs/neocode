@@ -32,11 +32,13 @@ export function getComposerSubmissionValidationMessage(
 
 export function submitComposerDraft(
   options: ComposerSubmissionInput & {
+    disabledReason?: string | null;
     event: ComposerSubmitEvent | undefined;
     onSend: (event?: ComposerSubmitEvent) => boolean | void;
   },
 ): { validationMessage: string | null; didDispatch: boolean } {
-  const validationMessage = getComposerSubmissionValidationMessage(options);
+  const validationMessage =
+    options.disabledReason ?? getComposerSubmissionValidationMessage(options);
   if (validationMessage) {
     options.event?.preventDefault();
     return { validationMessage, didDispatch: false };

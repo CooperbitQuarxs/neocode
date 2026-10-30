@@ -11,6 +11,7 @@ import { downloadAndShareAttachment, shareLocalAttachment } from "./attachmentDo
 import type { FileBackedComposerAttachment } from "./composerImages";
 import { copyTextWithHaptic } from "./copyTextWithHaptic";
 import { loadLocalAttachmentPreview } from "./localAttachmentPreview";
+import { fileRoutePathSegments, isAbsolutePath } from "../features/files/filePath";
 
 /** Authored source metadata is kept separate from temporary preview/download URLs. */
 export type MediaActionsSource = {
@@ -85,6 +86,15 @@ export function useMediaActions(source: MediaActionsSource | undefined, onOpenFi
   const reference = source?.reference;
   const relativePath = reference?.kind === "file" ? reference.relativePath : undefined;
   const threadId = source && "threadId" in source ? source.threadId : undefined;
+  const nativeFilePath =
+    source &&
+    "resource" in source &&
+    (source.resource._tag === "native-media-file" ||
+      source.resource._tag === "native-workspace-file") &&
+    reference?.kind === "file" &&
+    isAbsolutePath(reference.path)
+      ? reference.path
+      : undefined;
   const actions: { id: MediaActionId; title: string; run: () => void; disabled?: boolean }[] =
     source
       ? [
@@ -115,7 +125,8 @@ export function useMediaActions(source: MediaActionsSource | undefined, onOpenFi
                 },
               ]
             : []),
-          ...(relativePath && "environmentId" in source && threadId !== undefined
+          ...("environmentId" in source &&
+          ((relativePath && threadId !== undefined) || nativeFilePath)
             ? [
                 {
                   id: "open-file" as const,
@@ -124,8 +135,13 @@ export function useMediaActions(source: MediaActionsSource | undefined, onOpenFi
                     onOpenFile?.();
                     navigation.navigate("ThreadFile", {
                       environmentId: String(source.environmentId),
-                      threadId: String(threadId),
-                      path: relativePath.split("/"),
+                      ...(nativeFilePath ? { cwd: "/" } : { threadId: String(threadId) }),
+                      ...("resource" in source &&
+                      (source.resource._tag === "native-media-file" ||
+                        source.resource._tag === "native-workspace-file")
+                        ? { nativeRef: source.resource.ref }
+                        : {}),
+                      path: fileRoutePathSegments(nativeFilePath ?? relativePath!),
                     });
                   },
                 },

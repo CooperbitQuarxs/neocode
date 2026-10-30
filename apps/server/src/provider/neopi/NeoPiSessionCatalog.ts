@@ -11,6 +11,7 @@ import {
   MessageId,
   NeoPiSessionError,
   NonNegativeInt,
+  ProjectId,
   ThreadId,
   type NeoPiSessionListInput,
   type NeoPiSessionListResult,
@@ -29,6 +30,8 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
+import * as PubSub from "effect/PubSub";
+import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
@@ -39,7 +42,12 @@ import { ProjectionSnapshotQuery } from "../../orchestration/Services/Projection
 import { collectUint8StreamText } from "../../stream/collectUint8StreamText.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
-import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
+import {
+  ProviderSessionDirectory,
+  type ProviderRuntimeBinding,
+} from "../Services/ProviderSessionDirectory.ts";
+import type { ProviderInstance } from "../ProviderDriver.ts";
+import type { NeoPiConfigurationIdentity } from "./NeoPiSessionConfiguration.ts";
 import { NEOPI_CAPABILITIES } from "./NeoPiCompatibility.ts";
 import { resolveNeoPiSessionRoots } from "./NeoPiPaths.ts";
 import {
@@ -124,9 +132,6 @@ const capabilityUnavailable = (
   return `${evidence} did not advertise ${capability} in its last compatible handshake. Update NeoPi at this configured executable.${source.probe.failure ? ` Last refresh failed: ${source.probe.failure}` : ""}`;
 };
 const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-const sameCwd = (left: string, right: string) =>
-  left !== "" &&
-  normalizeProjectPathForComparison(left) === normalizeProjectPathForComparison(right);
 const operationError = (operation: NeoPiSessionError["operation"]) => (cause: unknown) =>
   isNeoPiSessionError(cause) && cause.operation === operation
     ? cause
@@ -158,6 +163,50 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
   const config = yield* ServerConfig;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const historyMutation = yield* Semaphore.make(1);
+  const pathIdentity = Effect.fnUntraced(function* (path: string) {
+    if (path === "") return "";
+    const resolved = yield* fs.realPath(path).pipe(Effect.orElseSucceed(() => path));
+    return normalizeProjectPathForComparison(resolved);
+  });
+  const sameCwd = Effect.fnUntraced(function* (left: string, right: string) {
+    return (
+      NodePath.isAbsolute(left) &&
+      NodePath.isAbsolute(right) &&
+      (yield* pathIdentity(left)) === (yield* pathIdentity(right))
+    );
+  });
+  const requireSessionCwd = Effect.fnUntraced(function* (cwd: string) {
+    if (!NodePath.isAbsolute(cwd))
+      return yield* new NeoPiSessionError({
+        operation: "resume",
+        message: `This session has ${cwd ? `a non-absolute working directory '${cwd}'` : "no working directory"}. No project or history was changed.`,
+      });
+    const resolved = yield* fs.realPath(cwd).pipe(
+      Effect.mapError(
+        (cause) =>
+          new NeoPiSessionError({
+            operation: "resume",
+            message: `Cannot access this session's working directory '${cwd}': ${cause.message}. No project or history was changed.`,
+          }),
+      ),
+    );
+    const info = yield* fs.stat(resolved);
+    if (info.type !== "Directory")
+      return yield* new NeoPiSessionError({
+        operation: "resume",
+        message: `This session's working directory '${cwd}' is not a directory. No project or history was changed.`,
+      });
+    yield* fs.access(resolved, { readable: true }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new NeoPiSessionError({
+            operation: "resume",
+            message: `Cannot read this session's working directory '${cwd}': ${cause.message}. No project or history was changed.`,
+          }),
+      ),
+    );
+    return resolved;
+  });
   const run: NeoPiSessionCommandRunner =
     runCommand ??
     ((input) =>
@@ -251,12 +300,9 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
       if (Option.isSome(cursor))
         dirs.add(NodePath.dirname(NodePath.resolve(cursor.value.sessionFile)));
     }
-    const args = [
-      "sessions",
-      "list",
-      "--json",
-      ...(input.scope === "all" ? ["--all"] : ["--cwd", project.workspaceRoot]),
-    ];
+    // NeoPi may have recorded either side of a workspace symlink. Discover both
+    // spellings before applying the selected project's filesystem identity.
+    const args = ["sessions", "list", "--json", "--all"];
     const outputs = [yield* run({ source, args, cwd: project.workspaceRoot })];
     if (dirs.size > 0) {
       outputs.push(
@@ -329,23 +375,33 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
         }
         available = true;
         const { shell, bindings, rows } = result.success;
+        const projectIds = new Map<string, ProjectId>();
+        for (const project of shell.projects)
+          projectIds.set(yield* pathIdentity(project.workspaceRoot), project.id);
+        for (const thread of shell.threads) {
+          if (thread.worktreePath)
+            projectIds.set(yield* pathIdentity(thread.worktreePath), thread.projectId);
+        }
+        projectIds.set(yield* pathIdentity(result.success.project.workspaceRoot), input.projectId);
+        const nativeBindings = new Map<string, ProviderRuntimeBinding>();
+        for (const binding of bindings) {
+          if (binding.provider !== "neopi") continue;
+          const cursor = decodeCursor(binding.resumeCursor);
+          if (Option.isSome(cursor))
+            nativeBindings.set(yield* pathIdentity(cursor.value.sessionFile), binding);
+        }
         for (const row of rows) {
-          const path = NodePath.resolve(row.path);
+          const path = yield* pathIdentity(row.path);
           if (unique.has(path)) continue;
-          const binding = bindings.find((entry) => {
-            if (entry.provider !== "neopi") return false;
-            const cursor = decodeCursor(entry.resumeCursor);
-            return (
-              Option.isSome(cursor) &&
-              NodePath.resolve(cursor.value.sessionFile) === NodePath.resolve(row.path)
-            );
-          });
+          const binding = nativeBindings.get(path);
           const boundThread = binding
             ? shell.threads.find((entry) => entry.id === binding.threadId)
             : undefined;
           const projectId =
             boundThread?.projectId ??
-            shell.projects.find((entry) => sameCwd(entry.workspaceRoot, row.cwd))?.id ??
+            (NodePath.isAbsolute(row.cwd)
+              ? projectIds.get(yield* pathIdentity(row.cwd))
+              : undefined) ??
             null;
           if (input.scope !== "all" && projectId !== input.projectId) continue;
           unique.set(path, {
@@ -422,8 +478,8 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
     );
     if (
       transcript.session.id !== sessionId ||
-      NodePath.resolve(transcript.session.path) !== NodePath.resolve(sessionFile) ||
-      !sameCwd(transcript.session.cwd, cwd) ||
+      (yield* pathIdentity(transcript.session.path)) !== (yield* pathIdentity(sessionFile)) ||
+      !(yield* sameCwd(transcript.session.cwd, cwd)) ||
       transcript.leafId !== (transcript.branchEntryIds.at(-1) ?? null) ||
       new Set(transcript.branchEntryIds).size !== transcript.branchEntryIds.length
     )
@@ -457,14 +513,22 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
     function* (
       input: NeoPiSessionResumeInput,
     ): Effect.fn.Return<NeoPiSessionResumeResult, unknown> {
-      const project = yield* readProject(input.projectId);
+      const selectedProject = yield* readProject(input.projectId);
       const bindings = yield* directory.listBindings();
       const sessionFile = NodePath.resolve(input.sessionFile);
-      const existing = bindings.find((entry) => {
+      const sessionIdentity = yield* pathIdentity(sessionFile);
+      let existing: ProviderRuntimeBinding | undefined;
+      for (const entry of bindings) {
         const cursor =
           entry.provider === "neopi" ? decodeCursor(entry.resumeCursor) : Option.none();
-        return Option.isSome(cursor) && NodePath.resolve(cursor.value.sessionFile) === sessionFile;
-      });
+        if (
+          Option.isSome(cursor) &&
+          (yield* pathIdentity(cursor.value.sessionFile)) === sessionIdentity
+        ) {
+          existing = entry;
+          break;
+        }
+      }
       const providerInstanceId = existing
         ? (existing.providerInstanceId ?? defaultInstanceIdForDriver(existing.provider))
         : input.providerInstanceId;
@@ -488,11 +552,17 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
       const listed = yield* decodeListOutput(
         yield* run({
           source: provider.source,
-          cwd: project.workspaceRoot,
+          cwd: selectedProject.workspaceRoot,
           args: ["sessions", "list", "--json", "--session-dir", NodePath.dirname(sessionFile)],
         }),
       );
-      const row = listed.sessions.find((entry) => NodePath.resolve(entry.path) === sessionFile);
+      let row: typeof Session.Type | undefined;
+      for (const entry of listed.sessions) {
+        if ((yield* pathIdentity(entry.path)) === sessionIdentity) {
+          row = entry;
+          break;
+        }
+      }
       if (!row)
         return yield* new NeoPiSessionError({
           operation: "resume",
@@ -501,19 +571,14 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
       const threadId =
         existing?.threadId ?? ThreadId.make(`import:${provider.instance.instanceId}:${row.id}`);
       const thread = yield* snapshots.getThreadDetailById(threadId);
-      const sessionCwd = Option.isSome(thread)
-        ? (thread.value.worktreePath ?? project.workspaceRoot)
-        : project.workspaceRoot;
-      if (!sameCwd(row.cwd, sessionCwd))
-        return yield* new NeoPiSessionError({
-          operation: "resume",
-          message: `This session belongs to '${row.cwd || "an unknown workspace"}', not '${sessionCwd}'.`,
-        });
+      const sessionCwd = Option.isSome(thread) ? row.cwd : yield* requireSessionCwd(row.cwd);
       if (Option.isSome(thread)) {
-        if (thread.value.projectId !== input.projectId)
+        const boundProject = yield* readProject(thread.value.projectId);
+        const boundCwd = thread.value.worktreePath ?? boundProject.workspaceRoot;
+        if (!(yield* sameCwd(sessionCwd, boundCwd)))
           return yield* new NeoPiSessionError({
             operation: "resume",
-            message: `Thread '${threadId}' belongs to another project.`,
+            message: `This session belongs to '${row.cwd}', not the bound thread's workspace '${boundCwd}'. No history was changed.`,
           });
         if (thread.value.deletedAt !== null)
           return yield* new NeoPiSessionError({
@@ -527,6 +592,7 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
           thread.value.latestTurn?.state === "running"
         )
           return { threadId, created: false };
+        yield* requireSessionCwd(sessionCwd);
         if (!provider.source.capabilities.has(NEOPI_CAPABILITIES.sessionHistoryIdentity))
           return yield* new NeoPiSessionError({
             operation: "resume",
@@ -629,11 +695,41 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
         });
       const transcript = yield* readTranscript(
         provider.source,
-        project.workspaceRoot,
+        sessionCwd,
         sessionFile,
         row.id,
         200,
       );
+      const shell = yield* snapshots.getShellSnapshot();
+      let project = (yield* sameCwd(selectedProject.workspaceRoot, sessionCwd))
+        ? selectedProject
+        : undefined;
+      let worktreePath: string | null = null;
+      for (const candidate of shell.projects) {
+        if (project) break;
+        if (yield* sameCwd(candidate.workspaceRoot, sessionCwd)) project = candidate;
+      }
+      if (!project) {
+        for (const candidate of shell.threads) {
+          if (candidate.worktreePath && (yield* sameCwd(candidate.worktreePath, sessionCwd))) {
+            project = shell.projects.find((entry) => entry.id === candidate.projectId);
+            if (project) {
+              worktreePath = sessionCwd;
+              break;
+            }
+          }
+        }
+      }
+      const projectId = project?.id ?? ProjectId.make(yield* crypto.randomUUIDv4);
+      if (!project)
+        yield* engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make(`neopi-import:${threadId}:project`),
+          projectId,
+          title: NodePath.basename(sessionCwd) || sessionCwd,
+          workspaceRoot: sessionCwd,
+          createdAt: DateTime.formatIso(yield* DateTime.now),
+        });
       yield* directory.upsert(
         {
           threadId,
@@ -649,7 +745,7 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
             sharedSession: true,
             turnBoundaries: [],
           },
-          runtimePayload: { cwd: project.workspaceRoot },
+          runtimePayload: { cwd: sessionCwd },
         },
         { onConflict: "ignore" },
       );
@@ -662,13 +758,13 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
         type: "thread.create",
         commandId: CommandId.make(`neopi-import:${threadId}:create`),
         threadId,
-        projectId: input.projectId,
+        projectId,
         title: row.title?.trim() || row.firstMessage.slice(0, 120) || "NeoPi session",
         modelSelection: { instanceId: provider.instance.instanceId, model },
         runtimeMode: DEFAULT_RUNTIME_MODE,
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         branch: null,
-        worktreePath: null,
+        worktreePath,
         createdAt: row.created,
         historyImport: true,
       });
@@ -842,6 +938,30 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
     Effect.mapError(operationError("handoff")),
   );
 
+  const configurationBindingChange = Effect.fnUntraced(function* (
+    binding: ProviderRuntimeBinding,
+    expected: NeoPiConfigurationIdentity,
+    instance: ProviderInstance,
+  ) {
+    const current = yield* directory.getBinding(binding.threadId);
+    if (
+      Option.isNone(current) ||
+      current.value.provider !== "neopi" ||
+      current.value.status !== "running" ||
+      current.value.providerInstanceId !== instance.instanceId ||
+      current.value.adapterKey !== binding.adapterKey ||
+      (yield* instances.getInstance(instance.instanceId)) !== instance
+    )
+      return "The bound NeoPi connection changed during the snapshot.";
+    const cursor = decodeCursor(current.value.resumeCursor);
+    if (
+      Option.isNone(cursor) ||
+      cursor.value.sessionId !== expected.sessionId ||
+      NodePath.resolve(cursor.value.sessionFile) !== NodePath.resolve(expected.sessionFile)
+    )
+      return "The bound native NeoPi session changed during the snapshot.";
+  });
+
   const configuration = Effect.fn("NeoPiSessionCatalog.configuration")(
     function* (
       input: NeoPiSessionConfigurationInput,
@@ -870,28 +990,97 @@ export const makeNeoPiSessionCatalog = Effect.fn("makeNeoPiSessionCatalog")(func
           result.sessionId !== cursor.value.sessionId)
       )
         return unavailable("The NeoPi reader returned a different bound session.");
-      const current = yield* directory.getBinding(input.threadId);
-      if (
-        Option.isNone(current) ||
-        current.value.provider !== "neopi" ||
-        current.value.status !== "running" ||
-        current.value.providerInstanceId !== instance.instanceId ||
-        current.value.adapterKey !== binding.value.adapterKey ||
-        (yield* instances.getInstance(instance.instanceId)) !== instance
-      )
-        return unavailable("The bound NeoPi connection changed during the snapshot.");
-      const currentCursor = decodeCursor(current.value.resumeCursor);
-      if (
-        Option.isNone(currentCursor) ||
-        currentCursor.value.sessionId !== cursor.value.sessionId ||
-        NodePath.resolve(currentCursor.value.sessionFile) !==
-          NodePath.resolve(cursor.value.sessionFile)
-      )
-        return unavailable("The bound native NeoPi session changed during the snapshot.");
+      const changed = yield* configurationBindingChange(binding.value, cursor.value, instance);
+      if (changed) return unavailable(changed);
       return result;
     },
     Effect.mapError(operationError("configuration")),
   );
 
-  return { list, resume, handoff, configuration };
+  const watchConfiguration = (input: NeoPiSessionConfigurationInput) =>
+    Stream.unwrap(
+      Effect.gen(function* () {
+        const unavailable = (reason: string) => ({ status: "unavailable" as const, reason });
+        // Acquire every notification source before reading the binding or native
+        // snapshot. A notification during a read leaves one pending refresh.
+        const registryChanges = yield* instances.subscribeChanges;
+        const domainEvents = yield* engine.subscribeDomainEvents;
+        const pending = yield* Queue.sliding<void>(1);
+        let refresh = true;
+        const invalidate = (read: boolean) =>
+          Effect.suspend(() => {
+            refresh ||= read;
+            return Queue.offer(pending, undefined);
+          });
+        yield* Effect.forever(
+          PubSub.take(registryChanges).pipe(Effect.andThen(invalidate(false))),
+        ).pipe(Effect.forkScoped);
+        yield* domainEvents.pipe(
+          Stream.filter(
+            (event) =>
+              event.aggregateId === input.threadId &&
+              (event.type === "thread.session-set" || event.type === "thread.reverted"),
+          ),
+          Stream.runForEach(() => invalidate(false)),
+          Effect.forkScoped,
+        );
+        const binding = yield* directory.getBinding(input.threadId);
+        if (Option.isNone(binding) || binding.value.provider !== "neopi")
+          return Stream.succeed(unavailable("This thread has no bound NeoPi session."));
+        if (binding.value.status !== "running")
+          return Stream.succeed(unavailable("This thread's NeoPi session is not connected."));
+        const cursor = decodeCursor(binding.value.resumeCursor);
+        if (Option.isNone(cursor) || !cursor.value.sessionId || !cursor.value.sessionFile)
+          return Stream.succeed(
+            unavailable("This thread has no saved native NeoPi session identity."),
+          );
+        const instance = binding.value.providerInstanceId
+          ? yield* instances.getInstance(binding.value.providerInstanceId)
+          : undefined;
+        const source = instance && neoPiSessionCatalogSource(instance);
+        if (!instance || instance.driverKind !== "neopi" || !source?.observeConfiguration)
+          return Stream.succeed(
+            unavailable("The bound NeoPi configuration observer is unavailable."),
+          );
+        const observation = yield* source.observeConfiguration(input.threadId, cursor.value);
+        const changed = configurationBindingChange(binding.value, cursor.value, instance);
+        yield* observation.changes.pipe(
+          Stream.runForEach(() => invalidate(true)),
+          Effect.forkScoped,
+        );
+        yield* Queue.offer(pending, undefined);
+        return Stream.fromQueue(pending).pipe(
+          Stream.mapEffect(() =>
+            Effect.gen(function* () {
+              const read = refresh;
+              refresh = false;
+              if (yield* changed)
+                return Option.some(
+                  unavailable("The observed NeoPi binding changed. Start following again."),
+                );
+              if (!read) return Option.none();
+              const result = yield* observation.read;
+              if (yield* changed)
+                return Option.some(
+                  unavailable("The observed NeoPi binding changed during the snapshot."),
+                );
+              if (
+                result.status === "available" &&
+                (result.providerInstanceId !== instance.instanceId ||
+                  result.sessionId !== cursor.value.sessionId)
+              )
+                return Option.some(
+                  unavailable("The NeoPi reader returned a different bound session."),
+                );
+              return Option.some(result);
+            }),
+          ),
+          Stream.filter(Option.isSome),
+          Stream.map((result) => result.value),
+          Stream.takeUntil((result) => result.status === "unavailable"),
+        );
+      }),
+    ).pipe(Stream.mapError(operationError("configuration")));
+
+  return { list, resume, handoff, configuration, watchConfiguration };
 });

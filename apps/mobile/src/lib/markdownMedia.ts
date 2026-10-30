@@ -1,5 +1,5 @@
 import { resolveMediaSource } from "@t3tools/client-runtime/media-source";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, NeoPiNativeSessionRef, ThreadId } from "@t3tools/contracts";
 import { normalizeNativeMarkdownUrl } from "@t3tools/mobile-markdown-text/links";
 
 import type { FilePreviewSource } from "../components/FilePreviewModal";
@@ -11,7 +11,8 @@ export function resolveMarkdownMediaPreview(
   href: string,
   input: {
     readonly environmentId: EnvironmentId;
-    readonly threadId: ThreadId;
+    readonly threadId?: ThreadId;
+    readonly nativeRef?: NeoPiNativeSessionRef;
     readonly workspaceRoot: string | null | undefined;
     /** Image syntax can target an endpoint without a recognizable extension. */
     readonly imageEmbed?: boolean;
@@ -38,7 +39,7 @@ export function resolveMarkdownMediaPreview(
       : {
           reference,
           environmentId: input.environmentId,
-          threadId: input.threadId,
+          ...(input.threadId ? { threadId: input.threadId } : {}),
           resource: media.resource,
           name,
           mimeType,

@@ -4,6 +4,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
+import { resolveProjectScripts } from "@t3tools/shared/projectScripts";
 import { ChevronDownIcon, PlusIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { useT3ProjectFileState } from "../../hooks/useT3ProjectFileScripts";
@@ -32,31 +33,38 @@ import { SettingsRow, SettingsSection } from "./settingsLayout";
 import { useSettingsScope } from "./SettingsScopeContext";
 
 /**
- * A project's actions on each selected environment. Actions belong to a
- * project, so this only renders at a project scope; the environment's
- * `defaultProjectScripts` is the layer a project without its own list
- * inherits. Shortcuts are environment-wide, so the same action id shares its
- * binding on an environment.
+ * Actions at environment or project scope. Environment actions remain inherited
+ * when a project adds or overrides individual IDs. Shortcuts share those IDs.
  */
 export function ProjectActionsSettings() {
   const { scope, targets, target } = useSettingsScope();
   const { environments } = useEnvironments();
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
+  const memberById = new Map(
+    isProjectScope ? scope.members.map((member) => [member.id, member]) : [],
+  );
+  const scriptsForTarget = (candidate: (typeof targets)[number]) => {
+    const settings = environments.find(
+      (environment) => environment.environmentId === candidate.environmentId,
+    )?.serverConfig?.settings;
+    return settings
+      ? resolveProjectScripts(
+          settings,
+          candidate.projectId ? (memberById.get(candidate.projectId) ?? null) : null,
+        )
+      : [];
+  };
   const representativeConfig = target
     ? environments.find((environment) => environment.environmentId === target.environmentId)
         ?.serverConfig
     : undefined;
-  const scripts = target?.settings.defaultProjectScripts ?? [];
+  const scripts = target ? scriptsForTarget(target) : [];
   const keybindings = representativeConfig?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS;
   const mixed = targets.some(
-    (candidate) =>
-      JSON.stringify(candidate.settings.defaultProjectScripts) !== JSON.stringify(scripts),
+    (candidate) => JSON.stringify(scriptsForTarget(candidate)) !== JSON.stringify(scripts),
   );
   const [request, setRequest] = useState<ProjectScriptEditorRequest | null>(null);
-  const memberById = new Map(
-    isProjectScope ? scope.members.map((member) => [member.id, member]) : [],
-  );
-  const { saving, persist, submit } = useProjectScriptSettings(
+  const { saving, persist, submit, reset } = useProjectScriptSettings(
     targets.flatMap((candidate) => {
       const environment = environments.find(
         (entry) => entry.environmentId === candidate.environmentId,
@@ -84,6 +92,20 @@ export function ProjectActionsSettings() {
       ];
     }),
   );
+  const rawSettings = representativeConfig?.settings;
+  const localActions = target?.projectId
+    ? rawSettings?.projectSettingsOverrides[target.projectId]?.actions
+    : rawSettings?.actions;
+  const actionOrigin = (id: string) => {
+    if (target?.projectId && Object.hasOwn(localActions ?? {}, id)) {
+      return rawSettings?.actions[id] ? "Project override" : "Project action";
+    }
+    if (rawSettings?.actions[id]) return "Environment action";
+    return "Existing project action";
+  };
+  const hiddenIds = Object.entries(localActions ?? {})
+    .filter(([, action]) => action === null)
+    .map(([id]) => id);
 
   // A project's t3.json can declare actions to import. Read it from the
   // representative checkout; the imported action still fans out.
@@ -133,10 +155,14 @@ export function ProjectActionsSettings() {
     <SettingsSection id="project-actions" title="Actions">
       <SettingsRow
         serverScoped
-        settingKeys={["defaultProjectScripts"]}
+        settingKeys={["actions", "defaultProjectScripts"]}
         mixed={mixed}
         title="Actions"
-        description="Commands that run in this project's checkout or its worktree, with optional shortcuts."
+        description={
+          isProjectScope
+            ? "Commands run in this checkout or its worktree. Editing an inherited action overrides it only here; deleting it hides it here."
+            : "Reusable commands for every project on the selected environments. Project actions can override or hide individual commands."
+        }
         onResetOverride={() => void persist(() => null)}
         control={
           <div className="flex flex-wrap items-center gap-1.5">
@@ -203,9 +229,24 @@ export function ProjectActionsSettings() {
           scripts={scripts}
           keybindings={keybindings}
           disabled={saving}
+          origin={actionOrigin}
+          onReset={(id) => void reset(id)}
+          canReset={(id) => isProjectScope && Object.hasOwn(localActions ?? {}, id)}
           onEdit={(script) => setRequest(editorRequestForScript(script, keybindings))}
         />
       )}
+      {!mixed && hiddenIds.map((id) => (
+        <SettingsRow
+          key={id}
+          title={`Hidden: ${rawSettings?.actions[id]?.name ?? rawSettings?.defaultProjectScripts.find((script) => script.id === id)?.name ?? id}`}
+          description={isProjectScope ? "Hidden for this project only." : "Hidden at environment scope."}
+          control={
+            <Button size="xs" variant="ghost" disabled={saving} onClick={() => void reset(id)}>
+              Restore action
+            </Button>
+          }
+        />
+      ))}
       {t3File.status === "invalid" ? (
         <SettingsRow
           title="t3.json is invalid"
@@ -214,6 +255,11 @@ export function ProjectActionsSettings() {
         />
       ) : null}
       <ProjectScriptEditorDialog
+        scopeDescription={
+          isProjectScope
+            ? `${request?.scriptId ? actionOrigin(request.scriptId) + ". " : ""}Changes apply only to the selected project. Delete hides an inherited action here. Reset action returns to its inherited version.`
+            : "Changes apply to every project on the selected environments, except individual project overrides."
+        }
         request={request}
         scripts={scripts}
         onSubmit={submit}
