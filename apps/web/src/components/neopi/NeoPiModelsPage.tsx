@@ -2077,6 +2077,12 @@ function ProviderAccounts({
               control={keyControl}
             />
           ) : null}
+          {isNeoProxy && !provider.disabled && provider.discovery?.error ? (
+            <SettingsRow
+              title="Last model discovery report"
+              description={provider.discovery.error}
+            />
+          ) : null}
           {isNeoProxy &&
           catalogReady &&
           provider.authenticated &&
@@ -2087,7 +2093,7 @@ function ProviderAccounts({
           error === null ? (
             <SettingsRow
               title="No NeoProxy models available here"
-              description="Check the connection, model discovery and selected scope in NeoPi, then refresh. If the server returned an empty catalog after a successful connection, ask your administrator to grant models to this member."
+              description="Check the connection, model discovery and selected scope in NeoPi, then refresh. If NeoPi's connection flow explicitly reports that this member has no granted models, ask your administrator to grant access."
               control={
                 <Button
                   size="sm"

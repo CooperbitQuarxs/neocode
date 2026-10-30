@@ -71,9 +71,9 @@ or your system-wide trust store.
 
 If models are unavailable, first check that NeoProxy is enabled, its connection
 and model discovery succeeded, and you are using the intended configuration.
-If the server returns an empty model catalog after a successful connection, ask
-your administrator to grant models to your member, then refresh Providers.
-An upstream-provider login is not needed to resolve missing member grants.
+Only ask your administrator to grant models when NeoPi's connection flow explicitly
+reports that this member has no granted models. An empty list or a saved member key
+alone does not establish that. An upstream-provider login is not required.
 
 ## Upstream command line
 

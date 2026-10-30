@@ -824,9 +824,14 @@ function NeoProxyOnboardingConnection({
           {connectedEmpty ? (
             <p className="text-xs text-muted-foreground">
               No NeoProxy models are available in this configuration. Check the connection, model
-              discovery and selected scope in NeoPi, then refresh. If the server returned an empty
-              catalog after a successful connection, ask your administrator to grant models to this
-              member.
+              discovery and selected scope in NeoPi, then refresh. If NeoPi's connection flow
+              explicitly reports that this member has no granted models, ask your administrator to
+              grant access.
+            </p>
+          ) : null}
+          {!neoProxy?.disabled && neoProxy?.discovery?.error ? (
+            <p className="text-xs text-muted-foreground">
+              Last model discovery report: {neoProxy.discovery.error}
             </p>
           ) : null}
           {error || catalog.error ? (

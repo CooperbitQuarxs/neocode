@@ -99,6 +99,7 @@ describe("native Ready provider catalog", () => {
     acceptsKeys: true,
     loginProviders: [],
     envVars: [],
+    discovery: null,
   });
   const model = (provider: string, id: string, available = true): NeoPiNativeModel => ({
     provider,

@@ -834,6 +834,11 @@ function ProviderAccounts({
           }}
         />
       ) : null}
+      {isNeoProxy && !provider.disabled && provider.discovery?.error ? (
+        <Text className="text-sm text-foreground-muted">
+          Last model discovery report: {provider.discovery.error}
+        </Text>
+      ) : null}
       {isNeoProxy &&
       catalogReady &&
       accountsReady &&
@@ -843,9 +848,8 @@ function ProviderAccounts({
       !hasAvailableCatalogModels ? (
         <Text className="text-sm text-foreground-muted">
           No NeoProxy models are available in this configuration. Check the connection, model
-          discovery and selected scope in NeoPi, then refresh. If the server returned an empty
-          catalog after a successful connection, ask your administrator to grant models to this
-          member.
+          discovery and selected scope in NeoPi, then refresh. If NeoPi's connection flow explicitly
+          reports that this member has no granted models, ask your administrator to grant access.
         </Text>
       ) : null}
       {!isNeoProxy ? (

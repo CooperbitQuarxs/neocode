@@ -33,6 +33,7 @@ const configuration: NeoPiModelsConfiguration = {
         },
       ],
       envVars: [],
+      discovery: null,
     },
   ],
   models: [
