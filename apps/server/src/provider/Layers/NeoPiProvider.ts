@@ -168,7 +168,7 @@ export const resolveNeoPiBinary = Effect.fn("resolveNeoPiBinary")(function* (
   const commands = pinnedBinary
     ? [pinnedBinary]
     : useDefaultSearch
-      ? ["npi-nightly", "npi", ...(bundled ? [bundled] : []), "omp"]
+      ? ["npi", "npi-nightly", ...(bundled ? [bundled] : []), "omp"]
       : [settings.binaryPath];
   const failures: string[] = [];
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -258,7 +258,7 @@ export const resolveNeoPiBinary = Effect.fn("resolveNeoPiBinary")(function* (
     failures.push(`${candidate}: ${error}`);
   }
   return {
-    binary: "npi-nightly",
+    binary: "npi",
     version: null,
     error: `No compatible NeoPi executable with session_catalog support found. ${failures.join("; ")}. Set Binary path to an explicit installation or update NeoPi`,
     autoSelected: false,
