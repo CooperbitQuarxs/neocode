@@ -759,7 +759,7 @@ export const NeoPiSettings = makeProviderSettingsSchema(
       Schema.annotateKey({
         title: "Binary path",
         description:
-          "Leave empty or use `npi` to select a session-catalog-capable `npi-nightly`, then `npi`, bundled desktop `npi`, or `omp`. The selected executable is saved. Explicit paths never fall back.",
+          "Leave empty or use `npi` to select a session-catalog-capable `npi`, then `npi-nightly`, bundled desktop `npi`, or `omp`. The selected executable is saved. Explicit paths never fall back.",
         providerSettingsForm: { placeholder: "npi", clearWhenEmpty: "omit" },
       }),
     ),

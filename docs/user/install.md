@@ -193,7 +193,7 @@ NeoPi instance without changing the old conversations.
 Setup does not scan or import Claude Code or Codex projects. Add a project folder
 explicitly from the workspace, or use **Resume NeoPi session** for native history.
 
-NeoPi automatically checks `npi-nightly`, then `npi`, the desktop app's bundled
+NeoPi automatically checks `npi`, then `npi-nightly`, the desktop app's bundled
 `npi` (when available), and `omp` for session-catalog support. A version string
 alone is not enough. The first capable executable's path is saved in
 **Settings → NeoCore**, with a visible automatic-selection note.
