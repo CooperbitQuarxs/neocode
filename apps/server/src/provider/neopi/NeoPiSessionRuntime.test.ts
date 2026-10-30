@@ -559,7 +559,7 @@ it.live("does not invoke session catalog commands unless the capability was adve
 );
 
 it.live(
-  "drops terminal-originated turns and relaunches the session file after the owner pipe exits",
+  "publishes external native identities without SQL turns and relaunches after owner exit",
   () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -598,8 +598,51 @@ it.live(
             if (frame.type === "t3.session.exited") yield* Deferred.succeed(exited, undefined);
           }),
         ).pipe(Effect.forkScoped);
+        const native = yield* runtime.observeNative!;
+        const persisted = yield* Deferred.make<void>();
+        const nativeFrames: Array<Record<string, unknown>> = [];
+        yield* Stream.runForEach(native, (frame) =>
+          Effect.gen(function* () {
+            nativeFrames.push(frame);
+            if (frame.type === "message_persisted") yield* Deferred.succeed(persisted, undefined);
+          }),
+        ).pipe(Effect.forkScoped);
         yield* runtime.start;
         yield* fixture.pipe.emit({ type: "agent_start" });
+        yield* fixture.pipe.emit({
+          type: "message_start",
+          messageId: "msg-external",
+          message: { role: "assistant", content: [] },
+        });
+        yield* fixture.pipe.emit({
+          type: "message_update",
+          messageId: "msg-external",
+          assistantMessageEvent: { type: "text_delta", delta: "terminal" },
+        });
+        yield* fixture.pipe.emit({
+          type: "message_end",
+          messageId: "msg-external",
+          message: { role: "assistant", content: [{ type: "text", text: "terminal" }] },
+        });
+        yield* fixture.pipe.emit({
+          type: "message_persisted",
+          sessionId: "s1",
+          sessionFile: attachedCursor.sessionFile,
+          leafId: "entry-external",
+          messageId: "msg-external",
+          entryId: "entry-external",
+        });
+        yield* Deferred.await(persisted);
+        NodeAssert.deepEqual(
+          nativeFrames
+            .filter((frame) => typeof frame.messageId === "string")
+            .map((frame) => frame.messageId),
+          ["msg-external", "msg-external", "msg-external", "msg-external"],
+        );
+        NodeAssert.equal(
+          nativeFrames.some((frame) => "turnId" in frame),
+          false,
+        );
         yield* fixture.pipe.emit({ type: "agent_end", messages: [] });
         yield* fixture.pipe.finish(null);
         yield* Deferred.await(exited);
@@ -1113,6 +1156,7 @@ it.live("fails a provisional implementation when the peer rejects its late propo
 it.live("withdrawal waits for the old native run to end before a new prompt", () =>
   Effect.scoped(
     Effect.gen(function* () {
+      let prompts = 0;
       const peer = yield* testPeer(
         (cmd, emit) =>
           Effect.gen(function* () {
@@ -1121,7 +1165,9 @@ it.live("withdrawal waits for the old native run to end before a new prompt", ()
             if (cmd.type === "prompt") {
               yield* answer(cmd, emit, { agentInvoked: true });
               yield* emit({ type: "agent_start" });
-              yield* emit({ type: "plan_proposal_request", id: "plan", planMarkdown: "# Plan" });
+              if (++prompts === 1)
+                yield* emit({ type: "plan_proposal_request", id: "plan", planMarkdown: "# Plan" });
+              else yield* emit({ type: "agent_end", isTerminal: true });
               return;
             }
             if (cmd.type === "set_mode") {
@@ -1134,21 +1180,27 @@ it.live("withdrawal waits for the old native run to end before a new prompt", ()
         { ...defaultReady, capabilities: ["rpc-ui", "set_mode", "plan_proposal_cancel"] },
       );
       const runtime = yield* make(() => Effect.succeed(peer.handle));
-      const frames = yield* capture(runtime);
+      const receipts = yield* Queue.unbounded<Record<string, unknown>>();
+      yield* Stream.runForEach(runtime.frames, (frame) =>
+        frame.type === "t3.turn.outcome" || frame.type === "t3.plan.proposal.closed"
+          ? Queue.offer(receipts, frame)
+          : Effect.void,
+      ).pipe(Effect.forkScoped);
       yield* runtime.start;
       yield* runtime.startTurn(turn("plan"));
-      yield* awaitOutcomes(frames, 1);
+      NodeAssert.deepEqual(yield* Queue.take(receipts), {
+        type: "t3.turn.outcome",
+        turnId: "plan",
+        state: "completed",
+      });
       const completed = yield* Deferred.make<void>();
       const withdrawal = yield* runtime
         .resolvePlanProposal({ decision: "withdraw" })
         .pipe(Effect.andThen(Deferred.succeed(completed, undefined)), Effect.forkScoped);
-      for (
-        let attempt = 0;
-        attempt < 100 && !frames.some((frame) => frame.type === "t3.plan.proposal.closed");
-        attempt++
-      )
-        yield* Effect.sleep("5 millis");
-      NodeAssert.ok(frames.some((frame) => frame.type === "t3.plan.proposal.closed"));
+      NodeAssert.deepEqual(yield* Queue.take(receipts), {
+        type: "t3.plan.proposal.closed",
+        id: "plan",
+      });
       NodeAssert.equal(yield* Deferred.isDone(completed), false);
       NodeAssert.equal(
         peer.commands.filter((cmd) => cmd.type === "plan_proposal_response").length,
@@ -1157,6 +1209,13 @@ it.live("withdrawal waits for the old native run to end before a new prompt", ()
       yield* peer.emit({ type: "agent_end", isTerminal: true });
       yield* Fiber.join(withdrawal);
       NodeAssert.equal(yield* Deferred.isDone(completed), true);
+      yield* runtime.startTurn(turn("next"));
+      NodeAssert.deepEqual(yield* Queue.take(receipts), {
+        type: "t3.turn.outcome",
+        turnId: "next",
+        state: "completed",
+      });
+      NodeAssert.equal(peer.commands.filter((cmd) => cmd.type === "prompt").length, 2);
       yield* runtime.stop;
     }),
   ).pipe(Effect.provide(NodeServices.layer)),
@@ -1181,18 +1240,24 @@ it.live("expires a native proposal when its unanswered request times out", () =>
         { ...defaultReady, capabilities: ["rpc-ui", "set_mode"] },
       );
       const runtime = yield* make(() => Effect.succeed(peer.handle));
-      const frames = yield* capture(runtime);
+      const receipts = yield* Queue.unbounded<Record<string, unknown>>();
+      yield* Stream.runForEach(runtime.frames, (frame) =>
+        frame.type === "t3.turn.outcome" || frame.type === "t3.plan.proposal.closed"
+          ? Queue.offer(receipts, frame)
+          : Effect.void,
+      ).pipe(Effect.forkScoped);
       yield* runtime.start;
       yield* runtime.startTurn(turn("plan"));
-      yield* awaitOutcomes(frames, 1);
+      NodeAssert.deepEqual(yield* Queue.take(receipts), {
+        type: "t3.turn.outcome",
+        turnId: "plan",
+        state: "completed",
+      });
       yield* peer.emit({ type: "agent_end", isTerminal: true });
-      for (
-        let attempt = 0;
-        attempt < 100 && !frames.some((frame) => frame.type === "t3.plan.proposal.closed");
-        attempt++
-      )
-        yield* Effect.sleep("5 millis");
-      NodeAssert.ok(frames.some((frame) => frame.type === "t3.plan.proposal.closed"));
+      NodeAssert.deepEqual(yield* Queue.take(receipts), {
+        type: "t3.plan.proposal.closed",
+        id: "expired",
+      });
       const failure = yield* Effect.flip(
         runtime.resolvePlanProposal({ decision: "approve" }, turn("implement")),
       );
@@ -1202,19 +1267,16 @@ it.live("expires a native proposal when its unanswered request times out", () =>
         0,
       );
       yield* runtime.startTurn(turn("mode-cancelled"));
-      yield* awaitOutcomes(frames, 2);
+      NodeAssert.deepEqual(yield* Queue.take(receipts), {
+        type: "t3.turn.outcome",
+        turnId: "mode-cancelled",
+        state: "completed",
+      });
       yield* peer.emit({ type: "mode_changed", mode: "default" });
-      for (
-        let attempt = 0;
-        attempt < 100 &&
-        frames.filter((frame) => frame.type === "t3.plan.proposal.closed").length < 2;
-        attempt++
-      )
-        yield* Effect.sleep("5 millis");
-      NodeAssert.equal(
-        frames.filter((frame) => frame.type === "t3.plan.proposal.closed").length,
-        2,
-      );
+      NodeAssert.deepEqual(yield* Queue.take(receipts), {
+        type: "t3.plan.proposal.closed",
+        id: "expired",
+      });
       NodeAssert.equal(
         (yield* Effect.flip(
           runtime.resolvePlanProposal({ decision: "approve" }, turn("cancelled-implement")),
@@ -1348,6 +1410,105 @@ it.live("takes advertised prompt entry ids rather than inferred ancestry", () =>
           { turnId: "prompt", userEntryId: advertised ? "native-user" : "extension-user" },
         ]);
         NodeAssert.equal((yield* SubscriptionRef.get(runtime.cursor)).historyLeafId, undefined);
+        yield* runtime.stop;
+      }
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("settles consecutive turns when native events precede the boundary reply", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      for (const advertised of [false, true]) {
+        let prompts = 0;
+        let captured = 0;
+        const entries: Array<Record<string, unknown>> = [];
+        const peer = yield* testPeer(
+          (cmd, emit) =>
+            Effect.gen(function* () {
+              if (cmd.type === "negotiate_protocol")
+                return yield* answer(cmd, emit, { protocolVersion: 2 });
+              if (cmd.type === "prompt") {
+                prompts++;
+                const userEntryId = `user-${prompts}`;
+                const assistantEntryId = `assistant-${prompts}`;
+                entries.push(
+                  {
+                    id: userEntryId,
+                    parentId: entries.at(-1)?.id ?? null,
+                    type: "message",
+                    message: { role: "user", content: "hello" },
+                  },
+                  {
+                    id: assistantEntryId,
+                    parentId: userEntryId,
+                    type: "message",
+                    message: { role: "assistant", content: `reply-${prompts}` },
+                  },
+                );
+                yield* answer(cmd, emit, { agentInvoked: true, userEntryId });
+                yield* emit({ type: "agent_start" });
+                return yield* emit({ type: "agent_end", isTerminal: true });
+              }
+              if (cmd.type === "get_entries") {
+                if (prompts > captured) {
+                  captured = prompts;
+                  // These native post-turn frames must not prevent the parser
+                  // from reaching the reply awaited by the agent_end handler.
+                  yield* emit({ type: "journal_entry", entry: entries.at(-1) });
+                  yield* emit({
+                    type: "message_persisted",
+                    messageId: `msg-${prompts}`,
+                    entryId: `assistant-${prompts}`,
+                  });
+                  yield* emit({ type: "session_settled" });
+                }
+                return yield* answer(cmd, emit, { entries, leafId: entries.at(-1)?.id ?? null });
+              }
+              return yield* basicHandler(cmd, emit);
+            }),
+          {
+            ...defaultReady,
+            capabilities: ["rpc-ui", ...(advertised ? ["prompt_entry_ids"] : [])],
+          },
+        );
+        const runtime = yield* make(() => Effect.succeed(peer.handle));
+        yield* runtime.start;
+        const native = yield* runtime.observeNative;
+        const persisted = yield* Stream.runCollect(
+          native.pipe(
+            Stream.filter((frame) => frame.type === "message_persisted"),
+            Stream.take(2),
+          ),
+        ).pipe(Effect.forkScoped);
+        for (let index = 1; index <= 2; index++) {
+          const settled = yield* Stream.runCollect(
+            runtime.frames.pipe(Stream.takeUntil((frame) => frame.type === "t3.turn.outcome")),
+          ).pipe(Effect.forkScoped);
+          yield* runtime.startTurn(turn(`turn-${index}`));
+          const frames = yield* Fiber.join(settled);
+          NodeAssert.equal(
+            frames.some((frame) => frame.type === "notice"),
+            false,
+          );
+          NodeAssert.deepEqual(frames.at(-1), {
+            type: "t3.turn.outcome",
+            state: "completed",
+            turnId: `turn-${index}`,
+          });
+          NodeAssert.equal(yield* SubscriptionRef.get(runtime.state), "ready");
+          NodeAssert.deepEqual(
+            (yield* SubscriptionRef.get(runtime.cursor)).turnBoundaries,
+            Array.from({ length: index }, (_, offset) => ({
+              turnId: `turn-${offset + 1}`,
+              userEntryId: `user-${offset + 1}`,
+            })),
+          );
+        }
+        NodeAssert.deepEqual(
+          (yield* Fiber.join(persisted)).map((frame) => frame.entryId),
+          ["assistant-1", "assistant-2"],
+        );
         yield* runtime.stop;
       }
     }),
@@ -2602,8 +2763,24 @@ it.live("follows idle terminal model and effort changes without importing its tu
     Effect.gen(function* () {
       let model = "first";
       let thinkingLevel = "low";
+      let recordedCost = 12;
       const fixture = yield* attachFixture(true, attachCapabilities, {
-        state: () => ({ model: { provider: "test", id: model }, thinkingLevel }),
+        state: () => ({
+          model: { provider: "test", id: model },
+          thinkingLevel,
+          tokensPerSecond: 42,
+          contextUsage: { tokens: 500, contextWindow: 1000, percent: 50 },
+          approvalMode: "always-ask",
+          sessionUsage: {
+            input: 25,
+            cacheRead: 75,
+            cacheWrite: 0,
+            cost: recordedCost,
+            subagentCost: 2,
+            advisorCost: 3,
+            advisorCostState: "ready",
+          },
+        }),
         roles: () => ({ roles: [configurationRole] }),
       });
       const { runtime, pipe, launches } = fixture;
@@ -2651,9 +2828,19 @@ it.live("follows idle terminal model and effort changes without importing its tu
       const initial = yield* Queue.take(output);
       NodeAssert.equal(initial.status, "available");
       NodeAssert.equal(initial.model?.id, "first");
+      NodeAssert.equal(initial.telemetry?.sessionUsage?.cost, 12);
+      NodeAssert.equal(initial.telemetry?.approvalMode, "always-ask");
       yield* pipe.emit({ type: "agent_start" });
+      yield* Queue.take(output);
+      recordedCost = 19;
       yield* pipe.emit({ type: "message_end", message: { role: "assistant", content: [] } });
+      const metrics = yield* Queue.take(output);
+      NodeAssert.equal(metrics.status, "available");
+      NodeAssert.equal(metrics.telemetry?.sessionUsage?.cost, 19);
+      NodeAssert.equal(metrics.telemetry?.tokensPerSecond, 42);
+      NodeAssert.equal(metrics.telemetry?.context?.percent, 50);
       yield* pipe.emit({ type: "agent_end", isTerminal: true });
+      yield* Queue.take(output);
       model = "second";
       yield* pipe.emit({ type: "model_changed", model: { provider: "test", id: model } });
       const changed = yield* Queue.take(output);
@@ -2681,7 +2868,7 @@ it.live("follows idle terminal model and effort changes without importing its tu
       );
       NodeAssert.deepEqual(
         pipe.commands.slice(commandCount).map((cmd) => cmd.type),
-        Array.from({ length: 3 }, () => ["get_state", "get_roles", "get_state"]).flat(),
+        Array.from({ length: 6 }, () => ["get_state", "get_roles", "get_state"]).flat(),
       );
       yield* pipe.finish(null);
       NodeAssert.equal((yield* Queue.take(output)).status, "unavailable");

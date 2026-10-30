@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo } from "react";
 import * as DateTime from "effect/DateTime";
 
-import type { EnvironmentId, OrchestrationCheckpointSummary, ThreadId } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  NeoPiNativeSessionRef,
+  OrchestrationCheckpointSummary,
+  ThreadId,
+} from "@t3tools/contracts";
 
 import { useCheckpointDiff } from "../../state/queries";
 import { useEnvironmentQuery } from "../../state/query";
@@ -28,17 +33,25 @@ export function useReviewSections(input: {
   readonly environmentId?: EnvironmentId;
   readonly threadId?: ThreadId;
   readonly reviewCache: ReviewCacheForThread;
+  readonly nativeRef?: NeoPiNativeSessionRef;
 }) {
-  const { environmentId, reviewCache, threadId } = input;
+  const { environmentId, reviewCache, threadId, nativeRef } = input;
   const enabled = input.enabled ?? true;
   const selectedThread = useSelectedThreadDetail();
   const { selectedThreadCwd } = useSelectedThreadWorktree();
   const diffPreview = useEnvironmentQuery(
-    enabled && environmentId !== undefined && selectedThreadCwd !== null
-      ? reviewEnvironment.diffPreview({
-          environmentId,
-          input: { cwd: selectedThreadCwd },
-        })
+    enabled && environmentId !== undefined
+      ? nativeRef
+        ? reviewEnvironment.nativeDiffPreview({
+            environmentId,
+            input: { ref: nativeRef },
+          })
+        : selectedThreadCwd !== null
+          ? reviewEnvironment.diffPreview({
+              environmentId,
+              input: { cwd: selectedThreadCwd },
+            })
+          : null
       : null,
   );
   const { loadingTurnIds } = reviewCache.asyncState;
@@ -50,8 +63,8 @@ export function useReviewSections(input: {
   }, [diffPreview.data, reviewCache.threadKey]);
 
   const readyCheckpoints = useMemo(
-    () => getReadyReviewCheckpoints(selectedThread?.checkpoints ?? []),
-    [selectedThread?.checkpoints],
+    () => getReadyReviewCheckpoints(threadId ? (selectedThread?.checkpoints ?? []) : []),
+    [selectedThread?.checkpoints, threadId],
   );
   const checkpointBySectionId = useMemo(
     () =>

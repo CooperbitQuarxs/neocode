@@ -31,6 +31,28 @@ const State = Schema.Struct({
   ),
   thinkingLevel: Schema.optional(Schema.NullOr(Schema.String)),
   activeRole: Schema.optional(Schema.NullOr(Schema.String)),
+  tokensPerSecond: Schema.optional(Schema.NullOr(Schema.Number)),
+  contextUsage: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        tokens: Schema.optional(Schema.NullOr(Schema.Number)),
+        contextWindow: Schema.Number,
+        percent: Schema.optional(Schema.NullOr(Schema.Number)),
+      }),
+    ),
+  ),
+  sessionUsage: Schema.optional(
+    Schema.Struct({
+      input: Schema.Number,
+      cacheRead: Schema.Number,
+      cacheWrite: Schema.Number,
+      cost: Schema.Number,
+      subagentCost: Schema.Number,
+      advisorCost: Schema.Number,
+      advisorCostState: Schema.Literals(["ready", "restoring", "unavailable"]),
+    }),
+  ),
+  approvalMode: Schema.optional(Schema.Literals(["always-ask", "write", "yolo"])),
 });
 const decodeState = Schema.decodeUnknownEffect(State);
 const sameIdentity = (left: NeoPiConfigurationIdentity, right: NeoPiConfigurationIdentity) =>
@@ -60,7 +82,7 @@ export const readNeoPiSessionConfiguration = Effect.fn("NeoPiSessionRuntime.conf
     if (!sameIdentity(saved, expected))
       return unavailable("The bound NeoPi session has changed. Refresh the thread.");
     const readState = () =>
-      runtime.request({ type: "get_state" }).pipe(
+      runtime.request({ type: "get_state", includeDump: false }).pipe(
         Effect.flatMap(decodeState),
         Effect.mapError((cause) =>
           cause instanceof NeoPiRpcError
@@ -102,7 +124,7 @@ export const readNeoPiSessionConfiguration = Effect.fn("NeoPiSessionRuntime.conf
                 thinkingLevel: role.resolved.thinkingLevel ?? null,
               }
             : null,
-          hidden: role.hidden,
+          hidden: role.hidden ?? false,
         })),
       };
     }
@@ -128,6 +150,18 @@ export const readNeoPiSessionConfiguration = Effect.fn("NeoPiSessionRuntime.conf
         : null,
       thinkingLevel: after.thinkingLevel ?? null,
       activeRole: after.activeRole ?? null,
+      telemetry: {
+        tokensPerSecond: after.tokensPerSecond ?? null,
+        context: after.contextUsage
+          ? {
+              tokens: after.contextUsage.tokens ?? null,
+              contextWindow: after.contextUsage.contextWindow,
+              percent: after.contextUsage.percent ?? null,
+            }
+          : null,
+        sessionUsage: after.sessionUsage ?? null,
+        approvalMode: after.approvalMode ?? null,
+      },
       roles,
       observedAt: DateTime.formatIso(yield* DateTime.now),
     };

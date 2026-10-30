@@ -1,4 +1,4 @@
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 
 interface TerminalLocationLike {
   readonly cwd: string;
@@ -7,7 +7,7 @@ interface TerminalLocationLike {
 
 interface PendingTerminalLaunchTarget {
   readonly environmentId: EnvironmentId;
-  readonly threadId: ThreadId;
+  readonly threadId: string;
   readonly terminalId: string;
 }
 

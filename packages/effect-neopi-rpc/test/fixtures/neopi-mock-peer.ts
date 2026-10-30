@@ -163,7 +163,7 @@ const runEchoImage = async (): Promise<void> => {
       type: "response",
       command: message.type,
       success: true,
-      data: { imageLength: data.length },
+      data: { imageLength: data.length, imageType: isRecord(first) ? first.type : undefined },
     });
   });
 };

@@ -1,4 +1,26 @@
-import type { PreviewSessionSnapshot } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  PreviewAutomationRequest,
+  PreviewSessionSnapshot,
+} from "@t3tools/contracts";
+import {
+  parseWorkspaceKey,
+  workspaceResourceId,
+  type WorkspaceRef,
+} from "@t3tools/client-runtime/environment";
+
+/** A native namespace cannot recover canonical identity; the sender must carry it. */
+export function resolvePreviewAutomationWorkspace(
+  environmentId: EnvironmentId,
+  request: Pick<PreviewAutomationRequest, "threadId" | "sessionRef">,
+): WorkspaceRef | null {
+  if (request.sessionRef) {
+    const target = { environmentId, ref: request.sessionRef };
+    return workspaceResourceId(target) === request.threadId ? target : null;
+  }
+  const legacy = parseWorkspaceKey(`${environmentId}:${request.threadId}`);
+  return legacy && "threadId" in legacy ? legacy : null;
+}
 
 interface PreviewAutomationSessionIndex {
   readonly snapshot: PreviewSessionSnapshot | null;

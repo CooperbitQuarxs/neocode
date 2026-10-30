@@ -1,5 +1,65 @@
 import { EnvironmentId, ThreadId, type ThreadJumpKeybindingCommand } from "@t3tools/contracts";
 import { useEffect } from "react";
+import { NeoPiNativeSessionRef } from "@t3tools/contracts";
+import { nativeRecord } from "@t3tools/client-runtime/neopi-native-sessions";
+import { parseWorkspaceKey } from "@t3tools/client-runtime/environment";
+import * as Schema from "effect/Schema";
+
+const nativeRouteTarget = Schema.Struct({
+  environmentId: EnvironmentId,
+  ref: NeoPiNativeSessionRef,
+});
+const nativeRouteSuffix: Readonly<Record<string, string>> = {
+  NativeSession: "",
+  ThreadTerminal: "terminal",
+  ThreadDevicePreview: "devices",
+  ThreadFiles: "files",
+  ThreadFile: "files",
+  ThreadReview: "review",
+  ThreadReviewComment: "review-comment",
+  ThreadAttachment: "attachments",
+};
+
+/** Resolve actual native identities carried by existing mobile surface routes. */
+export function resolveNativeWorkspaceRoute(route: {
+  readonly name: string;
+  readonly params?: unknown;
+}) {
+  if (nativeRouteSuffix[route.name] === undefined) return null;
+  const params = nativeRecord(route.params);
+  const draftTarget =
+    typeof params.draftKey === "string" ? parseWorkspaceKey(params.draftKey) : null;
+  const target = nativeRecord(params.target ?? params.workspaceRef ?? draftTarget);
+  const candidate = {
+    environmentId: target.environmentId ?? params.environmentId,
+    ref: target.ref ?? params.nativeRef ?? (route.name === "NativeSession" ? params : null),
+  };
+  if (!Schema.is(nativeRouteTarget)(candidate)) return null;
+  return { target: candidate, ...(typeof params.cwd === "string" ? { cwd: params.cwd } : {}) };
+}
+
+/** Native route params must not be serialized through the legacy required :threadId path. */
+export function nativeWorkspaceRoutePath(route: {
+  readonly name: string;
+  readonly params?: unknown;
+}): string | null {
+  const resolved = resolveNativeWorkspaceRoute(route);
+  if (!resolved) return null;
+  const params = nativeRecord(route.params);
+  const suffix = nativeRouteSuffix[route.name];
+  const candidate = resolved.target;
+  const root = `/sessions/${encodeURIComponent(candidate.environmentId)}/${encodeURIComponent(candidate.ref.providerInstanceId)}/${encodeURIComponent(candidate.ref.sessionFile)}`;
+  const path =
+    route.name === "ThreadFile" && Array.isArray(params.path)
+      ? params.path
+          .filter((part): part is string => typeof part === "string")
+          .map(encodeURIComponent)
+          .join("/")
+      : route.name === "ThreadAttachment" && typeof params.attachmentId === "string"
+        ? encodeURIComponent(params.attachmentId)
+        : "";
+  return `${root}${suffix ? `/${suffix}` : ""}${path ? `/${path}` : ""}`;
+}
 
 export type HardwareKeyboardCommand =
   | ThreadJumpKeybindingCommand

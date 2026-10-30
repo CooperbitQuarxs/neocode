@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 
-import { EnvironmentId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { EnvironmentId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { NeoPiNativeSessionRef } from "./neopiNativeSessions.ts";
 import {
   PREVIEW_VIEWPORT_MAX_AREA,
   PreviewRenderedViewportSize,
@@ -593,7 +594,7 @@ export const PreviewAutomationHostFocus = Schema.Struct({
   liveTabs: Schema.optional(
     Schema.Array(
       Schema.Struct({
-        threadId: ThreadId,
+        threadId: TrimmedNonEmptyString,
         tabId: PreviewTabId,
         visible: Schema.optional(Schema.Boolean),
       }),
@@ -604,7 +605,9 @@ export type PreviewAutomationHostFocus = typeof PreviewAutomationHostFocus.Type;
 
 export const PreviewAutomationRequest = Schema.Struct({
   requestId: TrimmedNonEmptyString,
-  threadId: ThreadId,
+  /** Resource namespace; not a SQL conversation identifier. */
+  threadId: TrimmedNonEmptyString,
+  sessionRef: Schema.optional(NeoPiNativeSessionRef),
   tabId: Schema.optional(PreviewTabId),
   tabIdExplicit: Schema.optional(Schema.Boolean),
   operation: PreviewAutomationOperation,
@@ -644,9 +647,10 @@ export type PreviewAutomationResponse = typeof PreviewAutomationResponse.Type;
 
 const McpCapabilityErrorFields = {
   environmentId: EnvironmentId,
-  threadId: ThreadId,
+  threadId: TrimmedNonEmptyString,
   providerSessionId: TrimmedNonEmptyString,
   providerInstanceId: ProviderInstanceId,
+  sessionRef: Schema.optional(NeoPiNativeSessionRef),
 };
 
 /** Agents read this message, so it names the next step and not only the failure. */
@@ -678,7 +682,7 @@ export class McpCapabilityUnavailableError extends Schema.TaggedError<McpCapabil
 const PreviewAutomationScopeErrorFields = {
   operation: PreviewAutomationOperation,
   environmentId: EnvironmentId,
-  threadId: ThreadId,
+  threadId: TrimmedNonEmptyString,
   providerSessionId: TrimmedNonEmptyString,
   providerInstanceId: ProviderInstanceId,
 };
@@ -886,7 +890,7 @@ export class PreviewAutomationMalformedResponseError extends Schema.TaggedError<
 export class PreviewAutomationRecordingTransferError extends Schema.TaggedError<PreviewAutomationRecordingTransferError>()(
   "PreviewAutomationRecordingTransferError",
   {
-    threadId: ThreadId,
+    threadId: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
@@ -897,7 +901,7 @@ export class PreviewAutomationRecordingTransferError extends Schema.TaggedError<
 
 export class PreviewAutomationRecordingDesktopUpdateRequiredError extends Schema.TaggedError<PreviewAutomationRecordingDesktopUpdateRequiredError>()(
   "PreviewAutomationRecordingDesktopUpdateRequiredError",
-  { threadId: ThreadId, cause: Schema.optional(Schema.Defect()) },
+  { threadId: TrimmedNonEmptyString, cause: Schema.optional(Schema.Defect()) },
 ) {
   override get message(): string {
     return "Update the desktop app to transfer recordings. The recording remains on the desktop.";
@@ -906,7 +910,7 @@ export class PreviewAutomationRecordingDesktopUpdateRequiredError extends Schema
 
 export class PreviewAutomationRecordingTooLargeError extends Schema.TaggedError<PreviewAutomationRecordingTooLargeError>()(
   "PreviewAutomationRecordingTooLargeError",
-  { threadId: ThreadId, cause: Schema.optional(Schema.Defect()) },
+  { threadId: TrimmedNonEmptyString, cause: Schema.optional(Schema.Defect()) },
 ) {
   override get message(): string {
     return "The recording exceeds 50 MiB. The saved copy remains on the desktop.";
@@ -915,7 +919,7 @@ export class PreviewAutomationRecordingTooLargeError extends Schema.TaggedError<
 
 export class PreviewAutomationRecordingDeadlineExpiredError extends Schema.TaggedError<PreviewAutomationRecordingDeadlineExpiredError>()(
   "PreviewAutomationRecordingDeadlineExpiredError",
-  { threadId: ThreadId, cause: Schema.optional(Schema.Defect()) },
+  { threadId: TrimmedNonEmptyString, cause: Schema.optional(Schema.Defect()) },
 ) {
   override get message(): string {
     return "The recording transfer deadline expired. The saved copy remains on the desktop.";

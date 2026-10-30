@@ -90,6 +90,42 @@ describe("mobile preferences state", () => {
     }),
   );
 
+  it.effect(
+    "invalidates pending palette reads even when the same graphical choice is selected",
+    () =>
+      Effect.gen(function* () {
+        const saved = deferred<Preferences>();
+        const state = makePreferencesState({
+          load: Effect.succeed({ darkThemeId: "ocean", nativeDarkTheme: null }),
+          savePatch: () => Effect.promise(() => saved.promise),
+        });
+        const registry = AtomRegistry.make();
+        const unmountPreferences = registry.mount(state.preferencesAtom);
+        const unmountUpdate = registry.mount(state.updatePreferencesAtom);
+        yield* AtomRegistry.getResult(registry, state.preferencesAtom, { suspendOnWaiting: true });
+
+        const pendingPaletteRevision = registry.get(state.themeSelectionRevisionAtom);
+        registry.set(state.updatePreferencesAtom, { darkThemeId: "ocean", nativeDarkTheme: null });
+        const newerGraphicalRevision = registry.get(state.themeSelectionRevisionAtom);
+        expect(newerGraphicalRevision).toBeGreaterThan(pendingPaletteRevision);
+
+        registry.set(state.updatePreferencesAtom, { baseFontSize: 18 });
+        expect(registry.get(state.themeSelectionRevisionAtom)).toBe(newerGraphicalRevision);
+        registry.set(state.updatePreferencesAtom, { themeMode: "system" });
+        expect(registry.get(state.themeSelectionRevisionAtom)).toBeGreaterThan(
+          newerGraphicalRevision,
+        );
+
+        saved.resolve({ darkThemeId: "ocean", nativeDarkTheme: null });
+        yield* AtomRegistry.getResult(registry, state.updatePreferencesAtom, {
+          suspendOnWaiting: true,
+        });
+        unmountUpdate();
+        unmountPreferences();
+        registry.dispose();
+      }),
+  );
+
   it.effect("preserves an optimistic patch when the initial load finishes later", () =>
     Effect.gen(function* () {
       const pendingLoad = deferred<Preferences>();

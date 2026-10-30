@@ -33,7 +33,6 @@ import {
   type SshDeviceHostConfig,
   type DeviceHostSummary,
   LOCAL_DEVICE_HOST_ID,
-  type ThreadId,
 } from "@t3tools/contracts";
 import * as FileSystem from "effect/FileSystem";
 import { resolveNodeExecutable, nodeRuntimeUnavailableMessage } from "@t3tools/shared/nodeRuntime";
@@ -115,7 +114,7 @@ export class DeviceService extends Context.Service<
       config: SshDeviceHostConfig,
     ) => Effect.Effect<DeviceHostSummary, DeviceError>;
     readonly agentTarget: (input: {
-      threadId: ThreadId;
+      threadId: string;
       hostId: DeviceHostId;
       deviceId: DeviceId;
     }) => Effect.Effect<ReadonlyArray<string>, DeviceError>;
@@ -153,7 +152,7 @@ export class DeviceService extends Context.Service<
       hostId?: DeviceHostId,
     ) => Effect.Effect<DeviceAgentReadiness | null, DeviceError>;
     readonly currentReadiness: (hostId?: DeviceHostId) => Effect.Effect<DeviceReadiness | null>;
-    readonly sessionsForThread: (threadId: ThreadId) => Effect.Effect<ReadonlyArray<DeviceSession>>;
+    readonly sessionsForThread: (threadId: string) => Effect.Effect<ReadonlyArray<DeviceSession>>;
   }
 >()("t3/device/DeviceService") {}
 

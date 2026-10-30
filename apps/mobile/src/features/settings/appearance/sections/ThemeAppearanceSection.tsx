@@ -8,6 +8,7 @@ import { mixThemePreviewBase, THEME_PREVIEW_RENDER_SPECS } from "@t3tools/shared
 import { SymbolView } from "../../../../components/AppSymbol";
 import { AppText as Text } from "../../../../components/AppText";
 import {
+  DEFAULT_MOBILE_THEME_ID,
   getMobileThemePreviewColors,
   MOBILE_THEME_OPTIONS,
   type MobileThemeAppearance,
@@ -18,6 +19,7 @@ import {
 import { getMobileUniwindThemeName } from "../../../../lib/mobileThemeRuntime";
 import { cn } from "../../../../lib/cn";
 import { useAppearancePreferences } from "../AppearancePreferencesProvider";
+import { NeoPiThemeSettings } from "./NeoPiThemeSettings";
 
 const APPEARANCE_MODES: ReadonlyArray<{
   readonly id: MobileThemeMode;
@@ -293,6 +295,7 @@ export function ThemeAppearanceSection() {
     themeIds,
     themeMode,
     systemColorsAvailable,
+    neoPiThemeNames,
   } = useAppearancePreferences();
 
   return (
@@ -313,19 +316,24 @@ export function ThemeAppearanceSection() {
           ))}
         </View>
       </View>
+      <NeoPiThemeSettings />
 
       <View className="gap-3">
-        <SectionLabel>Themes</SectionLabel>
+        <SectionLabel>Preserved graphical palettes</SectionLabel>
         <View className="flex-row flex-wrap gap-3">
           {MOBILE_THEME_OPTIONS.filter(
-            (theme) => theme.id !== "material-you" || systemColorsAvailable,
+            (theme) =>
+              (theme.id === DEFAULT_MOBILE_THEME_ID ||
+                theme.id === themeIds.dark ||
+                theme.id === themeIds.light) &&
+              (theme.id !== "material-you" || systemColorsAvailable),
           ).map((theme) => (
             <ThemeCard
               disabled={!isReady}
               key={theme.id}
               label={theme.label}
-              darkSelected={theme.id === themeIds.dark}
-              lightSelected={theme.id === themeIds.light}
+              darkSelected={!neoPiThemeNames.dark && theme.id === themeIds.dark}
+              lightSelected={!neoPiThemeNames.light && theme.id === themeIds.light}
               onSelect={(appearance) => setThemeIdForAppearance(appearance, theme.id)}
               onSelectBoth={() => setThemeIdForBothAppearances(theme.id)}
               themeId={theme.id}

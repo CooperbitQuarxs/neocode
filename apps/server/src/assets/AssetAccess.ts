@@ -10,6 +10,7 @@ import {
   AssetWorkspaceAssetInspectionError,
   AssetWorkspaceAssetNotFoundError,
   AssetWorkspaceContextNotFoundError,
+  AssetWorkspaceContextResolutionError,
   AssetWorkspacePathValidationError,
   AssetWorkspaceResolutionError,
   AssetWorkspaceRootNormalizationError,
@@ -51,6 +52,7 @@ import { parseAttachmentFileExtension, resolveAttachmentPathById } from "../atta
 import * as ServerConfig from "../config.ts";
 import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
+import { NeoPiNativeSessions } from "../provider/neopi/NeoPiNativeSessions.ts";
 import * as NativeAppIconResolver from "./NativeAppIconResolver.ts";
 import { openMediaFile, readMediaFileHeader, type OpenMediaFile } from "./MediaFile.ts";
 
@@ -430,6 +432,47 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
   let imageDimensions: ImageDimensions | null = null;
 
   switch (input.resource._tag) {
+    case "native-media-file":
+    case "native-workspace-file": {
+      const sessions = yield* NeoPiNativeSessions;
+      const context = yield* sessions
+        .resolveWorkspace(input.resource.ref)
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new AssetWorkspaceContextResolutionError({ resource: input.resource, cause }),
+          ),
+        );
+      const workspaceRoot = yield* workspacePaths
+        .normalizeWorkspaceRoot(context.cwd)
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new AssetWorkspaceRootNormalizationError({ resource: input.resource, cause }),
+          ),
+        );
+      const finalized =
+        input.resource._tag === "native-workspace-file"
+          ? yield* finalizeWorkspaceFileAsset({
+              workspaceRoot,
+              requestedPath: input.resource.path,
+              resource: input.resource,
+              expiresAt,
+            })
+          : yield* finalizeAbsoluteMediaFileAsset({
+              requestedPath: path.resolve(workspaceRoot, input.resource.path),
+              resource: input.resource,
+              expiresAt,
+            });
+      claims = finalized.claims;
+      sourcePath =
+        claims.kind === "media-file-exact"
+          ? claims.filePath
+          : path.resolve(workspaceRoot, input.resource.path);
+      fileName = finalized.fileName;
+      imageDimensions = finalized.imageDimensions;
+      break;
+    }
     case "media-file": {
       let requestedPath = input.resource.path;
       if (!path.isAbsolute(requestedPath)) {

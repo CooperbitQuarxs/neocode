@@ -6,6 +6,7 @@ import type {
   HostToolCallFrame,
   HostToolCancelFrame,
 } from "effect-neopi-rpc/client";
+import type { PromptImage } from "effect-neopi-rpc/schema";
 import type * as Effect from "effect/Effect";
 import type * as Stream from "effect/Stream";
 import type * as SubscriptionRef from "effect/SubscriptionRef";
@@ -57,7 +58,7 @@ export type NeoPiRuntimeFrame = (
 
 export interface NeoPiTurnInput {
   readonly text: string;
-  readonly images: ReadonlyArray<{ readonly data: string; readonly mimeType: string }>;
+  readonly images: ReadonlyArray<PromptImage>;
   readonly modelSelection?: ModelSelection;
   readonly turnId: TurnId;
 }
@@ -67,6 +68,12 @@ export interface NeoPiSessionRuntimeShape {
   readonly state: SubscriptionRef.SubscriptionRef<NeoPiRuntimeState>;
   readonly cursor: SubscriptionRef.SubscriptionRef<NeoPiResumeCursor>;
   readonly processGeneration?: number;
+  readonly observeNative?: Effect.Effect<
+    Stream.Stream<SessionEventFrame, unknown>,
+    never,
+    Scope.Scope
+  >;
+  readonly nativeRequest?: NeoPiRpcClient["request"];
   readonly subscribeConfigurationChanges?: Effect.Effect<
     PubSub.Subscription<void>,
     never,

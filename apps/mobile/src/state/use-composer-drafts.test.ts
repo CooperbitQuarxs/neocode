@@ -9,6 +9,8 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { onTestFinished, vi } from "vite-plus/test";
+import { workspaceKey } from "@t3tools/client-runtime/environment";
+import { serializeComposerMessageForServer } from "../lib/composerContext";
 
 const composerDraftFileMocks = vi.hoisted(() => {
   let document = JSON.stringify({ schemaVersion: 1, drafts: {} });
@@ -2130,6 +2132,98 @@ describe("mobile composer drafts", () => {
         attachments: [],
       },
     });
+  });
+
+  it("shares canonical native context and media without a SQL thread and retains concurrent additions after acceptance", () => {
+    const target = {
+      environmentId: EnvironmentId.make("native-environment"),
+      ref: {
+        providerInstanceId: ProviderInstanceId.make("native-profile"),
+        sessionFile: "/sessions/a:file.jsonl",
+      },
+    };
+    const key = workspaceKey(target);
+    const otherKey = workspaceKey({
+      ...target,
+      ref: { ...target.ref, providerInstanceId: ProviderInstanceId.make("other-profile") },
+    });
+    const terminal = {
+      version: 1 as const,
+      kind: "terminal" as const,
+      contextId: ComposerContextId.make("native-terminal"),
+      label: "Build output",
+      terminalId: "main",
+      terminalLabel: "Terminal",
+      lineStart: 1,
+      lineEnd: 1,
+      text: "Build failed",
+    };
+    const file = {
+      id: "native-file",
+      type: "file" as const,
+      name: "notes.txt",
+      mimeType: "text/plain",
+      sizeBytes: 4,
+      fileUri: "file:///documents/native.txt",
+    };
+    setComposerDraftText(key, "Fix this ");
+    insertComposerDraftContext(key, {
+      text: formatComposerContextReference(terminal),
+      context: { version: 1, records: [terminal] },
+    });
+    appendComposerDraftAttachments(key, [file], { appendReference: true });
+    const accepted = getComposerDraftSnapshot(key);
+    const message = serializeComposerMessageForServer(accepted.text, accepted.context, false).text;
+    expect(message).toContain("Build failed");
+    expect(accepted.attachments).toEqual([file]);
+    expect(getComposerDraftSnapshot(otherKey).text).toBe("");
+    const decoded = decodePersistedComposerState(
+      JSON.parse(JSON.stringify({ schemaVersion: 1, drafts: { [key]: accepted } })),
+    );
+    expect(decoded.drafts[key]?.context?.records).toEqual(accepted.context?.records);
+    const later = {
+      ...file,
+      id: "later-file",
+      name: "later.txt",
+      fileUri: "file:///documents/later.txt",
+    };
+    const laterDraft: ComposerDraft = { text: "Keep this", attachments: [later] };
+    const current = {
+      [key]: { ...accepted, text: `${accepted.text}\nNext request`, attachments: [file, later] },
+      [otherKey]: laterDraft,
+    };
+    const remaining = clearComposerDraftContentState(current, key, { acceptedSnapshot: accepted });
+    expect(remaining[key]?.text).toBe("\nNext request");
+    expect(remaining[key]?.context).toBeUndefined();
+    expect(remaining[key]?.attachments).toEqual([later]);
+    expect(remaining[otherKey]).toBe(laterDraft);
+  });
+
+  it("does not clear native edits inside an in-flight prompt or changed context", () => {
+    const key = 'environment-1:native:{"providerInstanceId":"neopi","sessionFile":"/a.jsonl"}';
+    const accepted: ComposerDraft = { text: "Original prompt", attachments: [] };
+    const edited = { [key]: { ...accepted, text: "Rewritten prompt" } };
+    expect(clearComposerDraftContentState(edited, key, { acceptedSnapshot: accepted })).toBe(
+      edited,
+    );
+    const [record] = contextDraft(0, 1).context!.records;
+    const captured: ComposerDraft = {
+      text: formatComposerContextReference(record!),
+      context: { version: 1, records: [record!] },
+      attachments: [],
+    };
+    const revised = {
+      [key]: {
+        ...captured,
+        context: { version: 1 as const, records: [{ ...record!, label: "Revised" }] },
+      },
+    };
+    expect(clearComposerDraftContentState(revised, key, { acceptedSnapshot: captured })).toBe(
+      revised,
+    );
+    expect(
+      clearComposerDraftContentState({ [key]: captured }, key, { acceptedSnapshot: captured }),
+    ).toEqual({});
   });
 
   it("drops draft-local model and workspace selections after sending a new task", () => {

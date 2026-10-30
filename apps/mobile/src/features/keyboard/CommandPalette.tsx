@@ -133,6 +133,7 @@ function PaletteRow(props: {
 /** Mounted only while open, so the app root does not subscribe to the full thread catalog. */
 export function CommandPalette(props: {
   readonly pathname: string;
+  readonly workspaceCommands?: ReadonlyArray<HardwareKeyboardCommand>;
   readonly onClose: () => void;
   readonly onCommand: (command: HardwareKeyboardCommand) => void;
 }) {
@@ -183,7 +184,7 @@ export function CommandPalette(props: {
         kind: "action",
         title: "New thread in…",
         searchTerms: ["new task", "chat", "create", "project"],
-        run: () => navigation.navigate("NewTaskSheet", { screen: "NewTask" }),
+        run: () => runCommand("newTask"),
       },
       {
         key: "addProject",
@@ -288,6 +289,22 @@ export function CommandPalette(props: {
         })),
       );
     }
+    if (!activeThreadRef) {
+      for (const [command, title, searchTerms] of [
+        ["files", "Go to file", ["open", "files", "browse", "search"]],
+        ["terminal", "Open terminal", ["shell", "console"]],
+        ["review", "Review changes", ["diff", "git", "pull request"]],
+      ] as const) {
+        if (props.workspaceCommands?.includes(command))
+          actions.push({
+            key: command,
+            kind: "action",
+            title,
+            searchTerms,
+            run: () => runCommand(command),
+          });
+      }
+    }
     const projectItems: CommandPaletteItem[] = projects.map((project) => ({
       key: `project:${scopedProjectKey(project.environmentId, project.id)}`,
       kind: "project",
@@ -336,6 +353,7 @@ export function CommandPalette(props: {
     navigation,
     projects,
     runCommand,
+    props.workspaceCommands,
     savedConnectionsById,
     selectThread,
     threads,

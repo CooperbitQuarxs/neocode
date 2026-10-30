@@ -25,18 +25,18 @@ import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../termina
 import { resolveThreadRouteRef } from "../threadRoutes";
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { useEnvironmentIdentificationMode, useLegacySidebarEnabled } from "../hooks/useSettings";
+import { useEnvironmentIdentificationMode } from "../hooks/useSettings";
 import {
   PanelAnimationSuppressionProvider,
   usePanelAnimationSettings,
   usePanelNavigationSuppression,
 } from "../panelAnimations";
-import LegacyThreadSidebar from "./LegacySidebar";
-import ThreadSidebar from "./Sidebar";
+import { NativeSessionSidebar } from "./neopi/NativeSessionSidebar";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { ConnectionCatalogRecoveryNotice } from "./desktop/ConnectionCatalogRecoveryNotice";
 import { SidebarChromeHeader } from "./sidebar/SidebarChrome";
 import { MainAppLocationTracker } from "./sidebar/mainAppLocation";
+import { NeoPiModelsSidebar } from "./neopi/NeoPiModelsPage";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import { useProjects } from "../state/entities";
 import {
@@ -217,7 +217,6 @@ function ProjectProjectionRetention() {
 
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
-  const legacySidebarEnabled = useLegacySidebarEnabled();
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   // Settings routes show the settings nav in place of whichever thread
@@ -306,7 +305,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           collapsible="offcanvas"
           data-app-sidebar=""
           role="navigation"
-          aria-label={isOnSettings ? "Settings" : "Threads"}
+          aria-label={isOnSettings ? "Settings" : pathname === "/models" ? "Models" : "Threads"}
           resizable={{
             maxWidth: sidebarMaximumWidth,
             minWidth: THREAD_SIDEBAR_MIN_WIDTH,
@@ -322,10 +321,13 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
               <SidebarChromeHeader isElectron={isElectron} />
               <SettingsSidebarNav pathname={pathname} />
             </>
-          ) : legacySidebarEnabled ? (
-            <LegacyThreadSidebar />
+          ) : pathname === "/models" ? (
+            <>
+              <SidebarChromeHeader isElectron={isElectron} />
+              <NeoPiModelsSidebar />
+            </>
           ) : (
-            <ThreadSidebar />
+            <NativeSessionSidebar />
           )}
           <SidebarRail onDoubleClick={resetSidebarWidth} />
         </Sidebar>

@@ -19,6 +19,7 @@ import {
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { useEffect } from "react";
+import { parseWorkspaceKey } from "@t3tools/client-runtime/environment";
 import { Atom } from "effect/unstable/reactivity";
 
 import { writeFileAtomically } from "../lib/atomic-file";
@@ -56,6 +57,8 @@ import {
 } from "./thread-outbox-model";
 import { flushThreadOutbox, threadOutboxManager } from "./thread-outbox";
 import { composerDraftEnvironmentId } from "../lib/composerAttachmentUploadQueue";
+import { bindNativeComposerDraft, syncNativeComposerDrafts } from "./native-composer-draft-state";
+import { NativeTreeDraft, emptyNativeTreeDraft } from "./native-tree-draft";
 
 const COMPOSER_DRAFTS_SCHEMA_VERSION = 1;
 const COMPOSER_DRAFTS_DIRECTORY = "composer-drafts";
@@ -326,6 +329,9 @@ export interface ComposerDraft {
   readonly context?: OrchestrationMessageContext;
   readonly attachments: ReadonlyArray<DraftComposerAttachment>;
   readonly importedShareIds?: ReadonlyArray<string>;
+  /** Canonical native-file draft behind this thread alias. */
+  readonly nativeSessionKey?: string;
+  readonly nativeTree?: NativeTreeDraft;
   readonly modelSelection?: ModelSelection;
   readonly runtimeMode?: RuntimeMode;
   readonly interactionMode?: ProviderInteractionMode;
@@ -388,6 +394,8 @@ const ComposerDraftSchema = Schema.Struct({
   context: Schema.optional(PersistedComposerContextSchema),
   attachments: Schema.Array(DraftComposerAttachmentSchema),
   importedShareIds: Schema.optional(Schema.Array(Schema.String)),
+  nativeSessionKey: Schema.optional(Schema.String),
+  nativeTree: Schema.optional(NativeTreeDraft),
   modelSelection: Schema.optional(ModelSelectionSchema),
   runtimeMode: Schema.optional(RuntimeModeSchema),
   interactionMode: Schema.optional(ProviderInteractionModeSchema),
@@ -546,6 +554,8 @@ function isEmptyDraft(draft: ComposerDraft): boolean {
     draft.modelSelection === undefined &&
     draft.runtimeMode === undefined &&
     draft.interactionMode === undefined &&
+    draft.nativeSessionKey === undefined &&
+    draft.nativeTree === undefined &&
     draft.workspaceSelection === undefined
   );
 }
@@ -1238,12 +1248,53 @@ function updateComposerDrafts(
   update: (current: Record<string, ComposerDraft>) => Record<string, ComposerDraft>,
 ): void {
   const current = appAtomRegistry.get(composerDraftsAtom);
-  const next = update(current);
+  const next = syncNativeComposerDrafts(current, update(current));
   if (next === current) {
     return;
   }
   appAtomRegistry.set(composerDraftsAtom, next);
   schedulePersistComposerState();
+}
+
+const requestedNativeDraftBindings = new Map<string, string>();
+export async function bindComposerDraftToNativeSession(
+  draftKey: string,
+  nativeKey: string,
+): Promise<void> {
+  requestedNativeDraftBindings.set(draftKey, nativeKey);
+  ensureComposerDraftsLoaded();
+  if (loadPromise !== null) await loadPromise;
+  if (requestedNativeDraftBindings.get(draftKey) !== nativeKey) return;
+  updateComposerDrafts((current) => bindNativeComposerDraft(current, draftKey, nativeKey));
+}
+
+/** A native navigation result replaces content, while local settings and file-scoped persistence survive. */
+export function replaceComposerDraftFromNative(
+  draftKey: string,
+  content: ComposerDraftContent,
+): void {
+  updateComposerDrafts((current) => {
+    const previous = normalizeDraft(current[draftKey]);
+    return withComposerDraft(current, draftKey, {
+      ...previous,
+      text: content.text,
+      attachments: content.attachments,
+      context: content.context,
+    });
+  });
+}
+
+export function updateNativeTreeDraft(
+  draftKey: string,
+  update: (draft: NativeTreeDraft) => NativeTreeDraft,
+): void {
+  updateComposerDrafts((current) => {
+    const previous = normalizeDraft(current[draftKey]);
+    return withComposerDraft(current, draftKey, {
+      ...previous,
+      nativeTree: update(previous.nativeTree ?? emptyNativeTreeDraft()),
+    });
+  });
 }
 
 export function setStickyComposerModelSelection(modelSelection: ModelSelection): void {
@@ -1475,11 +1526,40 @@ export function clearComposerDraftContentState(
   options?: {
     readonly clearModelSelection?: boolean;
     readonly clearWorkspaceSelection?: boolean;
+    readonly acceptedSnapshot?: ComposerDraft;
   },
 ): Record<string, ComposerDraft> {
   const existing = current[draftKey];
   if (!existing) {
     return current;
+  }
+  const accepted = options?.acceptedSnapshot;
+  if (accepted) {
+    // Only an unchanged prefix can be attributed to this send. Edits inside the
+    // captured text (or to one of its context records) remain the user's draft.
+    if (
+      !existing.text.startsWith(accepted.text) ||
+      accepted.context?.records.some((record) => {
+        const retained = existing.context?.records.find(
+          (candidate) => candidate.contextId === record.contextId,
+        );
+        return retained !== undefined && retained !== record;
+      })
+    )
+      return current;
+    const text = existing.text.slice(accepted.text.length);
+    const context = referencedComposerContext(text, existing.context);
+    const retainedAttachmentIds = new Set(
+      context?.records.flatMap((record) =>
+        "attachmentId" in record ? [record.attachmentId] : [],
+      ) ?? [],
+    );
+    const acceptedIds = new Set(accepted.attachments.map((attachment) => attachment.id));
+    const attachments = existing.attachments.filter(
+      (attachment) => !acceptedIds.has(attachment.id) || retainedAttachmentIds.has(attachment.id),
+    );
+    const remaining = { ...existing, text, context, attachments };
+    return withComposerDraft(current, draftKey, remaining);
   }
   // Clearing content is the "this draft is done" moment (sent, queued, or
   // discarded), so the project stamp goes too and an otherwise-empty new-task
@@ -1767,6 +1847,7 @@ export function clearComposerDraftContent(
   options?: {
     readonly clearModelSelection?: boolean;
     readonly clearWorkspaceSelection?: boolean;
+    readonly acceptedSnapshot?: ComposerDraft;
     // Send clears the draft while the durable outbox write is still in
     // flight. Sweeping then would race the write: a failed enqueue rolls the
     // message out of the queue mid-sweep and its files get deleted right
@@ -1808,7 +1889,9 @@ export function removeComposerDraftsForEnvironment(
   return Object.fromEntries(
     Object.entries(drafts).filter(
       ([draftKey, draft]) =>
-        !draftKey.startsWith(environmentPrefix) && draft.project?.environmentId !== environmentId,
+        parseWorkspaceKey(draftKey)?.environmentId !== environmentId &&
+        !draftKey.startsWith(environmentPrefix) &&
+        draft.project?.environmentId !== environmentId,
     ),
   );
 }

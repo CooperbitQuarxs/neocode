@@ -1,5 +1,4 @@
-import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import { workspaceKey, type WorkspaceRef } from "@t3tools/client-runtime/environment";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { useShallow } from "zustand/react/shallow";
@@ -164,7 +163,7 @@ interface BrowserHistoryStoreState {
     environmentHostname?: string | null,
   ) => void;
   removeUrl: (projectKey: string, url: string) => void;
-  registerThreadProject: (ref: ScopedThreadRef, projectKey: string) => void;
+  registerThreadProject: (ref: WorkspaceRef, projectKey: string) => void;
 }
 
 function addPendingByThread<T>(
@@ -242,7 +241,7 @@ export const useBrowserHistoryStore = create<BrowserHistoryStoreState>()(
         set({ byProjectKey: { ...state.byProjectKey, [projectKey]: next } });
       },
       registerThreadProject: (ref, projectKey) => {
-        const threadKey = scopedThreadKey(ref);
+        const threadKey = workspaceKey(ref);
         const state = get();
         const pendingVisits = state.pendingVisitsByThreadKey[threadKey];
         const pendingTitles = state.pendingTitlesByThreadKey[threadKey];
@@ -323,10 +322,10 @@ function migratePersistedThreadProjectKeys(
   );
 }
 
-export function recordVisitForThread(ref: ScopedThreadRef, url: string, at?: number): void {
-  const threadKey = scopedThreadKey(ref);
+export function recordVisitForThread(ref: WorkspaceRef, url: string, at?: number): void {
+  const threadKey = workspaceKey(ref);
   const state = useBrowserHistoryStore.getState();
-  const projectKey = state.projectKeyByThreadKey[threadKey];
+  const projectKey = "ref" in ref ? threadKey : state.projectKeyByThreadKey[threadKey];
   const visitAt = at ?? Date.now();
   const connection = readPreparedConnection(ref.environmentId);
   const environmentHostname = connection ? new URL(connection.httpBaseUrl).hostname : null;
@@ -344,14 +343,14 @@ export function recordVisitForThread(ref: ScopedThreadRef, url: string, at?: num
 }
 
 export function setTitleForThreadUrl(
-  ref: ScopedThreadRef,
+  ref: WorkspaceRef,
   url: string,
   title: string,
   environmentHostname?: string | null,
 ): void {
-  const threadKey = scopedThreadKey(ref);
+  const threadKey = workspaceKey(ref);
   const state = useBrowserHistoryStore.getState();
-  const projectKey = state.projectKeyByThreadKey[threadKey];
+  const projectKey = "ref" in ref ? threadKey : state.projectKeyByThreadKey[threadKey];
   if (!projectKey) {
     useBrowserHistoryStore.setState({
       pendingTitlesByThreadKey: addPendingByThread(state.pendingTitlesByThreadKey, threadKey, {
@@ -365,9 +364,10 @@ export function setTitleForThreadUrl(
   state.setTitleForUrl(projectKey, url, title, environmentHostname);
 }
 
-export function removeUrlForThread(ref: ScopedThreadRef, url: string): void {
+export function removeUrlForThread(ref: WorkspaceRef, url: string): void {
   const state = useBrowserHistoryStore.getState();
-  const projectKey = state.projectKeyByThreadKey[scopedThreadKey(ref)];
+  const projectKey =
+    "ref" in ref ? workspaceKey(ref) : state.projectKeyByThreadKey[workspaceKey(ref)];
   if (!projectKey) return;
   state.removeUrl(projectKey, url);
 }
@@ -375,12 +375,13 @@ export function removeUrlForThread(ref: ScopedThreadRef, url: string): void {
 const EMPTY_HISTORY: ReadonlyArray<BrowserHistoryEntry> = [];
 
 export function useThreadRecentHistory(
-  ref: ScopedThreadRef,
+  ref: WorkspaceRef,
   limit: number,
 ): ReadonlyArray<BrowserHistoryEntry> {
   return useBrowserHistoryStore(
     useShallow((state) => {
-      const projectKey = state.projectKeyByThreadKey[scopedThreadKey(ref)];
+      const projectKey =
+        "ref" in ref ? workspaceKey(ref) : state.projectKeyByThreadKey[workspaceKey(ref)];
       const entries = projectKey ? state.byProjectKey[projectKey] : undefined;
       return entries && entries.length > 0 ? entries.slice(0, limit) : EMPTY_HISTORY;
     }),
