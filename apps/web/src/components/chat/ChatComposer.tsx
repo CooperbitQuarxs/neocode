@@ -1466,7 +1466,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     (noProviderAvailable
       ? providerCatalogPending
         ? "Waiting for the NeoPi provider catalog."
-        : "NeoPi is unavailable. Open NeoPi settings to reconnect the selected instance."
+        : "NeoPi is unavailable. Set up the selected instance in Settings → NeoCore."
       : null);
   const sendDisabledReason =
     externalSendDisabledReason ??

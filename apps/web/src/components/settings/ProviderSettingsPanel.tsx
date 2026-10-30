@@ -11,6 +11,7 @@ import {
 import {
   defaultInstanceIdForDriver,
   type EnvironmentId,
+  NeoPiSettings,
   ProviderDriverKind,
   type ProviderInstanceConfig,
   type ProviderInstanceId,
@@ -25,7 +26,9 @@ import {
 import * as Arr from "effect/Array";
 import * as Duration from "effect/Duration";
 import * as Equal from "effect/Equal";
+import * as Option from "effect/Option";
 import * as Result from "effect/Result";
+import * as Schema from "effect/Schema";
 import { PlusIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -42,6 +45,7 @@ import { NeoPiBinarySelectionNote } from "../neopi/NeoPiBinarySelectionNote";
 import { NeoPiInstallHelp } from "../neopi/NeoPiInstallHelp";
 import { cn } from "../../lib/utils";
 import { resolveAppModelSelectionState } from "../../modelSelection";
+import { getOnboardingProviderState } from "../../onboarding/providerReadiness.logic";
 import {
   useEnvironments,
   usePrimaryEnvironmentId,
@@ -107,6 +111,10 @@ import {
   resolveRemoteOperateAccess,
   resolveSelectedProviderEnvironmentId,
 } from "./ProviderSettingsPanel.logic";
+
+const decodeNeoPiBinaryPath = Schema.decodeUnknownOption(
+  Schema.Struct({ binaryPath: NeoPiSettings.fields.binaryPath }),
+);
 
 function withoutProviderInstanceKey<V>(
   record: Readonly<Record<ProviderInstanceId, V>> | undefined,
@@ -818,6 +826,10 @@ export function EnvironmentProviderSettings({
       favorite.provider === row.instanceId ? Result.succeed(favorite.model) : Result.failVoid,
     );
     const resetLabel = driverOption?.label ?? String(row.driver);
+    const showInstallHelp = neoCore && getOnboardingProviderState(liveProvider) === "install";
+    const savedBinaryPath = showInstallHelp
+      ? Option.getOrUndefined(decodeNeoPiBinaryPath(row.instance.config))?.binaryPath
+      : undefined;
 
     return (
       <ProviderInstanceCard
@@ -834,10 +846,20 @@ export function EnvironmentProviderSettings({
         setup={
           mode === "editor" ? (
             neoCore ? (
-              <div className="space-y-3">
-                <NeoPiInstallHelp environmentLabel={environmentLabel} />
+              <>
+                {showInstallHelp ? (
+                  <div className="space-y-3 px-3 py-3 sm:px-4">
+                    {savedBinaryPath && savedBinaryPath !== "npi" ? (
+                      <p className="text-xs text-muted-foreground">
+                        NeoCode couldn’t use the saved Binary path on {environmentLabel}. Correct it
+                        below or clear it to search automatically.
+                      </p>
+                    ) : null}
+                    <NeoPiInstallHelp environmentLabel={environmentLabel} />
+                  </div>
+                ) : null}
                 <NeoPiBinarySelectionNote config={row.instance.config} />
-              </div>
+              </>
             ) : (
               <Link
                 to="/settings/neocore"

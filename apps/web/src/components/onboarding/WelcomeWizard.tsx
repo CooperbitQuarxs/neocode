@@ -40,7 +40,6 @@ import { Checkbox } from "../ui/checkbox";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { Input } from "../ui/input";
 import { ScrollArea } from "../ui/scroll-area";
-import { Spinner } from "../ui/spinner";
 import { WizardPanel, WizardSteps, WizardPopup, WizardHeader } from "../ui/wizard";
 import { Dialog } from "../ui/dialog";
 import { toastManager } from "../ui/toast";
@@ -576,7 +575,7 @@ function AgentsStep({
   return (
     <StepShell
       title="NeoPi"
-      description="NeoPi runs your sessions. Choose a project folder after setup, or resume a NeoPi session from the workspace."
+      description="NeoPi runs your sessions. Start a thread from the workspace, or resume an existing NeoPi session."
     >
       <ScrollArea scrollFade className="mt-5 h-auto max-h-96">
         <div className="space-y-5 pr-3">
@@ -656,7 +655,9 @@ function AgentCard({
       <div className="flex items-center gap-3">
         {Icon ? <Icon className="size-5 shrink-0 fill-foreground" /> : null}
         <div className="min-w-0 flex-1">
-          <span className="block text-sm font-medium text-foreground">NeoPi</span>
+          <span className="block text-sm font-medium text-foreground">
+            {provider?.displayName ?? "NeoPi"}
+          </span>
           <p className="mt-0.5 text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
             {summary.headline}
             {summary.detail ? ` · ${summary.detail}` : ""}
@@ -677,9 +678,11 @@ function AgentCard({
           )}
         </div>
       </div>
-      {providerState !== "ready" ? (
+      {providerState !== "ready" && providerState !== "checking" ? (
         <>
-          <NeoPiInstallHelp environmentLabel={environmentLabel} />
+          {providerState === "install" ? (
+            <NeoPiInstallHelp environmentLabel={environmentLabel} />
+          ) : null}
           <Button variant="outline" size="sm" onClick={() => onOpenSettings(provider?.instanceId)}>
             Open NeoPi settings
           </Button>

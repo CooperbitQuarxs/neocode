@@ -35,8 +35,8 @@ an available runtime opens the same computer's NeoCore settings. Configure
 inference-provider accounts through **Models** after NeoPi is available; setup
 does not start an installer or sign-in flow.
 
-Continue to the workspace when ready. Add a project by choosing its folder, or
-use **Resume NeoPi session** to open native history. Setup does not scan Claude
+Continue to the workspace when ready. Start a thread without a project, choose a
+project folder, or use **Resume NeoPi session** to open native history. Setup does not scan Claude
 Code or Codex directories, and does not import projects or conversations on its
 own. Existing conversations are not deleted. Conversations saved from other
 runtimes remain read-only.
