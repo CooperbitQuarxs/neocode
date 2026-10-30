@@ -1,5 +1,5 @@
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { type EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { scopeThreadRef, workspaceKey } from "@t3tools/client-runtime/environment";
+import { type EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
@@ -954,5 +954,36 @@ describe("rightPanelStore", () => {
         (surface) => surface.id,
       ),
     ).toEqual(["terminal:term-1", "browser:tab-b", "browser:tab-c"]);
+  });
+});
+
+describe("native browser panel persistence", () => {
+  it("restores native and legacy tabs under their original keys and closes only the selected workspace", () => {
+    const target = {
+      environmentId: refA.environmentId,
+      ref: {
+        providerInstanceId: ProviderInstanceId.make("profile-a"),
+        sessionFile: "/sessions/a.jsonl",
+      },
+    };
+    const store = useRightPanelStore.getState();
+    store.openBrowser(refA, "legacy-tab");
+    store.openBrowser(target, "native-tab");
+    const restored = migratePersistedRightPanelState({
+      byThreadKey: useRightPanelStore.getState().byThreadKey,
+    });
+    useRightPanelStore.setState(restored);
+    expect(selectActiveRightPanelSurface(restored.byThreadKey, refA)?.id).toBe(
+      "browser:legacy-tab",
+    );
+    expect(selectActiveRightPanelSurface(restored.byThreadKey, target)?.id).toBe(
+      "browser:native-tab",
+    );
+    expect(restored.byThreadKey[`${refA.environmentId}:${refA.threadId}`]).toBeDefined();
+    expect(restored.byThreadKey[workspaceKey(target)]).toBeDefined();
+    store.closeAllSurfaces(target);
+    const current = useRightPanelStore.getState().byThreadKey;
+    expect(selectActiveRightPanelSurface(current, target)).toBeNull();
+    expect(selectActiveRightPanelSurface(current, refA)?.id).toBe("browser:legacy-tab");
   });
 });

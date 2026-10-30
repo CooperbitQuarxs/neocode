@@ -1,4 +1,4 @@
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import { workspaceResourceId, type WorkspaceRef } from "@t3tools/client-runtime/environment";
 import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime";
 import * as Schema from "effect/Schema";
 
@@ -31,7 +31,7 @@ export class TerminalLinkPreviewOpenError extends Schema.TaggedError<TerminalLin
 
 interface OpenTerminalLinkInPreviewInput<E> {
   readonly url: string;
-  readonly threadRef: ScopedThreadRef;
+  readonly threadRef: WorkspaceRef;
   readonly openPreview: OpenPreviewMutation<E>;
   readonly fallbackToBrowser: () => void;
   /** Cmd/Ctrl-click bypasses the preference and opens in the system browser. */
@@ -49,7 +49,7 @@ export async function openTerminalLinkInPreview<E>(
     !input.forceBrowser &&
     isWebUrl(input.url) &&
     isPreviewSupportedInRuntime() &&
-    input.threadRef.threadId.length > 0 &&
+    workspaceResourceId(input.threadRef).length > 0 &&
     (await resolveBrowserLinkTargetPreference()) === "app";
 
   if (!supportsPreview) {
@@ -59,7 +59,7 @@ export async function openTerminalLinkInPreview<E>(
 
   const errorContext = {
     environmentId: input.threadRef.environmentId,
-    threadId: input.threadRef.threadId,
+    threadId: workspaceResourceId(input.threadRef),
     targetOrigin: new URL(input.url).origin,
   };
 
@@ -67,7 +67,7 @@ export async function openTerminalLinkInPreview<E>(
   const result = await input.openPreview({
     environmentId: input.threadRef.environmentId,
     input: {
-      threadId: input.threadRef.threadId,
+      threadId: workspaceResourceId(input.threadRef),
       url: input.url,
       // Same reason as `openUrlInPreview`: this path handles its own result
       // mapping, so the configured defaults are applied explicitly.

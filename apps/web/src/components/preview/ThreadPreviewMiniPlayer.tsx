@@ -1,6 +1,7 @@
 "use client";
 
-import { FILL_PREVIEW_VIEWPORT, type ScopedThreadRef } from "@t3tools/contracts";
+import { FILL_PREVIEW_VIEWPORT } from "@t3tools/contracts";
+import type { WorkspaceRef } from "@t3tools/client-runtime/environment";
 import { PanelRightIcon, PictureInPicture2, XIcon } from "lucide-react";
 import {
   type PointerEvent as ReactPointerEvent,
@@ -60,7 +61,7 @@ interface PointerGesture {
 }
 
 interface Props {
-  readonly threadRef: ScopedThreadRef;
+  readonly threadRef: WorkspaceRef;
   readonly miniPlayer: PreviewMiniPlayerState;
   /** The docked composer overlay; null while the composer floats mid-screen. */
   readonly composerOverlayElement: HTMLElement | null;
@@ -327,7 +328,7 @@ function MiniPlayerShell({
   cornerRadius = frameCornerRadius,
   children,
 }: {
-  readonly threadRef: ScopedThreadRef;
+  readonly threadRef: WorkspaceRef;
   readonly miniPlayer: PreviewMiniPlayerState;
   readonly sourceSize: PreviewMiniPlayerSize;
   readonly composerOverlayElement: HTMLElement | null;

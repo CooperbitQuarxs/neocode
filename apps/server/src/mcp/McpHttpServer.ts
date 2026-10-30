@@ -86,12 +86,28 @@ export const invokeRegisteredMcpTool = (
     if (!scope || !scope.capabilities.has(capability))
       return yield* new McpInProcessToolError({ message: "access revoked" });
     const server = activeToolServer;
+    if (scope.revoked?.aborted)
+      return yield* new McpInProcessToolError({ message: "access revoked" });
     if (!server)
       return yield* new McpInProcessToolError({ message: "T3 Code host tools are unavailable" });
     return yield* server.callTool({ name, arguments: args }).pipe(
       Effect.provideService(McpSchema.McpServerClient, hostToolClient),
       Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
       Effect.mapError((error) => new McpInProcessToolError({ message: error.message })),
+      Effect.raceFirst(
+        Effect.callback<never, McpInProcessToolError>((resume) => {
+          const signal = scope.revoked;
+          if (!signal) return;
+          const cancel = () =>
+            resume(Effect.fail(new McpInProcessToolError({ message: "access revoked" })));
+          if (signal.aborted) {
+            cancel();
+            return;
+          }
+          signal.addEventListener("abort", cancel, { once: true });
+          return Effect.sync(() => signal.removeEventListener("abort", cancel));
+        }),
+      ),
     );
   });
 

@@ -1,4 +1,5 @@
-import { ApprovalRequestId, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { ApprovalRequestId, EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { workspaceKey } from "@t3tools/client-runtime/environment";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
   questionAttachmentDraftKey,
@@ -266,6 +267,28 @@ describe("draft upload scope and offline submission", () => {
         expect(composerDraftEnvironmentId(otherKey, [])).toBe(environment);
       }
     }
+  });
+  it("uploads canonical native drafts in their environment, independent of profile and path colons", () => {
+    for (const environment of [environmentId, EnvironmentId.make("remote:server")]) {
+      const target = {
+        environmentId: environment,
+        ref: {
+          providerInstanceId: ProviderInstanceId.make("neopi"),
+          sessionFile: "/sessions/a:path with spaces.jsonl",
+        },
+      };
+      expect(composerDraftEnvironmentId(workspaceKey(target), [])).toBe(environment);
+      expect(
+        composerDraftEnvironmentId(
+          workspaceKey({
+            ...target,
+            ref: { ...target.ref, providerInstanceId: ProviderInstanceId.make("other") },
+          }),
+          [],
+        ),
+      ).toBe(environment);
+    }
+    expect(composerDraftEnvironmentId("environment-1:native:{broken}", [])).toBeNull();
   });
   it("resolves thread, new-task, and queued-task drafts without crossing environments", () => {
     expect(composerDraftEnvironmentId("environment-1:thread", [])).toBe(environmentId);

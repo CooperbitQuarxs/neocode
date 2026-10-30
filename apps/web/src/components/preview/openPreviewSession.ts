@@ -1,9 +1,9 @@
+import { workspaceResourceId, type WorkspaceRef } from "@t3tools/client-runtime/environment";
 import type {
   EnvironmentId,
   PreviewOpenInput,
   PreviewSessionSnapshot,
   PreviewViewportSetting,
-  ScopedThreadRef,
 } from "@t3tools/contracts";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
@@ -22,7 +22,7 @@ interface OpenPreviewSessionInput<E> {
     readonly environmentId: EnvironmentId;
     readonly input: PreviewOpenInput;
   }) => Promise<AtomCommandResult<PreviewSessionSnapshot, E>>;
-  threadRef: ScopedThreadRef;
+  threadRef: WorkspaceRef;
   url?: string;
   /** Overrides the configured default; automation passes an explicit size. */
   viewport?: PreviewViewportSetting;
@@ -44,7 +44,7 @@ export async function openPreviewSession<E>(
   const result = await input.openPreview({
     environmentId: input.threadRef.environmentId,
     input: {
-      threadId: input.threadRef.threadId,
+      threadId: workspaceResourceId(input.threadRef),
       ...(input.url === undefined ? {} : { url: input.url }),
       viewport: input.viewport ?? browserDefaultOpenViewport(defaults),
       profileId: input.profileId ?? browserDefaultOpenProfileId(defaults),

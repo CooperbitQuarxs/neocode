@@ -724,6 +724,13 @@ describe("isCollapsedCursorAdjacentToInlineToken", () => {
 });
 
 describe("parseStandaloneComposerSlashCommand", () => {
+  it.each(["/plan", "/default", "/model", "/effort"])(
+    "leaves native %s on the provider dispatch path",
+    (command) => {
+      expect(parseStandaloneComposerSlashCommand(command, true)).toBeNull();
+    },
+  );
+
   it("parses standalone /plan command", () => {
     expect(parseStandaloneComposerSlashCommand(" /plan ")).toBe("plan");
   });

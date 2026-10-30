@@ -1,5 +1,5 @@
-import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import { scopeProjectRef, workspaceKey } from "@t3tools/client-runtime/environment";
+import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 vi.mock("~/state/entities", () => ({ useThreadShell: () => null }));
@@ -312,5 +312,35 @@ describe("browser favicon store", () => {
     expect(storage.getItem("key")).toBe("fresh");
     storage.removeItem("key");
     expect(storage.getItem("key")).toBeNull();
+  });
+});
+
+describe("native browser favicons", () => {
+  beforeEach(resetBrowserFaviconsForTests);
+
+  it("preserves separate native icon scopes with spaces in canonical paths across hydration", () => {
+    const target = {
+      environmentId,
+      ref: {
+        providerInstanceId: ProviderInstanceId.make("profile-a"),
+        sessionFile: "/sessions/a session.jsonl",
+      },
+    };
+    const other = {
+      ...target,
+      ref: { ...target.ref, providerInstanceId: ProviderInstanceId.make("profile-b") },
+    };
+    recordFaviconForThread(target, favicon("http://localhost:3000/", 10), null, undefined);
+    recordFaviconForThread(
+      other,
+      favicon("http://localhost:3000/", 20, "data:image/png;base64,QkJCQg=="),
+      null,
+      undefined,
+    );
+    const restored = migratePersistedBrowserFaviconState(useBrowserFaviconStore.getState());
+    expect(restored.byKey[`${workspaceKey(target)} http://localhost:3000`]?.dataUrl).toBe(PNG);
+    expect(restored.byKey[`${workspaceKey(other)} http://localhost:3000`]?.dataUrl).toBe(
+      "data:image/png;base64,QkJCQg==",
+    );
   });
 });

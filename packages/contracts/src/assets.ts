@@ -8,6 +8,7 @@ import {
   ProjectFaviconPath,
 } from "./orchestration.ts";
 import { ToolActivityNativeAppReference } from "./providerRuntime.ts";
+import { NeoPiNativeSessionRef } from "./neopiNativeSessions.ts";
 
 const ASSET_PATH_MAX_LENGTH = 1024;
 
@@ -21,6 +22,14 @@ export const AssetResource = Schema.Union([
   // workspace; a relative one resolves against the thread's workspace.
   Schema.TaggedStruct("media-file", {
     threadId: ThreadId,
+    path: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
+  }),
+  Schema.TaggedStruct("native-media-file", {
+    ref: NeoPiNativeSessionRef,
+    path: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
+  }),
+  Schema.TaggedStruct("native-workspace-file", {
+    ref: NeoPiNativeSessionRef,
     path: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
   }),
   // A workspace file named by a draft that has no thread yet. The draft names
@@ -189,7 +198,9 @@ export class AssetPreviewTypeValidationError extends Schema.TaggedError<AssetPre
   override get message(): string {
     // Draft resources serve absolute paths through the same host-media
     // validation as media files, so they share its message.
-    return this.resource._tag === "media-file" || this.resource._tag === "draft-workspace-file"
+    return this.resource._tag === "media-file" ||
+      this.resource._tag === "native-media-file" ||
+      this.resource._tag === "draft-workspace-file"
       ? "Only images, videos, audio, HTML, and PDF files can be previewed."
       : "Only browser documents and images can be previewed.";
   }

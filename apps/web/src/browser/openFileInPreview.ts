@@ -1,10 +1,10 @@
+import { workspaceResourceId, type WorkspaceRef } from "@t3tools/client-runtime/environment";
 import type {
   AssetCreateUrlResult,
   AssetResource,
   EnvironmentId,
   PreviewOpenInput,
   PreviewSessionSnapshot,
-  ScopedThreadRef,
 } from "@t3tools/contracts";
 import { mediaFileReference } from "@t3tools/client-runtime/media-reference";
 import {
@@ -52,7 +52,7 @@ export type OpenPreviewMutation<E = unknown> = (input: {
 }) => Promise<AtomCommandResult<PreviewSessionSnapshot, E>>;
 
 export async function openUrlInPreview<E>(input: {
-  readonly threadRef: ScopedThreadRef;
+  readonly threadRef: WorkspaceRef;
   readonly url: string;
   readonly openPreview: OpenPreviewMutation<E>;
 }): Promise<AtomCommandResult<void, E | BrowserSettingsReadError>> {
@@ -65,7 +65,7 @@ export async function openUrlInPreview<E>(input: {
   const result = await input.openPreview({
     environmentId: input.threadRef.environmentId,
     input: {
-      threadId: input.threadRef.threadId,
+      threadId: workspaceResourceId(input.threadRef),
       url: input.url,
       // Built here rather than via `openPreviewSession` because this path
       // maps the result differently, so the configured defaults have to be
@@ -86,7 +86,7 @@ export async function openUrlInPreview<E>(input: {
  * page may load sibling assets; a file outside it is served on its own.
  */
 export async function openFileInPreview<AssetError, PreviewError>(input: {
-  readonly threadRef: ScopedThreadRef;
+  readonly threadRef: WorkspaceRef;
   readonly filePath: string;
   readonly workspaceRoot: string | undefined;
   readonly httpBaseUrl: string;
@@ -115,11 +115,18 @@ export async function openFileInPreview<AssetError, PreviewError>(input: {
   const assetResult = await input.createAssetUrl({
     environmentId: input.threadRef.environmentId,
     input: {
-      resource: {
-        _tag: insideWorkspace ? "workspace-file" : "media-file",
-        threadId: input.threadRef.threadId,
-        path: input.filePath,
-      },
+      resource:
+        "ref" in input.threadRef
+          ? {
+              _tag: insideWorkspace ? "native-workspace-file" : "native-media-file",
+              ref: input.threadRef.ref,
+              path: input.filePath,
+            }
+          : {
+              _tag: insideWorkspace ? "workspace-file" : "media-file",
+              threadId: input.threadRef.threadId,
+              path: input.filePath,
+            },
     },
   });
   if (assetResult._tag === "Failure") {

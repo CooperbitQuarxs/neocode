@@ -595,6 +595,7 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
           request: {
             requestId,
             threadId: input.scope.threadId,
+            ...(input.scope.kind === "native" ? { sessionRef: input.scope.sessionRef } : {}),
             tabId: requestContext.tabId,
             tabIdExplicit: input.tabId !== undefined,
             operation: input.operation,

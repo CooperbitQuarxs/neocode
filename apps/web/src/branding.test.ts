@@ -72,10 +72,15 @@ describe("branding", () => {
 });
 
 describe("branding logic", () => {
-  it("returns Nightly for nightly primary server versions", () => {
+  it.each([
+    "0.0.28-nightly.20260616.12",
+    "0.0.42-nightly.20261020.39505137750.1",
+    "0.0.42-nightly.20261028.2.beb7e0771a",
+    "0.0.42-preview.20261028.2.beb7e0771a",
+  ])("returns Nightly for primary server version %s", (primaryServerVersion) => {
     expect(
       resolveServerBackedAppStageLabel({
-        primaryServerVersion: "0.0.28-nightly.20260616.12",
+        primaryServerVersion,
         fallbackStageLabel: "Alpha",
       }),
     ).toBe("Nightly");
@@ -113,4 +118,16 @@ describe("branding logic", () => {
       }),
     ).toBe("T3 Code (Alpha)");
   });
+
+  it.each(["Alpha", "Dev", "Latest"])(
+    "preserves %s identity for a stable server",
+    (fallbackStageLabel) => {
+      expect(
+        resolveServerBackedAppStageLabel({
+          primaryServerVersion: "0.0.42",
+          fallbackStageLabel,
+        }),
+      ).toBe(fallbackStageLabel);
+    },
+  );
 });

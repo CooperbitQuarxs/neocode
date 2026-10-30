@@ -6,11 +6,29 @@ include a skill when the task needs more context.
 Messages can contain up to 120,000 characters. Longer drafts stay in the composer
 so you can shorten them or split them into several messages.
 
+On web and desktop, scroll inside the composer to reach the rest of a long draft
+or its attachments. Scrolling the conversation leaves the draft and its controls
+in place.
+
 Pasting 32 KiB or more of text adds that fragment as a text-file attachment so
 the agent can inspect it without filling the model context. A smaller paste also
 becomes an attachment when inserting it would exceed the message limit. On a
 hardware keyboard, use `Cmd+Shift+V` on Apple devices or `Ctrl+Shift+V` elsewhere
 to keep a large paste editable in the composer instead.
+
+Slash commands, including `/model`, come from the selected NeoPi runtime and are
+sent to it unchanged. Use the model button or `Alt+P` for NeoCode's graphical
+switcher. If no enabled NeoPi runtime is available, the composer keeps your draft;
+open **Settings → NeoCore** to enable or configure one.
+
+When NeoPi fails to start a turn in a saved conversation, web and desktop return
+the unsent prompt and its attachments to an empty composer. If you've already
+started another draft there, it stays unchanged: send or clear it before using
+**Restore prompt** on the error notice. Recovery stays with the original
+conversation when you visit Settings, open a fresh draft, or switch conversations;
+it never fills the destination composer. Dismissing that notice discards its
+retained failed prompt. Recover it before reloading or closing the window:
+the pending recovery copy is kept only in that window's memory.
 
 ## Attach files
 
@@ -56,15 +74,29 @@ messages while disconnected. Uploads resume when you reconnect. Drafts and queue
 messages survive app restarts. Signing out of T3 Connect keeps that work on your
 device until you sign back into the same account.
 
+## Switch models
+
+On web and desktop, click the current model or press `Alt+P` to open the native model switcher.
+Choose a NeoPi inference provider or Roles, or filter by provider, model ID or
+display name. The list shows the native catalog's intelligence, context and
+per-million-token prices. Catalog throughput is an estimate. A question mark
+means the native source has not supplied that fact, including measured TTFT.
+Missing metrics do not make a model unavailable; you can still select it.
+Saved selections that are no longer available stay visible.
+
+Use the arrow keys and Enter to select, or click a model. Escape dismisses the
+switcher without changing the draft. This is the quick session switcher, separate
+from the Models management page.
+
 ## Custom models
 
-On web and desktop, use Settings → Providers → **Models** to add an unlisted model with a custom
-name and options. Only options supported by the provider integration affect turns. Antigravity
-uses its account catalog and does not support custom models.
+NeoPi owns the model catalog and role configuration. Use **Settings → Models** to
+inspect the catalog and manage native model roles. Configure an unlisted model
+in NeoPi rather than adding a separate NeoCode runtime.
 
-The filter searches the provider's full catalog, including models outside the
-visible rows. Favorites, ordering and hidden-model preferences apply to the
-whole catalog. Adding a custom model brings its row into view.
+The switcher's filter searches the native catalog, including models outside the
+visible rows. Missing catalog facts remain unknown instead of being filled with
+invented limits or prices.
 
 ## Model defaults
 

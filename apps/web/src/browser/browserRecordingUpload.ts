@@ -1,10 +1,10 @@
+import { workspaceResourceId, type WorkspaceRef } from "@t3tools/client-runtime/environment";
 import {
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   PreviewAutomationRecordingTransferError,
   PreviewAutomationRecordingTooLargeError,
   PreviewAutomationRecordingDeadlineExpiredError,
   type DesktopPreviewRecordingArtifact,
-  type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
 import {
@@ -18,11 +18,13 @@ import { readPreparedConnection } from "~/state/session";
 
 /** Sends the finished encoded file once; capture frames never cross the environment connection. */
 export async function uploadBrowserRecording(
-  { environmentId, threadId }: ScopedThreadRef,
+  threadRef: WorkspaceRef,
   artifact: DesktopPreviewRecordingArtifact,
   blob: Blob,
   deadlineMs: number,
 ): Promise<string> {
+  const { environmentId } = threadRef;
+  const threadId = workspaceResourceId(threadRef);
   if (blob.size > PROVIDER_SEND_TURN_MAX_FILE_BYTES) {
     throw new PreviewAutomationRecordingTooLargeError({ threadId });
   }

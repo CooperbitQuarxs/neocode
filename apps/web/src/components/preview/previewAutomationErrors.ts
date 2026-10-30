@@ -9,7 +9,6 @@ import {
   type PreviewAutomationRequest,
   type PreviewAutomationResponse,
   PreviewTabId,
-  ThreadId,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -27,7 +26,7 @@ export class PreviewAutomationOverlayTimeoutError extends Schema.TaggedError<Pre
   {
     requestId: TrimmedNonEmptyString,
     environmentId: EnvironmentId,
-    threadId: ThreadId,
+    threadId: TrimmedNonEmptyString,
     timeoutMs: Schema.Int,
   },
 ) {
@@ -45,7 +44,7 @@ export class PreviewAutomationNavigationTimeoutError extends Schema.TaggedError<
   {
     requestId: TrimmedNonEmptyString,
     environmentId: EnvironmentId,
-    threadId: ThreadId,
+    threadId: TrimmedNonEmptyString,
     tabId: PreviewTabId,
     readiness: Schema.Literals(["domContentLoaded", "load"]),
     timeoutMs: Schema.Int,
@@ -65,7 +64,7 @@ export class PreviewAutomationViewportTimeoutError extends Schema.TaggedError<Pr
   {
     requestId: TrimmedNonEmptyString,
     environmentId: EnvironmentId,
-    threadId: ThreadId,
+    threadId: TrimmedNonEmptyString,
     tabId: PreviewTabId,
     timeoutMs: Schema.Int,
   },
@@ -85,7 +84,7 @@ export class PreviewAutomationTargetUnavailableError extends Schema.TaggedError<
     requestId: TrimmedNonEmptyString,
     operation: PreviewAutomationOperation,
     environmentId: EnvironmentId,
-    threadId: ThreadId,
+    threadId: TrimmedNonEmptyString,
     tabId: Schema.NullOr(PreviewTabId),
     bridgeAvailable: Schema.Boolean,
   },
@@ -104,7 +103,7 @@ export class PreviewAutomationRecordingNotActiveError extends Schema.TaggedError
   {
     requestId: TrimmedNonEmptyString,
     environmentId: EnvironmentId,
-    threadId: ThreadId,
+    threadId: TrimmedNonEmptyString,
     tabId: Schema.NullOr(PreviewTabId),
   },
 ) {
@@ -123,7 +122,7 @@ export class PreviewAutomationTargetNotEditableHostError extends Schema.TaggedEr
     requestId: TrimmedNonEmptyString,
     operation: PreviewAutomationOperation,
     environmentId: EnvironmentId,
-    threadId: ThreadId,
+    threadId: TrimmedNonEmptyString,
     tabId: Schema.NullOr(PreviewTabId),
     selectorKind: Schema.optional(Schema.Literals(["focused-element", "locator", "selector"])),
     selectorLength: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
@@ -178,7 +177,7 @@ export class PreviewAutomationOperationError extends Schema.TaggedError<PreviewA
     requestId: TrimmedNonEmptyString,
     operation: PreviewAutomationOperation,
     environmentId: EnvironmentId,
-    threadId: ThreadId,
+    threadId: TrimmedNonEmptyString,
     tabId: Schema.NullOr(PreviewTabId),
     cause: Schema.Defect(),
   },

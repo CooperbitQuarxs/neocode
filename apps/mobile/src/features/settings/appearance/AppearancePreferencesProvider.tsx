@@ -33,6 +33,7 @@ import {
   createMobileThemeSelectionPatch,
   normalizeMobileThemeMode,
   resolveMobileThemeIds,
+  resolveMobileNeoPiTheme,
   type MobileThemeAppearance,
   type MobileThemeId,
   type MobileThemeIds,
@@ -51,6 +52,7 @@ interface AppearancePreferencesContextValue {
   readonly themeIds: MobileThemeIds;
   readonly themeMode: MobileThemeMode;
   readonly themeAppearance: MobileThemeAppearance;
+  readonly neoPiThemeNames: Readonly<Record<MobileThemeAppearance, string | null>>;
   readonly systemColorsAvailable: boolean;
   readonly systemColorsActive: boolean;
   readonly themeVariables: MobileThemeVariables;
@@ -94,7 +96,14 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
     [resolvedThemeIds.dark, resolvedThemeIds.light],
   );
   const themeId = themeIds[themeAppearance];
-  const systemColorsActive = themeId === "material-you" && isSystemColorsAvailable;
+  const lightNeoPiTheme = resolveMobileNeoPiTheme(storedPreferences, "light");
+  const darkNeoPiTheme = resolveMobileNeoPiTheme(storedPreferences, "dark");
+  const neoPiThemeNames = useMemo(
+    () => ({ light: lightNeoPiTheme?.name ?? null, dark: darkNeoPiTheme?.name ?? null }),
+    [lightNeoPiTheme?.name, darkNeoPiTheme?.name],
+  );
+  const systemColorsActive =
+    themeId === "material-you" && !neoPiThemeNames[themeAppearance] && isSystemColorsAvailable;
   const [systemColorPalettes, setSystemColorPalettes] = useState(readSystemColorPalettes);
   useEffect(() => {
     if (!isSystemColorsAvailable) return;
@@ -115,6 +124,8 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
   }, []);
   const themeVariablesByAppearance = useMemo(() => {
     const resolve = (appearance: MobileThemeAppearance) => {
+      const localNeoPiTheme = appearance === "dark" ? darkNeoPiTheme : lightNeoPiTheme;
+      if (localNeoPiTheme) return localNeoPiTheme.variables;
       const base = getMobileThemeRuntimeVariables(themeIds[appearance], appearance, Platform.OS);
       return themeIds[appearance] === "material-you" && systemColorPalettes
         ? materialYouPaletteToMobileThemeVariables(
@@ -125,7 +136,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
         : base;
     };
     return { light: resolve("light"), dark: resolve("dark") };
-  }, [themeIds, systemColorPalettes]);
+  }, [themeIds, systemColorPalettes, lightNeoPiTheme, darkNeoPiTheme]);
   const themeVariables = themeVariablesByAppearance[themeAppearance];
   const activeThemeName = getMobileUniwindThemeName(themeId, themeAppearance);
   const { baseFontSize, codeFontSize, codeWordBreak, terminalFontSize } = preferences;
@@ -279,6 +290,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       themeIds,
       themeMode,
       themeAppearance,
+      neoPiThemeNames,
       systemColorsAvailable: isSystemColorsAvailable,
       systemColorsActive,
       themeVariables,
@@ -299,6 +311,7 @@ export function AppearancePreferencesProvider(props: { readonly children: ReactN
       themeIds,
       themeMode,
       themeAppearance,
+      neoPiThemeNames,
       systemColorsActive,
       themeVariables,
       themeVariablesByAppearance,

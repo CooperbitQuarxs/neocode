@@ -1,4 +1,4 @@
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 
 export interface TerminalGridSize {
   readonly cols: number;
@@ -7,7 +7,7 @@ export interface TerminalGridSize {
 
 export interface TerminalUiStateTarget {
   readonly environmentId: EnvironmentId;
-  readonly threadId: ThreadId;
+  readonly threadId: string;
   readonly terminalId: string;
 }
 

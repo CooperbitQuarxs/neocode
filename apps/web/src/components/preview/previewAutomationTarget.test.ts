@@ -1,10 +1,12 @@
-import type { PreviewSessionSnapshot } from "@t3tools/contracts";
+import { EnvironmentId, ProviderInstanceId, type PreviewSessionSnapshot } from "@t3tools/contracts";
+import { workspaceResourceId } from "@t3tools/client-runtime/environment";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   needsPreviewAutomationSessionSync,
   resolvePreviewAutomationOpenTab,
   resolvePreviewAutomationTarget,
+  resolvePreviewAutomationWorkspace,
 } from "./previewAutomationTarget";
 
 const snapshot = (tabId: string): PreviewSessionSnapshot => ({
@@ -55,5 +57,41 @@ describe("preview automation target selection", () => {
     expect(resolvePreviewAutomationOpenTab(state, agentTab.tabId, true)).toBe(agentTab.tabId);
     expect(resolvePreviewAutomationOpenTab(state, undefined, true)).toBe(uiActive.tabId);
     expect(resolvePreviewAutomationOpenTab(state, agentTab.tabId, false)).toBeNull();
+  });
+});
+
+describe("preview automation workspace authority", () => {
+  const environmentId = EnvironmentId.make("native-environment");
+  const target = {
+    environmentId,
+    ref: {
+      providerInstanceId: ProviderInstanceId.make("profile-a"),
+      sessionFile: "/sessions/canonical.jsonl",
+    },
+  };
+
+  it("requires canonical identity matching the native resource namespace", () => {
+    const threadId = workspaceResourceId(target);
+    expect(
+      resolvePreviewAutomationWorkspace(environmentId, { threadId, sessionRef: target.ref }),
+    ).toEqual(target);
+    expect(resolvePreviewAutomationWorkspace(environmentId, { threadId })).toBeNull();
+    expect(
+      resolvePreviewAutomationWorkspace(environmentId, {
+        threadId,
+        sessionRef: { ...target.ref, sessionFile: "/sessions/other.jsonl" },
+      }),
+    ).toBeNull();
+  });
+
+  it("retains genuine legacy targets without treating native metadata keys as SQL ids", () => {
+    expect(resolvePreviewAutomationWorkspace(environmentId, { threadId: "legacy-thread" })).toEqual(
+      { environmentId, threadId: "legacy-thread" },
+    );
+    expect(
+      resolvePreviewAutomationWorkspace(environmentId, {
+        threadId: `native:${JSON.stringify(target.ref)}`,
+      }),
+    ).toBeNull();
   });
 });

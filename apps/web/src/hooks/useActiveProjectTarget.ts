@@ -1,25 +1,53 @@
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import { scopeThreadRef, type WorkspaceRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentId } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
+import { useLocation } from "@tanstack/react-router";
+import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { nativeSessionAtoms, useNativeSessionSelection } from "~/state/neopiNativeSessions";
 
 import { useProjects } from "~/state/entities";
 
 import { useHandleNewThread } from "./useHandleNewThread";
 
+const noNativeWorkspaceAtom = Atom.make(null);
+
 export interface ActiveProjectTarget {
   readonly environmentId: EnvironmentId;
   readonly cwd: string;
   readonly projectName: string;
-  readonly threadRef: ScopedThreadRef;
+  readonly threadRef: WorkspaceRef;
 }
 
-/**
- * Resolves the project workspace behind the active thread (or draft) so
- * project-scoped surfaces like the file picker and content search know which
- * workspace to query and which thread's right panel opens their results.
- */
+/** Resolves a real workspace for file navigation; a native session needs no project record. */
 export function useActiveProjectTarget(): ActiveProjectTarget | null {
   const { activeDraftThread, activeThread } = useHandleNewThread();
   const projects = useProjects();
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const selection = useNativeSessionSelection((state) => state.target);
+  const nativeTarget = pathname === "/" ? selection : null;
+  const nativeResult = useAtomValue(
+    nativeTarget
+      ? nativeSessionAtoms.watch({
+          environmentId: nativeTarget.environmentId,
+          input: { ref: nativeTarget.ref },
+        })
+      : noNativeWorkspaceAtom,
+  );
+  if (nativeTarget) {
+    const feed =
+      nativeResult && AsyncResult.isSuccess(nativeResult)
+        ? nativeResult.value
+        : nativeSessionAtoms.cached(nativeTarget);
+    const cwd = feed?.session?.cwd;
+    return cwd
+      ? {
+          environmentId: nativeTarget.environmentId,
+          cwd,
+          projectName: cwd.split(/[\\/]/).at(-1) || cwd,
+          threadRef: nativeTarget,
+        }
+      : null;
+  }
   const thread = activeThread ?? activeDraftThread;
   const threadId = activeThread?.id ?? activeDraftThread?.threadId;
   const project = thread
