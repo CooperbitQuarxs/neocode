@@ -6,6 +6,7 @@ import {
   type NeoPiModelsTarget,
   type NeoPiModelsUpdate,
   type NeoPiModelsAuthState,
+  type NeoPiModelsAuthRespond,
   type NeoPiNativeSessionRef,
   type NeoPiNativeSessionsError,
 } from "@t3tools/contracts";
@@ -243,10 +244,25 @@ export const makeNativeModelsAuth = Effect.fn("makeNativeModelsAuth")(function* 
                 return {
                   ...current,
                   prompt: {
+                    kind: "input" as const,
                     id: frame.id,
                     title: frame.title,
                     placeholder: typeof frame.placeholder === "string" ? frame.placeholder : null,
                     secret: frame.secret === true,
+                  },
+                };
+              if (
+                frame.method === "confirm" &&
+                typeof frame.title === "string" &&
+                typeof frame.message === "string"
+              )
+                return {
+                  ...current,
+                  prompt: {
+                    kind: "confirm" as const,
+                    id: frame.id,
+                    title: frame.title,
+                    message: frame.message,
                   },
                 };
               if (frame.method === "cancel" && frame.targetId === current.prompt?.id)
@@ -257,7 +273,14 @@ export const makeNativeModelsAuth = Effect.fn("makeNativeModelsAuth")(function* 
           Effect.forkIn(scope, { startImmediately: true, uninterruptible: false }),
         );
         const login = yield* native
-          .request({ type: "login", providerId: input.providerId, id: flowId })
+          .request({
+            type: "login",
+            providerId: input.providerId,
+            id: flowId,
+            // Host capabilities only; consent still requires a correlated boolean confirmation.
+            allowSecretInput: true,
+            allowTrustConfirmation: true,
+          })
           .pipe(
             Effect.matchEffect({
               onSuccess: () => settleAuth(state, "complete", "Account saved"),
@@ -310,18 +333,28 @@ export const makeNativeModelsAuth = Effect.fn("makeNativeModelsAuth")(function* 
         );
       }),
     ).pipe(Stream.mapError(modelError));
-  const respondAuth = (input: { flowId: string; requestId: string; value: string }) =>
+  const respondAuth = (input: typeof NeoPiModelsAuthRespond.Type) =>
     Effect.gen(function* () {
       const flow = yield* requireFlow(input.flowId);
+      yield* flow.connection.validate;
       const current = yield* SubscriptionRef.get(flow.state);
       if (current.status !== "running" || current.prompt?.id !== input.requestId)
         return yield* new NeoPiModelsError({
           message: "The native login prompt changed. Use its current prompt.",
         });
-      yield* flow.connection.validate;
-      yield* flow.connection
-        .respondUi({ id: input.requestId, value: input.value })
-        .pipe(Effect.mapError(modelError));
+      const response =
+        current.prompt.kind === "input" && "value" in input && typeof input.value === "string"
+          ? { id: input.requestId, value: input.value }
+          : current.prompt.kind === "confirm" &&
+              "confirmed" in input &&
+              typeof input.confirmed === "boolean"
+            ? { id: input.requestId, confirmed: input.confirmed }
+            : null;
+      if (response === null)
+        return yield* new NeoPiModelsError({
+          message: "Answer this native login prompt using its requested input or confirmation.",
+        });
+      yield* flow.connection.respondUi(response).pipe(Effect.mapError(modelError));
       yield* SubscriptionRef.update(flow.state, (state) =>
         state.prompt?.id === input.requestId ? { ...state, prompt: null } : state,
       );

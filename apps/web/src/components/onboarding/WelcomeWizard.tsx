@@ -30,11 +30,14 @@ import { useEnvironments, usePrimaryEnvironment } from "../../state/environments
 import { isOnboardingRelayEnvironment } from "../../onboarding/targetEnvironment.logic";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useEnvironmentQuery } from "../../state/query";
 import { connectPairing } from "../../connection/onboarding";
 import { getProviderSummary } from "../settings/providerStatus";
 import { getDriverOption } from "../settings/providerDriverMeta";
 import { CloudEnvironmentConnectRows } from "../cloud/CloudEnvironmentConnectList";
 import { NeoPiInstallHelp } from "../neopi/NeoPiInstallHelp";
+import { NativeAuthFlow } from "../neopi/NativeAuthFlow";
+import { neopiModels } from "../neopi/modelsPageState";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
@@ -628,6 +631,7 @@ function ConnectedAgentsStep({
     <section>
       <h2 className="mb-2 text-sm font-medium">{machineLabel}</h2>
       <AgentCard
+        environmentId={environmentId}
         provider={byDriver.get("neopi")}
         environmentLabel={machineLabel}
         onOpenSettings={onOpenSettings}
@@ -637,10 +641,12 @@ function ConnectedAgentsStep({
 }
 
 function AgentCard({
+  environmentId,
   provider,
   environmentLabel,
   onOpenSettings,
 }: {
+  readonly environmentId: EnvironmentId;
   readonly provider: ServerProvider | undefined;
   readonly environmentLabel: string;
   readonly onOpenSettings: (instanceId?: ProviderInstanceId) => void;
@@ -678,7 +684,14 @@ function AgentCard({
           )}
         </div>
       </div>
-      {providerState !== "ready" && providerState !== "checking" ? (
+      {provider && (providerState === "ready" || providerState === "signIn") ? (
+        <NeoProxyOnboardingConnection
+          key={provider.instanceId}
+          environmentId={environmentId}
+          provider={provider}
+          onOpenSettings={() => onOpenSettings(provider.instanceId)}
+        />
+      ) : providerState !== "ready" && providerState !== "checking" ? (
         <>
           {providerState === "install" ? (
             <NeoPiInstallHelp environmentLabel={environmentLabel} />
@@ -688,6 +701,162 @@ function AgentCard({
           </Button>
         </>
       ) : null}
+    </div>
+  );
+}
+
+function NeoProxyOnboardingConnection({
+  environmentId,
+  provider,
+  onOpenSettings,
+}: {
+  environmentId: EnvironmentId;
+  provider: ServerProvider;
+  onOpenSettings: () => void;
+}) {
+  const target = useMemo(
+    () => ({ providerInstanceId: provider.instanceId }),
+    [provider.instanceId],
+  );
+  const catalog = useEnvironmentQuery(neopiModels.changes({ environmentId, input: target }));
+  const startAuth = useAtomCommand(neopiModels.startAuth, { reportFailure: false });
+  const cancelAuth = useAtomCommand(neopiModels.cancelAuth, { reportFailure: false });
+  const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
+    reportFailure: false,
+  });
+  const [flowId, setFlowId] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [connectedByFlow, setConnectedByFlow] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const mounted = useRef(false);
+  const startingRef = useRef(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const regionRef = useRef<HTMLDivElement>(null);
+  const restoreFocus = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (flowId !== null || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    if (triggerRef.current) triggerRef.current.focus();
+    else regionRef.current?.focus();
+  }, [flowId]);
+  const configuration = catalog.isSuccess && !catalog.isPending ? catalog.data : null;
+  const neoProxy = configuration?.providers.find((entry) => entry.id === "neoproxy");
+  const connected = connectedByFlow || neoProxy?.authenticated === true;
+  const needsConnection =
+    provider.auth.status === "unauthenticated" ||
+    (configuration !== null && !configuration.models.some((model) => model.available));
+  const canConnect = neoProxy?.loginProviders.some((method) => method.available) === true;
+  const connectedEmpty =
+    neoProxy?.authenticated === true &&
+    configuration !== null &&
+    !configuration.models.some((model) => model.provider === "neoproxy" && model.available);
+  const login = async () => {
+    if (startingRef.current || flowId !== null) return;
+    startingRef.current = true;
+    setStarting(true);
+    setError(null);
+    const result = await startAuth({
+      environmentId,
+      input: { target, providerId: "neoproxy" },
+    });
+    startingRef.current = false;
+    if (!mounted.current) {
+      if (result._tag === "Success") void cancelAuth({ environmentId, input: result.value });
+      return;
+    }
+    setStarting(false);
+    if (result._tag === "Failure") setError(String(squashAtomCommandFailure(result)));
+    else setFlowId(result.value.flowId);
+  };
+  if (configuration && !needsConnection && !connected && !flowId && !error) return null;
+  return (
+    <div ref={regionRef} tabIndex={-1} className="space-y-3">
+      {flowId ? (
+        <NativeAuthFlow
+          key={flowId}
+          variant="card"
+          environmentId={environmentId}
+          flowId={flowId}
+          providerId="neoproxy"
+          title="Connecting to NeoProxy"
+          finish={(status, message) => {
+            restoreFocus.current = true;
+            setFlowId(null);
+            if (status === "complete") {
+              setConnectedByFlow(true);
+              catalog.refresh();
+              void refreshProviders({ environmentId, input: {} });
+            } else if (status === "failed") {
+              setError(
+                message ??
+                  "Couldn't connect to NeoProxy. Check the address and your member key, then try again.",
+              );
+            }
+          }}
+        />
+      ) : (
+        <>
+          {connected ? (
+            <p role="status" className="flex items-center gap-1.5 text-xs text-success-foreground">
+              <CheckIcon className="size-3.5" />
+              Connected
+            </p>
+          ) : configuration ? (
+            <p className="text-xs text-muted-foreground">
+              Enter your server address and member key. Your administrator gives you both.
+            </p>
+          ) : catalog.isPending ? (
+            <p role="status" className="text-xs text-muted-foreground">
+              Checking available providers…
+            </p>
+          ) : null}
+          {connectedEmpty ? (
+            <p className="text-xs text-muted-foreground">
+              Connected, but no models are available to this member. Ask your administrator to grant
+              access, then refresh.
+            </p>
+          ) : null}
+          {error || catalog.error ? (
+            <p role="alert" className="text-xs text-destructive">
+              {error ?? catalog.error}
+            </p>
+          ) : null}
+          {configuration && needsConnection && !canConnect && !connected ? (
+            <p className="text-xs text-muted-foreground">
+              NeoProxy connection is not available in this NeoPi runtime. Update NeoPi or open its
+              settings.
+            </p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {!connected && canConnect ? (
+              <Button ref={triggerRef} size="sm" disabled={starting} onClick={() => void login()}>
+                {starting ? "Connecting…" : "Connect to NeoProxy"}
+              </Button>
+            ) : null}
+            {connectedEmpty || catalog.error ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  catalog.refresh();
+                  void refreshProviders({ environmentId, input: {} });
+                }}
+              >
+                Refresh
+              </Button>
+            ) : null}
+            <Button variant="outline" size="sm" onClick={onOpenSettings}>
+              Open NeoPi settings
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -56,6 +56,23 @@ effective context budget; missing facts show Unknown. Searching requires a
 native executable advertising `model_selector`. Query errors are shown in the
 picker instead of falling back to a different search.
 
+### Connect to NeoProxy
+
+Choose **Connect to NeoProxy** in **Settings → Providers**, or during first-run
+NeoPi setup. Select the computer and NeoPi runtime you intend to use, then enter
+the server address and your member key from your administrator. You do not need
+an upstream-provider account or a project folder.
+
+If NeoPi asks you to verify a certificate, compare the complete fingerprints and
+server address with your administrator before accepting. Decline if they do not
+match or you cannot verify them. NeoPi keeps the member key and any accepted
+certificate trust with that provider credential, not in a separate NeoCode vault
+or your system-wide trust store.
+
+A successful connection can have no available models yet. Ask your administrator
+to grant models to your member, then refresh Providers; do not sign in to an
+upstream provider to resolve missing grants.
+
 ## Upstream command line
 
 ```bash

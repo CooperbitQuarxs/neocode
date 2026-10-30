@@ -53,7 +53,6 @@ import {
 import { Group } from "../ui/group";
 import { Input } from "../ui/input";
 import { InputGroup, InputGroupInput } from "../ui/input-group";
-import { Kbd } from "../ui/kbd";
 import { Textarea } from "../ui/textarea";
 import {
   Menu,
@@ -85,6 +84,7 @@ import {
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { neopiModels, useModelsPageTarget } from "./modelsPageState";
 import { NeoPiModelsSelector } from "./NeoPiModelsSelector";
+import { NativeAuthFlow } from "./NativeAuthFlow";
 import {
   MODEL_EFFORTS,
   isModelRulePattern,
@@ -140,7 +140,7 @@ function ModelsSnapshot({
 }: {
   environmentId: EnvironmentId;
   target: NeoPiModelsTarget;
-  children: (configuration: Configuration, refresh: () => void) => ReactNode;
+  children: (configuration: Configuration, refresh: () => void, catalogReady: boolean) => ReactNode;
 }) {
   const atom = neopiModels.changes({ environmentId, input: target });
   const result = useAtomValue(atom);
@@ -160,7 +160,7 @@ function ModelsSnapshot({
       </SettingsSection>
     );
   if (!AsyncResult.isSuccess(result) || result.value === null) return <ModelsLoading />;
-  return children(result.value, refresh);
+  return children(result.value, refresh, !result.waiting);
 }
 
 function ProviderRailRow({
@@ -369,7 +369,7 @@ export function NeoPiModelsPage() {
         <SettingsPageContainer>
           {state.target && state.environmentId && state.provider ? (
             <ModelsSnapshot environmentId={state.environmentId} target={state.target}>
-              {(configuration, refresh) => (
+              {(configuration, refresh, catalogReady) => (
                 <ModelsContent
                   key={JSON.stringify([state.environmentId, state.target])}
                   state={state}
@@ -377,6 +377,7 @@ export function NeoPiModelsPage() {
                   target={state.target!}
                   provider={state.provider!}
                   configuration={configuration}
+                  catalogReady={catalogReady}
                   refresh={refresh}
                   scope={scope}
                   setScope={setScope}
@@ -496,6 +497,7 @@ function ModelsContent({
   provider: connection,
   configuration: snapshot,
   refresh,
+  catalogReady,
   scope,
   setScope,
 }: {
@@ -505,6 +507,7 @@ function ModelsContent({
   provider: ServerProvider;
   configuration: Configuration;
   refresh: () => void;
+  catalogReady: boolean;
   scope: Scope;
   setScope: (scope: Scope) => void;
 }) {
@@ -623,6 +626,10 @@ function ModelsContent({
               target={target}
               connectedOwner={state.connectedOwner}
               provider={provider}
+              hasAvailableCatalogModels={configuration.models.some(
+                (model) => model.provider === provider.id && model.available,
+              )}
+              catalogReady={catalogReady}
               refresh={refresh}
               save={save}
               pending={pending}
@@ -1731,11 +1738,41 @@ function RulesView({
   );
 }
 
+const providerAccountWords = (providerId: string) =>
+  providerId === "neoproxy"
+    ? {
+        idle: "Not connected",
+        idleHint: "Enter your server address and member key. Your administrator gives you both.",
+        start: "Connect to NeoProxy",
+        add: "Add server",
+        flowTitle: "Connecting to NeoProxy",
+        connected: "Connected",
+        disconnect: "Disconnect",
+        done: (label: string) => `Connected to ${label}`,
+        cancelled: "Connection cancelled",
+        failed:
+          "Couldn't connect to NeoProxy. Check the address and your member key, then try again.",
+      }
+    : {
+        idle: "Not signed in",
+        idleHint: `Sign in to use ${providerId} models.`,
+        start: "Sign in",
+        add: "Add account",
+        flowTitle: "Sign in",
+        connected: "Signed in",
+        disconnect: "Sign out",
+        done: (label: string) => `Signed in as ${label}`,
+        cancelled: "Sign-in cancelled",
+        failed: "Sign-in failed. Try again.",
+      };
+
 function ProviderAccounts({
   environmentId,
   target,
   connectedOwner,
   provider,
+  hasAvailableCatalogModels,
+  catalogReady,
   pending,
   refresh,
   save,
@@ -1744,10 +1781,14 @@ function ProviderAccounts({
   target: NeoPiModelsTarget;
   connectedOwner: boolean;
   provider: Provider;
+  hasAvailableCatalogModels: boolean;
+  catalogReady: boolean;
   pending: boolean;
   refresh: () => void;
   save: Save;
 }) {
+  const isNeoProxy = provider.id === "neoproxy";
+  const words = providerAccountWords(provider.id);
   const accountsCommand = useAtomCommand(neopiModels.accounts, { reportFailure: false });
   const startAuth = useAtomCommand(neopiModels.startAuth, { reportFailure: false });
   const cancelAuth = useAtomCommand(neopiModels.cancelAuth, { reportFailure: false });
@@ -1760,6 +1801,7 @@ function ProviderAccounts({
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(false);
   const loadAccounts = useCallback(async () => {
+    setLoading(true);
     const result = await accountsCommand({
       environmentId,
       input: { target, providerId: provider.id },
@@ -1767,6 +1809,7 @@ function ProviderAccounts({
     if (!mounted.current) return null;
     setLoading(false);
     if (result._tag === "Failure") {
+      setAccountsReady(false);
       setError(String(squashAtomCommandFailure(result)));
       return null;
     }
@@ -1785,7 +1828,10 @@ function ProviderAccounts({
   const login = async (providerId: string) => {
     setStarting(true);
     setError(null);
-    const result = await startAuth({ environmentId, input: { target, providerId } });
+    const result = await startAuth({
+      environmentId,
+      input: { target, providerId: isNeoProxy ? "neoproxy" : providerId },
+    });
     if (!mounted.current) {
       if (result._tag === "Success") void cancelAuth({ environmentId, input: result.value });
       return;
@@ -1804,7 +1850,8 @@ function ProviderAccounts({
           void login(methods[0]!.id);
         }}
       >
-        {starting ? <Spinner /> : null}Sign in
+        {starting ? <Spinner /> : null}
+        {words.start}
       </Button>
       {methods.length > 1 ? (
         <Menu>
@@ -1865,7 +1912,7 @@ function ProviderAccounts({
     <SettingsSection
       title="Account"
       icon={
-        <PolicyTooltip>{`Stored in NeoPi. Environment variables: ${provider.envVars.join(", ") || "none"}.`}</PolicyTooltip>
+        <PolicyTooltip>{`Stored in NeoPi${isNeoProxy ? ", scoped to this server" : ""}. Environment variables: ${provider.envVars.join(", ") || "none"}.`}</PolicyTooltip>
       }
       headerAction={
         accounts.length > 0 && methods.length > 0 ? (
@@ -1879,7 +1926,7 @@ function ProviderAccounts({
                 />
               }
             >
-              Add account
+              {words.add}
             </MenuTrigger>
             <MenuPopup>
               {methods.map((method) => (
@@ -1910,7 +1957,7 @@ function ProviderAccounts({
               status={
                 <span className="flex items-center gap-1.5">
                   <span className="size-1.5 rounded-full bg-success" />
-                  Signed in
+                  {words.connected}
                   {account.active ? (
                     <Badge size="sm" variant="secondary">
                       In use
@@ -1966,7 +2013,7 @@ function ProviderAccounts({
                         });
                       }}
                     >
-                      Sign out
+                      {words.disconnect}
                     </MenuItem>
                   </MenuPopup>
                 </Menu>
@@ -1975,15 +2022,13 @@ function ProviderAccounts({
           ))}
           {accounts.length === 0 && !flowId ? (
             <SettingsRow
-              title={provider.authenticated ? "API key" : "Not signed in"}
-              description={
-                provider.authenticated ? undefined : `Sign in to use ${provider.id} models.`
-              }
+              title={provider.authenticated ? (isNeoProxy ? "NeoProxy" : "API key") : words.idle}
+              description={provider.authenticated ? undefined : words.idleHint}
               status={
                 provider.authenticated ? (
                   <span className="flex items-center gap-1.5">
                     <span className="size-1.5 rounded-full bg-success" />
-                    Signed in
+                    {words.connected}
                   </span>
                 ) : undefined
               }
@@ -1991,20 +2036,13 @@ function ProviderAccounts({
             />
           ) : null}
           {flowId ? (
-            <NativeLogin
+            <NativeAuthFlow
               environmentId={environmentId}
               flowId={flowId}
-              title={
-                accounts.length === 0
-                  ? provider.authenticated
-                    ? "API key"
-                    : "Not signed in"
-                  : "Sign in"
-              }
+              providerId={provider.id}
+              title={words.flowTitle}
               description={
-                accounts.length === 0 && !provider.authenticated
-                  ? `Sign in to use ${provider.id} models.`
-                  : undefined
+                accounts.length === 0 && !provider.authenticated ? words.idleHint : undefined
               }
               finish={async (status, message) => {
                 setFlowId(null);
@@ -2020,21 +2058,47 @@ function ProviderAccounts({
                       )?.label ??
                       next?.find((account) => account.active)?.label ??
                       next?.[0]?.label;
-                    if (label)
-                      toastManager.add({ type: "success", title: `Signed in as ${label}` });
+                    if (label) toastManager.add({ type: "success", title: words.done(label) });
                     refresh();
                   }
                 } else if (status === "cancelled")
-                  toastManager.add({ type: "info", title: "Sign-in cancelled" });
-                else setError(message ?? "Sign-in failed. Try again.");
+                  toastManager.add({ type: "info", title: words.cancelled });
+                else setError(message ?? words.failed);
               }}
             />
           ) : null}
-          {!provider.authenticated && accounts.length === 0 && provider.acceptsKeys ? (
+          {!isNeoProxy &&
+          !provider.authenticated &&
+          accounts.length === 0 &&
+          provider.acceptsKeys ? (
             <SettingsRow
               title="API key"
               description={`Paste a key from your ${provider.id} account.`}
               control={keyControl}
+            />
+          ) : null}
+          {isNeoProxy &&
+          catalogReady &&
+          provider.authenticated &&
+          accounts.length > 0 &&
+          !hasAvailableCatalogModels &&
+          !loading &&
+          error === null ? (
+            <SettingsRow
+              title="Connected, no models yet"
+              description="Connected, but no models are available to this member. Ask your administrator to grant access, then refresh."
+              control={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    refresh();
+                    void loadAccounts();
+                  }}
+                >
+                  Refresh
+                </Button>
+              }
             />
           ) : null}
         </>
@@ -2058,113 +2122,5 @@ function ProviderAccounts({
         />
       ) : null}
     </SettingsSection>
-  );
-}
-
-function NativeLogin({
-  environmentId,
-  flowId,
-  title,
-  description,
-  finish,
-}: {
-  environmentId: EnvironmentId;
-  flowId: string;
-  title: string;
-  description?: string | undefined;
-  finish: (status: "complete" | "cancelled" | "failed", message: string | null) => void;
-}) {
-  const state = useAtomValue(neopiModels.authChanges({ environmentId, input: { flowId } }));
-  const respond = useAtomCommand(neopiModels.respondAuth, { reportFailure: false });
-  const cancel = useAtomCommand(neopiModels.cancelAuth, { reportFailure: false });
-  const [value, setValue] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [cancelling, setCancelling] = useState(false);
-  const finished = useRef(false);
-  const result = AsyncResult.isSuccess(state) ? state.value : null;
-  useEffect(() => {
-    setValue("");
-  }, [result?.prompt?.id]);
-  useEffect(() => {
-    if (finished.current) return;
-    if (AsyncResult.isFailure(state)) {
-      finished.current = true;
-      finish("failed", formatEnvironmentQueryError(state.cause));
-    } else if (result && result.status !== "running") {
-      finished.current = true;
-      finish(result.status, result.message);
-    }
-  }, [state, result, finish]);
-  const url = result?.url && /^https?:\/\//i.test(result.url) ? result.url : null;
-  return (
-    <SettingsRow
-      title={title}
-      description={description}
-      status={error ? <ErrorText>{error}</ErrorText> : (result?.message ?? undefined)}
-      control={
-        <div className="flex items-center gap-1.5">
-          <Spinner size="sm" />
-          <span className="text-xs">Waiting for browser…</span>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={cancelling}
-            onClick={() => {
-              setCancelling(true);
-              void cancel({ environmentId, input: { flowId } }).then((response) => {
-                if (response._tag === "Failure") {
-                  const cause = squashAtomCommandFailure(response);
-                  setError(cause instanceof Error ? cause.message : String(cause));
-                  setCancelling(false);
-                }
-              });
-            }}
-          >
-            Cancel
-          </Button>
-        </div>
-      }
-    >
-      {url ? (
-        <InlineButton render={<a href={url} target="_blank" rel="noreferrer noopener" />}>
-          Open sign-in page
-        </InlineButton>
-      ) : null}
-      {result?.userCode ? <Kbd>{result.userCode}</Kbd> : null}
-      {result?.instructions ? (
-        <p className="whitespace-pre-wrap text-xs text-muted-foreground">{result.instructions}</p>
-      ) : null}
-      {result?.prompt ? (
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            const prompt = result.prompt!;
-            void respond({ environmentId, input: { flowId, requestId: prompt.id, value } }).then(
-              (response) => {
-                if (response._tag === "Failure") {
-                  const cause = squashAtomCommandFailure(response);
-                  setError(cause instanceof Error ? cause.message : String(cause));
-                } else setValue("");
-              },
-            );
-          }}
-        >
-          <label className="text-sm">
-            {result.prompt.title}
-            <Input
-              aria-label={result.prompt.title}
-              autoComplete="off"
-              type={result.prompt.secret ? "password" : "text"}
-              value={value}
-              placeholder={result.prompt.placeholder ?? undefined}
-              onChange={(event) => setValue(event.target.value)}
-            />
-          </label>
-          <Button type="submit" size="sm">
-            Continue
-          </Button>
-        </form>
-      ) : null}
-    </SettingsRow>
   );
 }
