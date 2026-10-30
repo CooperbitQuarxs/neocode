@@ -320,11 +320,7 @@ import {
   useQueuedMessageStore,
 } from "../queuedMessageStore";
 import { sendQueuedMessage } from "./chat/sendQueuedMessage";
-import {
-  restoreFailedSendDraft,
-  takeFailedSendDrafts,
-  type SubmittedComposerDraft,
-} from "./chat/failedSendDraftRecovery";
+import { useFailedSendDraftStore } from "./chat/failedSendDraftRecovery";
 import { type ReviewCommentContext } from "../reviewCommentContext";
 import { environmentCatalog } from "../connection/catalog";
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
@@ -1609,9 +1605,6 @@ export default function ChatView(props: ChatViewProps) {
   }, [draftId, workLocallyResendDraftId]);
   const optimisticUserMessagesRef = useRef(optimisticUserMessages);
   optimisticUserMessagesRef.current = optimisticUserMessages;
-  // Orchestration admission can precede a provider failure. Borrow the draft's Files until
-  // a real turn association; preview URLs keep their existing owner and are cloned on restore.
-  const pendingNativeSendDraftsRef = useRef(new Map<string, Map<string, SubmittedComposerDraft>>());
   const [localDraftErrorsByDraftId, setLocalDraftErrorsByDraftId] = useState<
     Record<string, LocalThreadErrorEntry>
   >({});
@@ -7129,69 +7122,6 @@ export default function ChatView(props: ChatViewProps) {
     });
   };
 
-  const recoverFailedNativeSendDraft = useCallback(
-    (submitted: SubmittedComposerDraft) => {
-      let restored = false;
-      const restore = () => {
-        if (restored) return false;
-        const draft = restoreFailedSendDraft(composerDraftTarget, submitted);
-        if (!draft) return false;
-        restored = true;
-        if (currentRouteThreadKeyRef.current === routeThreadKey) {
-          promptRef.current = draft.prompt;
-          composerImagesRef.current = draft.images;
-          composerFilesRef.current = draft.files;
-          composerTerminalContextsRef.current = draft.terminalContexts;
-          composerRef.current?.resetCursorState({
-            prompt: draft.prompt,
-            cursor: collapseExpandedComposerCursor(draft.prompt, draft.prompt.length),
-            detectTrigger: true,
-          });
-        }
-        return true;
-      };
-      if (restore()) return;
-      const recoveryToastId = toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: "A prompt could not be sent",
-          description:
-            "Your newer draft is unchanged. Restore the failed prompt when its composer is empty.",
-          timeout: 0,
-          actionProps: {
-            children: "Restore prompt",
-            onClick: () => {
-              if (sendInFlightRef.current || !restore()) {
-                toastManager.update(recoveryToastId, {
-                  description:
-                    "Send or clear the original composer's current draft before restoring.",
-                });
-                return;
-              }
-              if (currentRouteThreadKeyRef.current !== routeThreadKey) {
-                void navigate({
-                  to: "/$environmentId/$threadId",
-                  params: buildThreadRouteParams(routeThreadRef),
-                });
-              }
-              toastManager.close(recoveryToastId);
-            },
-          },
-        }),
-      );
-    },
-    [composerDraftTarget, composerRef, navigate, routeThreadKey, routeThreadRef, sendInFlightRef],
-  );
-
-  useEffect(() => {
-    if (!activeThreadKey || !activeThread) return;
-    const pending = pendingNativeSendDraftsRef.current.get(activeThreadKey);
-    if (!pending) return;
-    const failed = takeFailedSendDrafts(pending, activeThread.messages, activeThread.activities);
-    if (pending.size === 0) pendingNativeSendDraftsRef.current.delete(activeThreadKey);
-    for (const submitted of failed) recoverFailedNativeSendDraft(submitted);
-  }, [activeThread, activeThreadKey, recoverFailedNativeSendDraft]);
-
   const onSend = async (
     e?: { preventDefault: () => void },
     submissionIntent: ComposerSubmissionIntent = "foreground",
@@ -8030,13 +7960,9 @@ export default function ChatView(props: ChatViewProps) {
         }),
       );
     }
-    if (nativeConversationBound && activeThreadKey) {
-      let pending = pendingNativeSendDraftsRef.current.get(activeThreadKey);
-      if (!pending) {
-        pending = new Map();
-        pendingNativeSendDraftsRef.current.set(activeThreadKey, pending);
-      }
-      pending.set(messageIdForSend, {
+    const recoveryTarget = nativeConversationBound ? activeThreadRef : null;
+    if (recoveryTarget) {
+      useFailedSendDraftStore.getState().capture(recoveryTarget, messageIdForSend, {
         prompt: messageTextForSend,
         images: composerImagesSnapshot,
         files: composerFilesSnapshot,
@@ -8235,11 +8161,10 @@ export default function ChatView(props: ChatViewProps) {
         failure = startResult;
       } else {
         turnStartSucceeded = true;
-        // The turn is under way and will spend quota, so that thread's limits
-        // snapshot is stale. Uploads may have outlasted a navigation, so only
-        // the sending thread's panel clears.
+        // Admission invalidates the sending thread's limits, even after navigation.
+        // Native recovery still owns uploads until the provider accepts the prompt.
         clearUsageLimitsFor(routeThreadKey);
-        if (turnUsesAttachmentUploads) {
+        if (turnUsesAttachmentUploads && recoveryTarget === null) {
           releaseDraftAttachments(composerAttachmentsSnapshot);
         }
         acknowledgeActiveThreadWoke();
@@ -8272,11 +8197,6 @@ export default function ChatView(props: ChatViewProps) {
     }
 
     if (failure !== null) {
-      const pendingNativeDrafts = activeThreadKey
-        ? pendingNativeSendDraftsRef.current.get(activeThreadKey)
-        : undefined;
-      const submittedNativeDraft = pendingNativeDrafts?.get(messageIdForSend);
-      pendingNativeDrafts?.delete(messageIdForSend);
       if (resolvedSubmissionIntent === "background" && draftId && draftThread) {
         restoreFailedBackgroundDraftThread(
           draftId,
@@ -8287,13 +8207,13 @@ export default function ChatView(props: ChatViewProps) {
         );
         clearBackgroundDraftSubmissionByRef(scopeThreadRef(environmentId, threadIdForSend));
       }
-      if (nativeConversationBound) {
+      if (recoveryTarget) {
         setOptimisticUserMessages((existing) => {
           const removed = existing.filter((message) => message.id === messageIdForSend);
           for (const message of removed) revokeUserMessagePreviewUrls(message);
           return existing.filter((message) => message.id !== messageIdForSend);
         });
-        if (submittedNativeDraft) recoverFailedNativeSendDraft(submittedNativeDraft);
+        useFailedSendDraftStore.getState().fail(recoveryTarget, messageIdForSend);
       } else if (
         backgroundDraftOpened
           ? !composerDraftHasUserContent(

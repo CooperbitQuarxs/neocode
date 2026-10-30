@@ -630,10 +630,6 @@ describe("ProviderCommandReactor", () => {
     };
   }
 
-  ;
-
-  ;
-
   effectIt.effect.each([
     { label: "a command mention", text: "What does /logout do?", attachments: [] },
     {
@@ -684,6 +680,75 @@ describe("ProviderCommandReactor", () => {
         }),
       );
     }),
+  );
+
+  effectIt.effect(
+    "records exact provider acceptance only after send succeeds while the user message keeps a null turnId",
+    () =>
+      Effect.gen(function* () {
+        const enteredSend = yield* Deferred.make<void>();
+        const acceptSend = yield* Deferred.make<void>();
+        const harness = yield* Effect.promise(() => createHarness());
+        const threadId = ThreadId.make("thread-1");
+        const messageId = MessageId.make("provider-acceptance-message");
+        harness.sendTurn.mockImplementation(() =>
+          Deferred.succeed(enteredSend, undefined).pipe(
+            Effect.andThen(Deferred.await(acceptSend)),
+            Effect.as({ threadId, turnId: asTurnId("accepted-provider-turn") }),
+          ),
+        );
+        const accepted = yield* Effect.promise(() =>
+          harness.runEffect(
+            harness.engine.streamDomainEvents.pipe(
+              Stream.filter(
+                (event) =>
+                  event.type === "thread.activity-appended" &&
+                  event.payload.activity.kind === "provider.turn.start.succeeded",
+              ),
+              Stream.take(1),
+              Stream.toPull,
+              Scope.provide(scope!),
+            ),
+          ),
+        );
+        yield* harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-provider-acceptance"),
+          threadId,
+          message: {
+            messageId,
+            role: "user",
+            text: "Keep until provider acceptance",
+            attachments: [],
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        });
+        yield* Deferred.await(enteredSend);
+        const before = (yield* Effect.promise(() => harness.readModel())).threads.find(
+          (thread) => thread.id === threadId,
+        );
+        expect(before?.messages.find((message) => message.id === messageId)?.turnId).toBeNull();
+        expect(
+          before?.activities.some((activity) => activity.kind === "provider.turn.start.succeeded"),
+        ).toBe(false);
+        yield* Deferred.succeed(acceptSend, undefined);
+        yield* Effect.promise(() => harness.runEffect(accepted));
+        yield* Effect.promise(() => harness.drain());
+        const after = (yield* Effect.promise(() => harness.readModel())).threads.find(
+          (thread) => thread.id === threadId,
+        );
+        expect(after?.messages.find((message) => message.id === messageId)?.turnId).toBeNull();
+        expect(
+          after?.activities.filter((activity) => activity.kind === "provider.turn.start.succeeded"),
+        ).toEqual([
+          expect.objectContaining({
+            turnId: asTurnId("accepted-provider-turn"),
+            payload: { requestId: messageId, timelineBypass: true },
+          }),
+        ]);
+      }),
   );
 
   it("reacts to thread.turn.start by ensuring session and sending provider turn", async () => {

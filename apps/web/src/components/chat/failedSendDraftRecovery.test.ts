@@ -4,16 +4,14 @@ import {
   EventId,
   MessageId,
   ThreadId,
-  TurnId,
   type OrchestrationThreadActivity,
 } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
-import type { ChatMessage } from "../../types";
 import {
   restoreFailedSendDraft,
-  takeFailedSendDrafts,
+  useFailedSendDraftStore,
   type SubmittedComposerDraft,
 } from "./failedSendDraftRecovery";
 
@@ -73,15 +71,6 @@ const submitted: SubmittedComposerDraft = {
   ],
   previewAnnotations: [],
 };
-const message = (turnId: ChatMessage["turnId"] = null): ChatMessage => ({
-  id: messageId,
-  role: "user",
-  text: submitted.prompt,
-  turnId,
-  streaming: false,
-  createdAt,
-  updatedAt: createdAt,
-});
 const failure = (requestId: string = messageId): OrchestrationThreadActivity => ({
   id: EventId.make(`failure-${requestId}`),
   tone: "error",
@@ -91,7 +80,16 @@ const failure = (requestId: string = messageId): OrchestrationThreadActivity => 
   turnId: null,
   createdAt,
 });
-const reset = () =>
+const success = (requestId: string = messageId): OrchestrationThreadActivity => ({
+  ...failure(requestId),
+  id: EventId.make(`success-${requestId}`),
+  tone: "info",
+  kind: "provider.turn.start.succeeded",
+  summary: "Provider accepted prompt",
+  payload: { requestId, timelineBypass: true },
+});
+const reset = () => {
+  useFailedSendDraftStore.setState({ submissionsByThreadKey: {} });
   useComposerDraftStore.setState({
     draftsByThreadKey: {},
     draftThreadsByThreadKey: {},
@@ -99,37 +97,40 @@ const reset = () =>
     stickyModelSelectionByProvider: {},
     stickyActiveProvider: null,
   });
+};
 
 beforeEach(reset);
 afterEach(reset);
 
 describe("captured provider send recovery", () => {
   it("keeps an orchestration-accepted submission until its exact provider failure and restores once", async () => {
-    const pending = new Map([[messageId as string, submitted]]);
-    expect(takeFailedSendDrafts(pending, [message()], [])).toEqual([]);
-    expect(pending.size).toBe(1);
-    expect(takeFailedSendDrafts(pending, [message()], [failure("another-message")])).toEqual([]);
-    const [failed] = takeFailedSendDrafts(pending, [message()], [failure()]);
-    expect(failed).toBe(submitted);
-    expect(pending.size).toBe(0);
-    expect(takeFailedSendDrafts(pending, [message()], [failure(), failure()])).toEqual([]);
-
-    const restored = restoreFailedSendDraft(target, failed!);
+    const recovery = useFailedSendDraftStore.getState();
+    recovery.capture(target, messageId, submitted);
+    recovery.reconcile(target, []);
+    expect(recovery.restore(target, messageId)).toBeNull();
+    recovery.reconcile(target, [failure("another-message")]);
+    expect(recovery.restore(target, messageId)).toBeNull();
+    recovery.reconcile(target, [failure()]);
+    const restored = recovery.restore(target, messageId);
     expect(restored?.prompt).toBe(submitted.prompt);
     expect(await restored?.images[0]?.file.text()).toBe("image bytes");
     expect(await restored?.files[0]?.file?.text()).toBe("file bytes");
     expect(restored?.terminalContexts).toEqual(submitted.terminalContexts);
     expect(restored?.reviewComments).toEqual(submitted.reviewComments);
-    expect(restoreFailedSendDraft(target, failed!)).toBeNull();
+    expect(recovery.restore(target, messageId)).toBeNull();
     expect(useComposerDraftStore.getState().getComposerDraft(target)?.images).toHaveLength(1);
     expect(useComposerDraftStore.getState().getComposerDraft(target)?.files).toHaveLength(1);
   });
 
-  it("releases an actually associated successful submission without replaying it on a later failure", () => {
-    const pending = new Map([[messageId as string, submitted]]);
-    expect(takeFailedSendDrafts(pending, [message(TurnId.make("accepted-turn"))], [])).toEqual([]);
-    expect(pending.size).toBe(0);
-    expect(takeFailedSendDrafts(pending, [message()], [failure()])).toEqual([]);
+  it("releases exact successful sends and does not replay a later failure", () => {
+    const recovery = useFailedSendDraftStore.getState();
+    recovery.capture(target, messageId, submitted);
+    recovery.reconcile(target, [success("another-message")]);
+    expect(useFailedSendDraftStore.getState().submissionsByThreadKey).not.toEqual({});
+    recovery.reconcile(target, [success()]);
+    expect(useFailedSendDraftStore.getState().submissionsByThreadKey).toEqual({});
+    recovery.reconcile(target, [failure()]);
+    expect(recovery.restore(target, messageId)).toBeNull();
     expect(useComposerDraftStore.getState().getComposerDraft(target)).toBeNull();
   });
 
@@ -153,12 +154,43 @@ describe("captured provider send recovery", () => {
     expect(store.getComposerDraft(otherTarget)).toBe(other);
   });
 
-  it("does not restore a stale failure when a catch-up snapshot already associates the message", () => {
-    const pending = new Map([[messageId as string, submitted]]);
-    expect(
-      takeFailedSendDrafts(pending, [message(TurnId.make("accepted-turn"))], [failure()]),
-    ).toEqual([]);
-    expect(pending.size).toBe(0);
+  it("prefers a durable success over a stale failure in a catch-up snapshot", () => {
+    const recovery = useFailedSendDraftStore.getState();
+    recovery.capture(target, messageId, submitted);
+    recovery.reconcile(target, [failure(), success()]);
+    expect(useFailedSendDraftStore.getState().submissionsByThreadKey).toEqual({});
+    expect(recovery.restore(target, messageId)).toBeNull();
+  });
+
+  it("does not revisit historical activity on append, but reconciles replacement snapshots", () => {
+    const recovery = useFailedSendDraftStore.getState();
+    recovery.capture(target, messageId, submitted);
+    let historicalReads = 0;
+    const history: OrchestrationThreadActivity = {
+      ...failure("old-message"),
+      get kind() {
+        historicalReads++;
+        return "tool.completed";
+      },
+    };
+    recovery.reconcile(target, [history]);
+    historicalReads = 0;
+    recovery.reconcile(target, [history, failure("other-message")]);
+    expect(historicalReads).toBe(0);
+    // A reconnect can replace all array rows, not merely append.
+    recovery.reconcile(target, [failure(), { ...history }]);
+    expect(recovery.restore(target, messageId)?.prompt).toBe(submitted.prompt);
+  });
+
+  it("isolates identical message ids across environments", () => {
+    const recovery = useFailedSendDraftStore.getState();
+    recovery.capture(target, messageId, submitted);
+    recovery.capture(otherTarget, messageId, { ...submitted, images: [], files: [] });
+    recovery.reconcile(otherTarget, [success()]);
+    recovery.reconcile(target, [failure()]);
+    expect(recovery.restore(otherTarget, messageId)).toBeNull();
+    expect(recovery.restore(target, messageId)?.prompt).toBe(submitted.prompt);
+    expect(useComposerDraftStore.getState().getComposerDraft(otherTarget)).toBeNull();
   });
 
   it("does not overwrite an attachment-only or context-only newer draft", () => {
