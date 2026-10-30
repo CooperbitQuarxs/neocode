@@ -38,6 +38,10 @@ to another settings target. Changes go through NeoPi and retain its
 global/project scope rules; an edit made elsewhere can require a refresh before
 you save.
 
+To assign a model found in **All models** to a role, open the model's row menu
+and choose **Assign to role**. The assignment uses the environment, project and
+global/project scope currently selected in Models.
+
 Provider login, API keys and saved-account removal are handled by NeoPi.
 NeoCode does not keep another credential vault. **Use this account** activates
 an OAuth account for the connected session; it is unavailable without that
