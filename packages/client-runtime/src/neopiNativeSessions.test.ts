@@ -825,6 +825,47 @@ describe("canonical native client projection", () => {
     expect(feed.dialogs).toEqual([]);
   });
 
+  it.each([
+    ["disconnected", true],
+    ["disconnected", false],
+    ["closed", true],
+    ["closed", false],
+  ] as const)(
+    "%s drops obsolete dialogs while preserving pending replay (replay first: %s)",
+    (type, replayFirst) => {
+      const answered = {
+        type: "tool_approval_request",
+        id: "answered-elsewhere",
+        toolName: "bash",
+      };
+      const cancelled = { type: "plan_proposal_request", id: "cancelled-elsewhere", title: "Plan" };
+      const pending = {
+        type: "extension_ui_request",
+        id: "still-pending",
+        method: "input",
+        title: "Name",
+      };
+      let feed = initial();
+      for (const frame of [answered, cancelled, pending])
+        feed = reduceNativeSessionFeed(feed, { type: "event", frame });
+      expect(feed.dialogs).toEqual([answered, cancelled, pending]);
+
+      feed = reduceNativeSessionFeed(
+        feed,
+        type === "closed" ? { type, reason: "Connection closed." } : { type },
+      );
+      expect(feed.dialogs).toEqual([]);
+      const snapshot = { type: "snapshot", session, journal: null } as const;
+      const replay = { type: "event", frame: pending } as const;
+      for (const update of replayFirst ? [replay, snapshot] : [snapshot, replay])
+        feed = reduceNativeSessionFeed(feed, update);
+
+      expect(feed.connected).toBe(true);
+      expect(feed.dialogs).toEqual([pending]);
+      expect(feed.conversation.entries).toEqual([user]);
+    },
+  );
+
   it("keeps bookkeeping inspectable without adding it to ordinary conversation", () => {
     const feed = initial();
     const entries = [

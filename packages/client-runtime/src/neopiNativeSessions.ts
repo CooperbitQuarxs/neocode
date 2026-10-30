@@ -213,6 +213,9 @@ export function reduceNativeSessionFeed(
     return {
       ...feed,
       connected: false,
+      // Pending UI replays independently and may precede the next snapshot.
+      // Retire stale requests here so that snapshot cannot erase a live replay.
+      dialogs: [],
       agents: disconnectNativeSubagents(
         feed.agents,
         feed.agentsRevision + 1,

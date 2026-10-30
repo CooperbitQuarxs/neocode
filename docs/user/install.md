@@ -244,6 +244,8 @@ terminal runtime. Installing a new binary does not update an existing process.
 The conversation follows NeoPi's selected branch, including turns started from
 the terminal. While reconnecting, NeoCode retains the displayed conversation and
 requests a fresh native snapshot without resending your prompt.
+Only requests still pending in NeoPi are shown after reconnect; approvals and
+input requests answered in another window are not shown again.
 Sending a prompt brings the latest content into view. Scrolling back through
 older history stops automatic following until you send again.
 
