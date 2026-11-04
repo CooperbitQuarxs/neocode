@@ -18,6 +18,6 @@ El [panorama general](https://github.com/CooperbitQuarxs/neopi/blob/neopi/docs/p
 
 ## Repositorio y licencia
 
-Este repositorio privado es el espejo para Cooperbit. El desarrollo activo está en [PsychedelicShayna/neocode](https://github.com/PsychedelicShayna/neocode), con sus [pull requests](https://github.com/PsychedelicShayna/neocode/pulls?q=is%3Apr) e [issues](https://github.com/PsychedelicShayna/neocode/issues?q=is%3Aissue). La presencia de código o releases en el espejo no garantiza que cada versión esté aprobada para el equipo. La documentación heredada está en [docs](./docs/README.md).
+Este repositorio de Cooperbit es el espejo para el equipo. El desarrollo activo está en [PsychedelicShayna/neocode](https://github.com/PsychedelicShayna/neocode), con sus [pull requests](https://github.com/PsychedelicShayna/neocode/pulls?q=is%3Apr) e [issues](https://github.com/PsychedelicShayna/neocode/issues?q=is%3Aissue). La presencia de código o releases en el espejo no garantiza que cada versión esté aprobada para el equipo. La documentación heredada está en [docs](./docs/README.md).
 
 El código está bajo licencia **MIT** (ver [LICENSE](./LICENSE)); se conservan los avisos de copyright del código heredado y del proyecto.
