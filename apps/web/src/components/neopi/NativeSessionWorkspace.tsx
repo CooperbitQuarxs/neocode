@@ -391,7 +391,7 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
         className={transcriptRowClassName(item)}
         data-native-entry-id={item.kind === "command" ? undefined : item.entry.id}
       >
-        <NativeTranscriptRowView row={item} />
+        <NativeTranscriptRowView key={item.id} row={item} />
       </div>
     ),
     [],

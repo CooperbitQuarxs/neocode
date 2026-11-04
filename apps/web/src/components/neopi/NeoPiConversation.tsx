@@ -36,10 +36,14 @@ export function NeoPiConversation({
   connected.current = connection?.status === "connected";
   useEffect(() => {
     // The provider's running native session is the only source of its live
-    // messages; the provider state changing is the cue that it was replaced.
-    if (!connected.current) return;
-    const timer = setTimeout(() => refresh(), 0);
-    return () => clearTimeout(timer);
+    // messages. A new or replaced owner means the observer must reattach.
+    if (
+      ownerStatus &&
+      ownerStatus !== "starting" &&
+      ownerStatus !== "stopped" &&
+      !connected.current
+    )
+      refresh();
   }, [ownerStatus, refresh]);
   useNativeDraftIdentity(threadRef, conversation.identity);
   const [pendingResume] = useNativeTreeField(
@@ -95,12 +99,15 @@ export function NeoPiConversation({
         className={transcriptRowClassName(item)}
         data-native-entry-id={item.kind === "command" ? undefined : item.entry.id}
       >
-        <NativeTranscriptRowView row={item} />
+        <NativeTranscriptRowView key={item.id} row={item} />
       </div>
     ),
     [],
   );
   const attached = connection?.status === "connected";
+  const olderAvailable =
+    conversation.identity !== null &&
+    (conversation.cursor !== undefined || conversation.cursorLeaf !== conversation.identity.leafId);
   const status = loading
     ? "Connecting"
     : connection?.ownership === "stopped"
@@ -149,7 +156,7 @@ export function NeoPiConversation({
           {error}
         </p>
       ) : null}
-      {rows.length ? (
+      {rows.length || olderAvailable ? (
         <NativeTranscriptCtx value={transcriptContext}>
           <LegendList
             data={rows}
@@ -163,9 +170,7 @@ export function NeoPiConversation({
             maintainScrollAtEndThreshold={0.1}
             ListHeaderComponent={
               <div className="mx-auto w-full max-w-(--chat-max-width) px-5 pt-3">
-                {conversation.identity &&
-                (conversation.cursor ||
-                  conversation.cursorLeaf !== conversation.identity.leafId) ? (
+                {olderAvailable ? (
                   <Button
                     size="sm"
                     variant="ghost"
@@ -176,6 +181,11 @@ export function NeoPiConversation({
                   </Button>
                 ) : null}
               </div>
+            }
+            ListEmptyComponent={
+              <p className="mx-auto w-full max-w-(--chat-max-width) px-5 py-6 text-sm text-muted-foreground">
+                Nothing to show on this page yet.
+              </p>
             }
             ListFooterComponent={<div style={{ height: composerInset + 16 }} />}
             className="min-h-0 flex-1 overflow-auto"

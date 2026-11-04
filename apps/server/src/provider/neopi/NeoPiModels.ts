@@ -245,7 +245,28 @@ export const makeNativeModelsAuth = Effect.fn("makeNativeModelsAuth")(function* 
             ) {
               const value = pendingServerUrl;
               pendingServerUrl = null;
-              return native.respondUi({ id: frame.id, value }).pipe(Effect.ignore);
+              const promptId = frame.id;
+              // On failure the person gets the prompt back, with the reason, rather than a silent spinner.
+              return native.respondUi({ id: promptId, value }).pipe(
+                Effect.catch((cause) =>
+                  SubscriptionRef.update(state, (current) =>
+                    current.status !== "running"
+                      ? current
+                      : {
+                          ...current,
+                          message: `Could not submit the server address automatically: ${modelError(cause).message}`,
+                          prompt: {
+                            kind: "input" as const,
+                            id: promptId,
+                            title: frame.title as string,
+                            placeholder:
+                              typeof frame.placeholder === "string" ? frame.placeholder : null,
+                            secret: false,
+                          },
+                        },
+                  ),
+                ),
+              );
             }
             return SubscriptionRef.update(state, (current) => {
               if (current.status !== "running") return current;

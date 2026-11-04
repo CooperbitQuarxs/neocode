@@ -41,7 +41,8 @@ export interface UserRow extends RowBase {
 export interface AssistantRow extends RowBase {
   readonly kind: "assistant";
   readonly text: string;
-  /** Last text block of a finished assistant message: meta is shown below it. */
+  readonly images: ReadonlyArray<TranscriptImage>;
+  /** Last prose row of a finished assistant message: meta is shown below it. */
   readonly meta: AssistantMeta | null;
 }
 
@@ -417,9 +418,7 @@ export function projectTranscript(
   const foldSize = options.foldSize ?? FOLD_SIZE;
   const rows: TranscriptRow[] = [];
   const pendingTools = new Map<string, number>();
-  let groupCounter = 0;
   let currentGroup: string | null = null;
-  let lastAssistantIndex = -1;
 
   const appendOutputs = (anchor: string | null) => {
     for (const output of options.commandOutputs?.get(anchor) ?? []) rows.push(output);
@@ -431,15 +430,30 @@ export function projectTranscript(
     if (row.kind !== "tool" && !isWorkFiller(row)) currentGroup = null;
   };
 
-  const openGroup = (seed: string) => {
-    if (!currentGroup) currentGroup = `group:${seed}:${groupCounter++}`;
+  // A group is named after its first work row, so loading older history
+  // above it leaves the id, and the reader's expanded state, untouched.
+  const openGroup = (rowId: string) => {
+    if (!currentGroup) currentGroup = `group:${rowId}`;
     return currentGroup;
   };
+
+  const errorNote = (
+    base: { entry: NeoPiJournalEntry; timestamp: string; live: boolean },
+    meta: AssistantMeta,
+  ): NoteRow => ({
+    ...base,
+    kind: "note",
+    id: `${base.entry.id}:error`,
+    label: meta.stopReason === "aborted" ? "Interrupted" : "Model error",
+    text: meta.errorMessage ?? "",
+    tone: meta.stopReason === "aborted" ? "system" : "error",
+  });
 
   const visitMessage = (entry: NeoPiJournalEntry, live: boolean) => {
     const message = journalRecord(entry.message);
     const base = { entry, timestamp: entry.timestamp, live };
     const role = str(message.role);
+    const before = rows.length;
     if (role === "user") {
       push({
         ...base,
@@ -455,47 +469,41 @@ export function projectTranscript(
     if (role === "assistant") {
       const content = Array.isArray(message.content) ? message.content : [];
       const meta = assistantMeta(message);
-      const textIndexes = content
-        .map((value, index) => (journalRecord(value).type === "text" ? index : -1))
-        .filter((index) => index >= 0);
-      const lastText = textIndexes.at(-1) ?? -1;
       const finished = !live && meta.stopReason !== null && meta.stopReason !== "toolUse";
+      let lastProse = -1;
       content.forEach((value, index) => {
         const block = journalRecord(value);
+        const id = `${entry.id}:${index}`;
         if (block.type === "text" && typeof block.text === "string") {
           if (block.text.trim().length === 0) return;
-          push({
-            ...base,
-            kind: "assistant",
-            id: `${entry.id}:${index}`,
-            text: block.text,
-            meta: finished && index === lastText ? meta : null,
-          });
-          lastAssistantIndex = rows.length - 1;
+          push({ ...base, kind: "assistant", id, text: block.text, images: [], meta: null });
+          lastProse = rows.length - 1;
           return;
         }
         if (block.type === "thinking" && typeof block.thinking === "string") {
           if (block.thinking.trim().length === 0) return;
-          const groupId = openGroup(entry.id);
+          openGroup(id);
           rows.push({
             ...base,
             kind: "thinking",
-            id: `${entry.id}:${index}`,
+            id,
             text: block.thinking,
             summary: block.summary === true,
           });
-          void groupId;
           return;
         }
-        if (block.type === "redactedThinking") return;
+        if (block.type === "redactedThinking") {
+          if (options.debug) push({ ...base, kind: "record", id, label: "Redacted reasoning" });
+          return;
+        }
         const call = toolCallFromBlock(block);
         if (call) {
           const detail = toolDetail(call.name, call.arguments);
-          const groupId = openGroup(entry.id);
+          const groupId = openGroup(id);
           rows.push({
             ...base,
             kind: "tool",
-            id: `${entry.id}:${index}`,
+            id,
             call,
             result: null,
             label: toolLabel(call, detail),
@@ -506,42 +514,27 @@ export function projectTranscript(
           return;
         }
         if (block.type === "image") {
-          push({
-            ...base,
-            kind: "assistant",
-            id: `${entry.id}:${index}`,
-            text: "",
-            meta: null,
-          });
+          const images = blockImages([block]);
+          if (images.length === 0) return;
+          push({ ...base, kind: "assistant", id, text: "", images, meta: null });
+          lastProse = rows.length - 1;
           return;
         }
         if (options.debug)
-          push({
-            ...base,
-            kind: "record",
-            id: `${entry.id}:${index}`,
-            label: `${String(block.type ?? "unknown")} block`,
-          });
+          push({ ...base, kind: "record", id, label: `${String(block.type ?? "unknown")} block` });
       });
-      if (content.length === 0 && meta.errorMessage) {
-        push({
-          ...base,
-          kind: "note",
-          id: `${entry.id}:error`,
-          label: meta.stopReason === "aborted" ? "Interrupted" : "Model error",
-          text: meta.errorMessage,
-          tone: meta.stopReason === "aborted" ? "system" : "error",
-        });
-      } else if (meta.errorMessage && finished && lastAssistantIndex < 0) {
-        push({
-          ...base,
-          kind: "note",
-          id: `${entry.id}:error`,
-          label: "Model error",
-          text: meta.errorMessage,
-          tone: "error",
-        });
+      if (finished && lastProse >= 0 && rows[lastProse]?.kind === "assistant") {
+        rows[lastProse] = { ...(rows[lastProse] as AssistantRow), meta };
+      } else if (meta.errorMessage && (finished || content.length === 0)) {
+        push(errorNote(base, meta));
       }
+      if (rows.length === before && options.debug)
+        push({
+          ...base,
+          kind: "record",
+          id: `${entry.id}:record`,
+          label: "Empty assistant message",
+        });
       return;
     }
     if (role === "toolResult") {
@@ -566,15 +559,49 @@ export function projectTranscript(
         intent: null,
         arguments: {},
       };
-      const groupId = openGroup(entry.id);
+      const id = `${entry.id}:result`;
+      const groupId = openGroup(id);
       rows.push({
         ...base,
         kind: "tool",
-        id: `${entry.id}:result`,
+        id,
         call,
         result,
         label: toolLabel(call, null),
         detail: null,
+        groupId,
+      });
+      return;
+    }
+    if (role === "bashExecution" || role === "evalExecution" || role === "pythonExecution") {
+      // Something the person ran from the composer: a tool row with its output.
+      const command = str(message.command) ?? str(message.code) ?? "";
+      const name =
+        role === "bashExecution" ? "bash" : role === "pythonExecution" ? "python" : "eval";
+      const call: ToolCall = {
+        id: "",
+        name,
+        intent: null,
+        arguments: role === "bashExecution" ? { command } : { code: command },
+      };
+      const exitCode = num(message.exitCode);
+      const failed = (exitCode !== null && exitCode !== 0) || message.cancelled === true;
+      const output = [
+        str(message.output) ?? "",
+        message.truncated === true ? "\n… output truncated by NeoPi" : "",
+        message.cancelled === true ? "\n… cancelled" : "",
+        exitCode !== null && exitCode !== 0 ? `\nexit ${exitCode}` : "",
+      ].join("");
+      const id = `${entry.id}:execution`;
+      const groupId = openGroup(id);
+      rows.push({
+        ...base,
+        kind: "tool",
+        id,
+        call,
+        result: { entry, text: output, images: [], isError: failed, details: message.details },
+        label: `You ran ${name}`,
+        detail: firstLine(command, 160) || null,
         groupId,
       });
       return;
@@ -625,13 +652,27 @@ export function projectTranscript(
         });
       }
     } else if (VISIBLE_DIVIDERS.has(entry.type)) {
-      const divider = dividerText(entry, source.entries[index + 1]);
+      const next = source.entries[index + 1];
+      // Merge only when nothing (such as a command output) sits between the two entries.
+      const mergeable = next && !options.commandOutputs?.get(entry.id)?.length ? next : undefined;
+      const divider = dividerText(entry, mergeable);
       if (divider) {
         push({ ...base, kind: "divider", id: `${entry.id}:divider`, text: divider.text });
-        for (let skipped = 1; skipped <= divider.consumed; skipped++) {
-          appendOutputs(source.entries[index + skipped]?.id ?? null);
+        if (divider.consumed > 0 && next) {
+          if (options.debug)
+            push({
+              kind: "record",
+              id: `${next.id}:record`,
+              label: bookkeepingLabel(next),
+              entry: next,
+              timestamp: next.timestamp,
+              live: false,
+            });
+          index += divider.consumed;
+          appendOutputs(entry.id);
+          appendOutputs(next.id);
+          continue;
         }
-        index += divider.consumed;
       }
       if (entry.type === "compaction" && options.debug && typeof entry.summary === "string")
         push({
@@ -652,6 +693,7 @@ export function projectTranscript(
       { id: `live:${messageId}`, parentId: source.leafId, type: "message", timestamp: "", message },
       true,
     );
+    appendOutputs(`live:${messageId}`);
   }
 
   return foldToolRuns(rows, foldSize, options.expandedGroups);

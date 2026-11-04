@@ -12,7 +12,7 @@
   font-family: "Symbols Nerd Font Mono";
   src: url("./terminal/ghostty/fonts/SymbolsNerdFontMono-Regular.woff2") format("woff2");
   font-display: swap;
-  unicode-range: U+2300-23FF, U+2500-25FF, U+2600-27BF, U+E000-F8FF, U+F0000-FFFFD;
+  unicode-range: U+2300-23FF, U+2500-25FF, U+2600-27BF, U+2B58, U+E000-F8FF, U+F0000-FFFFD;
 }
 
 /* On mobile, morph the expanded hero composer into the compact docked

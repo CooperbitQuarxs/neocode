@@ -242,6 +242,7 @@ function ImageGrid({
         <button
           key={index}
           type="button"
+          aria-label={`Open image ${index + 1} of ${images.length}`}
           className="overflow-hidden rounded-md border border-border/60 bg-background/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
           onClick={(event) => {
             event.stopPropagation();
@@ -316,6 +317,7 @@ function AssistantRowView({ row }: { row: AssistantRow }) {
   return (
     <div className="group/row relative min-w-0 px-1 py-1.5">
       <h3 className="sr-only select-none">Agent</h3>
+      <ImageGrid images={row.images} {...(row.text ? { className: "mb-2" } : {})} />
       {row.text ? <Markdown text={row.text} streaming={row.live} /> : null}
       {meta ? (
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-2xs text-muted-foreground">
@@ -511,6 +513,8 @@ const ToolRowView = memo(function ToolRowView({ row }: { row: ToolRow }) {
   const running = row.result === null && row.live;
   const pending = row.result === null && !row.live;
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    // Nested controls (images, debug JSON) keep their own keyboard behaviour.
+    if (event.target !== event.currentTarget) return;
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       toggle();
