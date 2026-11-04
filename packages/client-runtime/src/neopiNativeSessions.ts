@@ -21,6 +21,21 @@ import {
   snapshotNativeSubagents,
   type NativeSubagent,
 } from "./neopiNativeSubagents.ts";
+import {
+  EMPTY_NATIVE_JOBS,
+  reduceNativeJobs,
+  snapshotNativeJobs,
+  type NativeJobs,
+} from "./neopiNativeJobs.ts";
+import {
+  EMPTY_NATIVE_ACTIVITY,
+  closeNativeActivity,
+  observeNativeActivity,
+  openNativeActivity,
+  type NativeActivity,
+} from "./neopiNativeStatus.ts";
+
+const nowMs = () => DateTime.toEpochMillis(DateTime.nowUnsafe());
 
 export type NativeSession = EnvironmentRpcSuccess<typeof WS_METHODS.neopiNativeSessionsOpen>;
 export type NativeSessionList = EnvironmentRpcSuccess<typeof WS_METHODS.neopiNativeSessionsList>;
@@ -46,7 +61,19 @@ export type NativeSessionUpdate =
       epoch: number;
       agents: readonly unknown[];
     }
-  | { type: "reconciliation"; operation: "state" | "branch" | "subagents"; error: string | null };
+  | {
+      type: "jobs";
+      sessionId: string;
+      ref: NeoPiNativeSessionRef;
+      /** Feed jobs revision when the read began. */
+      revision: number;
+      response: unknown;
+    }
+  | {
+      type: "reconciliation";
+      operation: "state" | "branch" | "subagents" | "jobs";
+      error: string | null;
+    };
 export interface NativeSessionTarget {
   readonly environmentId: EnvironmentId;
   readonly ref: NeoPiNativeSessionRef;
@@ -135,11 +162,15 @@ export interface NativeSessionFeed {
   readonly agents: readonly NativeSubagent[];
   readonly agentsRevision: number;
   readonly agentsEpoch: number;
+  /** Background jobs; maintained only for a NeoPi that advertises `background_jobs`. */
+  readonly jobs: NativeJobs;
+  /** Accumulated agent working time for this session while this client watched it. */
+  readonly activity: NativeActivity;
   readonly editor: { readonly id: string; readonly text: string } | null;
   readonly dictation: NativeDictation | null;
   readonly error: string | null;
   readonly reconciliationError: {
-    readonly operation: "state" | "branch" | "subagents";
+    readonly operation: "state" | "branch" | "subagents" | "jobs";
     readonly message: string;
   } | null;
 }
@@ -155,6 +186,8 @@ export const emptyNativeSessionFeed = (): NativeSessionFeed => ({
   agents: [],
   agentsRevision: 0,
   agentsEpoch: 0,
+  jobs: EMPTY_NATIVE_JOBS,
+  activity: EMPTY_NATIVE_ACTIVITY,
   editor: null,
   dictation: null,
   error: null,
@@ -232,6 +265,17 @@ export function reduceNativeSessionFeed(
       agentsRevision: feed.agentsRevision + 1,
     };
   }
+  if (event.type === "jobs") {
+    if (
+      !feed.connected ||
+      feed.session?.sessionId !== event.sessionId ||
+      feed.session.ref.sessionFile !== event.ref.sessionFile ||
+      feed.session.ref.providerInstanceId !== event.ref.providerInstanceId
+    )
+      return feed;
+    const jobs = snapshotNativeJobs(feed.jobs, event.response, event.revision);
+    return jobs === feed.jobs ? feed : { ...feed, jobs };
+  }
   if (event.type === "state")
     return feed.session &&
       (typeof event.state.sessionFile !== "string" ||
@@ -242,6 +286,7 @@ export function reduceNativeSessionFeed(
           ...feed,
           session: { ...feed.session, state: event.state },
           queue: nativePromptQueue(event.state.queuedMessages) ?? feed.queue,
+          activity: observeNativeActivity(feed.activity, event.state, feed.busy, nowMs()),
         }
       : feed;
   if (event.type === "answered")
@@ -291,6 +336,7 @@ export function reduceNativeSessionFeed(
       ),
       agentsRevision: feed.agentsRevision + 1,
       agentsEpoch: feed.agentsEpoch + 1,
+      activity: closeNativeActivity(feed.activity, nowMs()),
       ...(event.type === "closed"
         ? {
             busy: false,
@@ -333,6 +379,13 @@ export function reduceNativeSessionFeed(
         : [],
       agentsRevision: feed.agentsRevision + 1,
       agentsEpoch: feed.agentsEpoch + 1,
+      jobs: sameFile ? feed.jobs : EMPTY_NATIVE_JOBS,
+      activity: observeNativeActivity(
+        sameFile ? closeNativeActivity(feed.activity, nowMs()) : EMPTY_NATIVE_ACTIVITY,
+        event.session.state,
+        event.session.state.isStreaming === true,
+        nowMs(),
+      ),
       connected: true,
       busy: event.session.state.isStreaming === true,
       queue: nativePromptQueue(event.session.state.queuedMessages) ?? EMPTY_NATIVE_QUEUE,
@@ -357,6 +410,8 @@ export function reduceNativeSessionFeed(
       dialogs: [],
       editor: null,
       agents: [],
+      jobs: EMPTY_NATIVE_JOBS,
+      activity: EMPTY_NATIVE_ACTIVITY,
       agentsRevision: feed.agentsRevision + 1,
       agentsEpoch: feed.agentsEpoch + 1,
       error:
@@ -381,6 +436,20 @@ export function reduceNativeSessionFeed(
     );
     if (agents !== next.agents) next = { ...next, agents, agentsRevision: next.agentsRevision + 1 };
   }
+  if (frame.type === "job_lifecycle") {
+    const jobs = reduceNativeJobs(next.jobs, frame);
+    if (jobs !== next.jobs) next = { ...next, jobs };
+  }
+  if (frame.type === "agent_start" || frame.type === "agent_end") {
+    const at = nowMs();
+    next = {
+      ...next,
+      activity:
+        frame.type === "agent_start"
+          ? openNativeActivity(next.activity, at)
+          : closeNativeActivity(next.activity, at),
+    };
+  }
   if (
     frame.type === "journal_state" &&
     typeof frame.sessionId === "string" &&
@@ -399,6 +468,8 @@ export function reduceNativeSessionFeed(
             commandOutputs: [],
             agents: [],
             agentsRevision: next.agentsRevision + 1,
+            jobs: EMPTY_NATIVE_JOBS,
+            activity: EMPTY_NATIVE_ACTIVITY,
             agentsEpoch: next.agentsEpoch + 1,
           }
         : {}),
