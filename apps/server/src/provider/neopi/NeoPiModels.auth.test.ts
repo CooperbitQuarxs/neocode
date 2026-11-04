@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { ProviderInstanceId } from "@t3tools/contracts";
+import { ProviderInstanceId, type NeoPiModelsAuthState } from "@t3tools/contracts";
 import { NeoPiRpcError } from "effect-neopi-rpc/errors";
 import type { UiRequestFrame } from "effect-neopi-rpc/client";
 import * as Deferred from "effect/Deferred";
@@ -16,7 +16,14 @@ const cancelled = () => new NeoPiRpcError({ code: "login_cancelled", message: "L
 const fixture = Effect.fnUntraced(function* (
   cancelReply?: Effect.Effect<unknown, NeoPiRpcError>,
   uiReply: Effect.Effect<void, NeoPiRpcError> = Effect.void,
-  initialPrompt?: { readonly id: string; readonly title: string },
+  initialPrompt?: {
+    readonly id: string;
+    readonly title: string;
+    readonly method?: "input" | "confirm";
+    readonly message?: string;
+    readonly secret?: boolean;
+  },
+  validate: Effect.Effect<void> = Effect.void,
 ) {
   const result = yield* Deferred.make<unknown, NeoPiRpcError>();
   const loginId = yield* Deferred.make<string>();
@@ -25,13 +32,20 @@ const fixture = Effect.fnUntraced(function* (
   const respondStarted = yield* Deferred.make<void>();
   const cancelCalls = yield* Ref.make(0);
   const releases = yield* Ref.make(0);
+  const responses = yield* Ref.make<
+    ReadonlyArray<Parameters<NeoPiModelsConnection["respondUi"]>[0]>
+  >([]);
   const ui = yield* Effect.acquireRelease(PubSub.unbounded<UiRequestFrame>(), PubSub.shutdown);
   const native: NeoPiModelsConnection = {
     capabilities: new Set(["cancellable_login"]),
-    validate: Effect.void,
+    validate,
     changes: Stream.empty,
     ui: Stream.fromPubSub(ui),
-    respondUi: () => Deferred.succeed(respondStarted, undefined).pipe(Effect.andThen(uiReply)),
+    respondUi: (response) =>
+      Ref.update(responses, (current) => [...current, response]).pipe(
+        Effect.andThen(Deferred.succeed(respondStarted, undefined)),
+        Effect.andThen(uiReply),
+      ),
     request: (command) =>
       Effect.gen(function* () {
         if (command.type === "login" && "id" in command && typeof command.id === "string") {
@@ -40,7 +54,7 @@ const fixture = Effect.fnUntraced(function* (
             yield* PubSub.publish(ui, {
               type: "extension_ui_request",
               ...initialPrompt,
-              method: "input",
+              method: initialPrompt.method ?? "input",
               loginId: command.id,
             });
           return yield* Deferred.await(result).pipe(
@@ -76,11 +90,247 @@ const fixture = Effect.fnUntraced(function* (
     respondStarted,
     cancelCalls,
     releases,
+    responses,
     ui,
   };
 });
 
 describe("native Models login lifecycle", () => {
+  it.effect("cancels a pending confirmation with its original login ID, not the dialog ID", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { auth, flow, cancelCalls, responses } = yield* fixture(undefined, Effect.void, {
+          id: "certificate-dialog",
+          method: "confirm",
+          title: "Verify server",
+          message: "Certificate verification",
+        });
+        const ready = yield* Deferred.make<void>();
+        const watch = yield* auth.watchAuth(flow).pipe(
+          Stream.tap((state) =>
+            state.prompt?.id === "certificate-dialog"
+              ? Deferred.succeed(ready, undefined)
+              : Effect.void,
+          ),
+          Stream.runCollect,
+          Effect.forkScoped,
+        );
+        yield* Deferred.await(ready);
+        yield* auth.cancelAuth(flow);
+        const states = yield* Fiber.join(watch);
+        expect(states.at(-1)).toMatchObject({ status: "cancelled", prompt: null });
+        expect(yield* Ref.get(cancelCalls)).toBe(1);
+        expect(yield* Ref.get(responses)).toHaveLength(0);
+      }),
+    ),
+  );
+
+  it.effect("requires a boolean answer to native trust and preserves the native message", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const message =
+          "https://office.example\nServer SHA256: full server fingerprint\nCA SHA256: full CA fingerprint\nCompare with your administrator. Trust applies only to this credential.";
+        const { auth, flow, result, responses } = yield* fixture(Effect.void, Effect.void, {
+          id: "trust-dialog",
+          method: "confirm",
+          title: "Verify this server",
+          message,
+        });
+        const ready = yield* Deferred.make<void>();
+        const watch = yield* auth.watchAuth(flow).pipe(
+          Stream.tap((state) =>
+            state.prompt?.id === "trust-dialog" ? Deferred.succeed(ready, undefined) : Effect.void,
+          ),
+          Stream.runCollect,
+          Effect.forkScoped,
+        );
+        yield* Deferred.await(ready);
+        expect(yield* Ref.get(responses)).toHaveLength(0);
+        const textAnswer = yield* auth
+          .respondAuth({ flowId: flow.flowId, requestId: "trust-dialog", value: "yes" })
+          .pipe(Effect.result);
+        expect(textAnswer._tag).toBe("Failure");
+        expect(yield* Ref.get(responses)).toHaveLength(0);
+        const current = yield* auth.watchAuth(flow).pipe(Stream.take(1), Stream.runCollect);
+        expect(current.at(0)?.prompt).toEqual({
+          kind: "confirm",
+          id: "trust-dialog",
+          title: "Verify this server",
+          message,
+        });
+        yield* auth.respondAuth({
+          flowId: flow.flowId,
+          requestId: "trust-dialog",
+          confirmed: false,
+        });
+        yield* Deferred.fail(result, cancelled());
+        const states = yield* Fiber.join(watch);
+        expect(states.at(-1)).toMatchObject({ status: "cancelled", prompt: null });
+      }),
+    ),
+  );
+
+  it.effect("keeps member-key input masked and rejects a confirmation in its place", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { auth, flow, result, responses } = yield* fixture(Effect.void, Effect.void, {
+          id: "key-dialog",
+          title: "Member key",
+          secret: true,
+        });
+        const ready = yield* Deferred.make<void>();
+        const watch = yield* auth.watchAuth(flow).pipe(
+          Stream.tap((state) =>
+            state.prompt?.id === "key-dialog" ? Deferred.succeed(ready, undefined) : Effect.void,
+          ),
+          Stream.runCollect,
+          Effect.forkScoped,
+        );
+        yield* Deferred.await(ready);
+        const answer = yield* auth
+          .respondAuth({ flowId: flow.flowId, requestId: "key-dialog", confirmed: true })
+          .pipe(Effect.result);
+        expect(answer._tag).toBe("Failure");
+        expect(yield* Ref.get(responses)).toHaveLength(0);
+        const current = yield* auth.watchAuth(flow).pipe(Stream.take(1), Stream.runCollect);
+        expect(current.at(0)?.prompt).toMatchObject({ kind: "input", secret: true });
+        yield* auth.respondAuth({
+          flowId: flow.flowId,
+          requestId: "key-dialog",
+          value: "fixture-member-key",
+        });
+        yield* Deferred.succeed(result, {});
+        const states = yield* Fiber.join(watch);
+        expect(states.at(-1)).toMatchObject({ status: "complete", prompt: null });
+      }),
+    ),
+  );
+
+  it.effect("isolates foreign login prompts and rejects foreign or retired dialog IDs", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { auth, flow, result, ui, responses } = yield* fixture(Effect.void, Effect.void, {
+          id: "first-dialog",
+          title: "First prompt",
+        });
+        const ready = yield* Deferred.make<void>();
+        const foreignConsumed = yield* Deferred.make<NeoPiModelsAuthState>();
+        const secondReady = yield* Deferred.make<void>();
+        const watch = yield* auth.watchAuth(flow).pipe(
+          Stream.tap((state) => {
+            if (state.prompt?.id === "second-dialog")
+              return Deferred.succeed(secondReady, undefined);
+            if (state.message === "foreign event consumed")
+              return Deferred.succeed(foreignConsumed, state);
+            return state.prompt?.id === "first-dialog"
+              ? Deferred.succeed(ready, undefined)
+              : Effect.void;
+          }),
+          Stream.runCollect,
+          Effect.forkScoped,
+        );
+        yield* Deferred.await(ready);
+        yield* PubSub.publish(ui, {
+          type: "extension_ui_request",
+          id: "foreign-dialog",
+          method: "confirm",
+          loginId: "foreign-login",
+          title: "Foreign trust",
+          message: "Do not show or answer this dialog",
+        });
+        yield* PubSub.publish(ui, {
+          type: "extension_ui_request",
+          id: "receipt",
+          method: "notify",
+          loginId: flow.flowId,
+          message: "foreign event consumed",
+        });
+        expect((yield* Deferred.await(foreignConsumed)).prompt?.id).toBe("first-dialog");
+        for (const input of [
+          { flowId: flow.flowId, requestId: "foreign-dialog", confirmed: true },
+          { flowId: "foreign-login", requestId: "first-dialog", value: "answer" },
+        ]) {
+          expect((yield* auth.respondAuth(input).pipe(Effect.result))._tag).toBe("Failure");
+        }
+        yield* PubSub.publish(ui, {
+          type: "extension_ui_request",
+          id: "second-dialog",
+          method: "confirm",
+          loginId: flow.flowId,
+          title: "Current trust",
+          message: "Current certificate",
+        });
+        yield* Deferred.await(secondReady);
+        expect(
+          (yield* auth
+            .respondAuth({ flowId: flow.flowId, requestId: "first-dialog", value: "stale" })
+            .pipe(Effect.result))._tag,
+        ).toBe("Failure");
+        expect(yield* Ref.get(responses)).toHaveLength(0);
+        yield* auth.respondAuth({
+          flowId: flow.flowId,
+          requestId: "second-dialog",
+          confirmed: true,
+        });
+        expect(
+          (yield* auth
+            .respondAuth({ flowId: flow.flowId, requestId: "second-dialog", confirmed: true })
+            .pipe(Effect.result))._tag,
+        ).toBe("Failure");
+        expect(yield* Ref.get(responses)).toHaveLength(1);
+        yield* Deferred.succeed(result, {});
+        yield* Fiber.join(watch);
+      }),
+    ),
+  );
+
+  it.effect("rechecks prompt identity after suspended connection validation", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const validating = yield* Deferred.make<void>();
+        const validated = yield* Deferred.make<void>();
+        const { auth, flow, result, ui, responses } = yield* fixture(
+          Effect.void,
+          Effect.void,
+          { id: "old-dialog", title: "Old prompt" },
+          Deferred.succeed(validating, undefined).pipe(Effect.andThen(Deferred.await(validated))),
+        );
+        const ready = yield* Deferred.make<void>();
+        const changed = yield* Deferred.make<void>();
+        const watch = yield* auth.watchAuth(flow).pipe(
+          Stream.tap((state) =>
+            state.prompt?.id === "old-dialog"
+              ? Deferred.succeed(ready, undefined)
+              : state.prompt?.id === "new-dialog"
+                ? Deferred.succeed(changed, undefined)
+                : Effect.void,
+          ),
+          Stream.runCollect,
+          Effect.forkScoped,
+        );
+        yield* Deferred.await(ready);
+        const answer = yield* auth
+          .respondAuth({ flowId: flow.flowId, requestId: "old-dialog", value: "stale" })
+          .pipe(Effect.result, Effect.forkScoped);
+        yield* Deferred.await(validating);
+        yield* PubSub.publish(ui, {
+          type: "extension_ui_request",
+          id: "new-dialog",
+          method: "confirm",
+          loginId: flow.flowId,
+          title: "Verify current certificate",
+          message: "Current certificate",
+        });
+        yield* Deferred.await(changed);
+        yield* Deferred.succeed(validated, undefined);
+        expect((yield* Fiber.join(answer))._tag).toBe("Failure");
+        expect(yield* Ref.get(responses)).toHaveLength(0);
+        yield* Deferred.succeed(result, {});
+        yield* Fiber.join(watch);
+      }),
+    ),
+  );
+
   it.effect("preserves the public device verification code from the native challenge", () =>
     Effect.scoped(
       Effect.gen(function* () {

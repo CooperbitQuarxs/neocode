@@ -81,10 +81,11 @@ export function makeNeoPiModelsClientState<R, ER>(
       label: "neopi-models:auth-cancel",
       tag: WS_METHODS.neopiModelsAuthCancel,
     }),
+    // Keep a pending native login through transient observer teardown: closing
+    // its only watch cancels the one-shot login and removes its flow ID.
     authChanges: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "neopi-models:auth-watch",
       tag: WS_METHODS.neopiModelsAuthWatch,
-      idleTtlMs: 0,
     }),
     changes: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "neopi-models:watch",
