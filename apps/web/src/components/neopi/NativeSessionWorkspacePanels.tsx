@@ -68,6 +68,7 @@ import { closePreviewSession } from "../preview/closePreviewSession";
 import { subscribePreviewAction } from "../preview/previewActionBus";
 import { ThreadPreviewMiniPlayer } from "../preview/ThreadPreviewMiniPlayer";
 import { usePreviewSession } from "../preview/usePreviewSession";
+import { NativeBackgroundTasksPanel } from "./NativeBackgroundTasksPanel";
 import { NativeSessionTerminal, type NativeSessionTerminalHandle } from "./NativeSessionTerminal";
 import { isNativeSessionCommand, type NativeSessionCommand } from "./nativeSessionShortcuts";
 
@@ -81,6 +82,7 @@ const ESCAPE_OWNING_OVERLAYS = [
   '[data-slot="autocomplete-popup"]',
   "[data-composer-stash-drawer]",
 ].join(",");
+import { NativeSessionTreePanel } from "./NativeSessionTreePanel";
 
 const PreviewPanel = lazy(() =>
   import("../preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
@@ -103,6 +105,9 @@ export function NativeSessionWorkspacePanels({
   onAddTerminalContext,
   onSendAnnotation,
   onOpenTree,
+  request,
+  execute,
+  onTreeNavigated,
   onOpenModels,
   onInterrupt,
   onNativeCommand,
@@ -124,6 +129,10 @@ export function NativeSessionWorkspacePanels({
     image: ComposerImageAttachment | null,
   ) => void;
   onOpenTree: () => void;
+  /** Plain native reads and session-changing commands for the tree surface. */
+  request: (command: Record<string, unknown> & { type: string }) => Promise<unknown>;
+  execute: (command: Record<string, unknown> & { type: string }) => Promise<unknown>;
+  onTreeNavigated: () => void;
   onOpenModels: () => void;
   onInterrupt: () => void;
   /** Runs a keybinding command that only the native session implements. */
@@ -491,6 +500,9 @@ export function NativeSessionWorkspacePanels({
       deviceAvailable
       liveAgentCount={agentModel.liveCount}
       nativeHistory={{ onOpen: onOpenTree }}
+      nativeBackgroundTasks={{
+        onOpen: () => useRightPanelStore.getState().open(target, "background-tasks"),
+      }}
     >
       <Suspense fallback={null}>
         {activeSurface?.kind === "preview" ? (
@@ -514,10 +526,16 @@ export function NativeSessionWorkspacePanels({
         {activeSurface?.kind === "agents" ? (
           <AgentsPanel model={agentModel} environmentId={target.environmentId} />
         ) : null}
+        {activeSurface?.kind === "background-tasks" ? (
+          <NativeBackgroundTasksPanel target={target} />
+        ) : null}
         {activeSurface?.kind === "native-history" ? (
-          <Button variant="ghost" onClick={onOpenTree}>
-            Session tree
-          </Button>
+          <NativeSessionTreePanel
+            target={target}
+            request={request}
+            execute={execute}
+            onNavigated={onTreeNavigated}
+          />
         ) : null}
         {panel.surfaces.map((surface) =>
           surface.kind === "terminal" && cwd ? (

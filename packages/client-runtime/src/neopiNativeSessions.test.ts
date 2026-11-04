@@ -1060,4 +1060,71 @@ describe("canonical native client projection", () => {
       error: "The native connection closed.",
     });
   });
+
+  it("accumulates working time across turns and closes the window with the connection", () => {
+    const frame = (type: string) => ({ type: "event" as const, frame: { type } });
+    // The snapshot's state is streaming, so the first window is already open.
+    let feed = initial();
+    expect(feed.activity.openedAt).not.toBeNull();
+    feed = reduceNativeSessionFeed(feed, frame("agent_end"));
+    expect(feed.activity.openedAt).toBeNull();
+    const idle = feed.activity.accumulatedMs;
+    feed = reduceNativeSessionFeed(feed, frame("agent_start"));
+    expect(feed.activity.openedAt).not.toBeNull();
+    feed = reduceNativeSessionFeed(feed, { type: "disconnected" });
+    expect(feed.activity.openedAt).toBeNull();
+    expect(feed.activity.accumulatedMs).toBeGreaterThanOrEqual(idle);
+  });
+
+  it("adopts NeoPi's reported active time and restarts it for another session", () => {
+    let feed = reduceNativeSessionFeed(initial(), {
+      type: "state",
+      state: { activeTimeMs: 90_000, isStreaming: false },
+    });
+    expect(feed.activity.accumulatedMs).toBe(90_000);
+    feed = reduceNativeSessionFeed(feed, {
+      type: "event",
+      frame: {
+        type: "journal_state",
+        sessionFile: ref.sessionFile,
+        sessionId: "another-session",
+        leafId: null,
+      },
+    });
+    expect(feed.activity).toEqual({ accumulatedMs: 0, openedAt: null });
+    expect(feed.jobs.entries).toEqual([]);
+  });
+
+  it("tracks background job frames and reads an inventory for the same session only", () => {
+    const registered = {
+      id: "bg_1",
+      type: "bash",
+      label: "sleep 60",
+      status: "running",
+      startedAt: 1_000,
+      outputBytes: 0,
+    };
+    let feed = reduceNativeSessionFeed(initial(), {
+      type: "event",
+      frame: { type: "job_lifecycle", event: "registered", job: registered, runningCount: 1 },
+    });
+    expect(feed.jobs.entries.map((job) => job.id)).toEqual(["bg_1"]);
+    expect(feed.jobs.runningCount).toBe(1);
+    const stale = reduceNativeSessionFeed(feed, {
+      type: "jobs",
+      ref,
+      sessionId: "other-session",
+      revision: 0,
+      response: { running: [], recent: [], runningCount: 0 },
+    });
+    expect(stale).toBe(feed);
+    feed = reduceNativeSessionFeed(feed, {
+      type: "jobs",
+      ref,
+      sessionId: session.sessionId,
+      revision: feed.jobs.revision,
+      response: { running: [], recent: [], runningCount: 0 },
+    });
+    expect(feed.jobs.entries).toEqual([]);
+  });
 });

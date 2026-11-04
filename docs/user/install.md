@@ -307,6 +307,19 @@ changes in that session's folder, even when it is outside the folder where
 NeoCode started. Native sessions do not create the turn snapshots used by
 turn-based diffs.
 
+In a native session, the **Session tree** button in the tab strip opens the tree
+in the right panel beside the conversation, the way NeoPi's `/tree` draws it.
+Forks get `├─`/`└─` connectors and `│` gutters, a straight run of entries stays in
+one column, the path to the current position is dotted and the current entry has
+a larger dot. Rows show the entry kind, a one-line snippet and the time; errors
+are marked. The tree follows the session as the agent works and keeps the current
+entry in view unless you scrolled away. Click a row to preview the whole entry
+under the tree, then choose **Go to this point** or press Enter; **Go and
+summarize** or Shift+Enter carries a branch summary along. Click a chevron, or
+press Left and Right, to fold a branch. The filter offers Default, No tools, User
+only, Labeled and All, and the search box narrows the rows; press `/` in the tree
+to reach it. Up, Down, Page Up, Page Down, Home and End move through rows.
+
 The status beside the composer follows the connected native model and effort,
 output throughput, journal-wide cache hit rate, context utilization and recorded
 session cost. Context information is always available here, independent of the
@@ -314,6 +327,17 @@ legacy indicator setting. Hover a metric for its observation time and scope.
 Recorded cost includes all journal branches, completed tasks and restored advisor
 spend, but excludes unfinished child runs. Missing counters stay unavailable,
 and disconnected observations are not shown as current.
+
+A slim status bar under the composer shows the project and branch, model and
+effort, context, cache hit rate, output speed, cost, how long the agent has
+worked, and the number of running subagents and background tasks. Narrow
+windows drop the lower-priority items first. The subagent count flashes green
+when a subagent starts, red when one finishes or is stopped, and yellow when
+one fails; click it to open **Agents**. Click the task count to open
+**Background tasks**, which lists NeoPi's background jobs with their output and
+a **Cancel** button for running ones. That panel needs a NeoPi release that
+supports background jobs; with an older one the count shows "—" and the panel
+says so.
 
 Open **NeoPi session configuration** in the header to inspect native ownership,
 current permissions and role configuration. **Next owned turn** changes the
@@ -333,8 +357,8 @@ durable journal identities. A reconnect reads a fresh branch and never resends a
 prompt. Unknown entry types and extension content remain available as canonical
 JSON alongside native text, images, reasoning and tool records.
 
-Choose **Session tree**, or **Native history** in the right panel, to inspect
-alternate branches. Filter tools and system events, search loaded entries, and
+In a thread's right panel, choose **Session tree** to inspect alternate branches.
+Filter tools and system events, search loaded entries, and
 load older pages until the point you want is available. Selecting a row only
 inspects it. **Navigate here** runs NeoPi's same-file tree command. It preserves
 alternate futures, restores a selected user request and its ordered images to
