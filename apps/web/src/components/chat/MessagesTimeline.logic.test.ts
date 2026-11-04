@@ -30,6 +30,7 @@ import {
   resolveWorkGroupScrollIndex,
   shouldFollowWorkGroupAppend,
   shouldPreserveAssistantLineBreaks,
+  turnToolDisclosureKeys,
   type MessagesTimelineRow,
   type MessagesTimelineRowsProjection,
   WORKTREE_SETUP_ROW_ID,
@@ -3892,5 +3893,59 @@ describe("computeStableMessagesTimelineRows", () => {
 
     expect(reordered).not.toBe(initial);
     expect(reordered.result).toEqual([initial.result[1], initial.result[0]]);
+  });
+});
+
+describe("turn tool disclosure keys", () => {
+  const time = "2026-09-04T00:00:00.000Z";
+  const turn = TurnId.make("turn-1");
+  const otherTurn = TurnId.make("turn-2");
+  const work = (id: string, turnId: TurnId, toolCallId?: string) =>
+    ({
+      id,
+      kind: "work",
+      createdAt: time,
+      entry: {
+        id,
+        createdAt: time,
+        turnId,
+        label: id,
+        tone: "tool",
+        ...(toolCallId ? { toolCallId } : {}),
+      },
+    }) satisfies TimelineEntriesProjection["entries"][number];
+  const message = (id: string, role: ChatMessage["role"], turnId: TurnId | null) =>
+    ({
+      id,
+      kind: "message",
+      createdAt: time,
+      message: {
+        id: MessageId.make(id),
+        role,
+        text: id,
+        turnId,
+        createdAt: time,
+        updatedAt: time,
+        streaming: false,
+      },
+    }) satisfies TimelineEntriesProjection["entries"][number];
+
+  it("lists the group and entry keys of the turn only", () => {
+    const keys = turnToolDisclosureKeys(
+      [
+        message("user", "user", null),
+        work("a", turn, "call-a"),
+        message("thought", "reasoning", turn),
+        work("b", turn),
+        work("elsewhere", otherTurn),
+      ],
+      turn,
+    );
+    expect(keys.workEntryIds).toEqual(["a", "b"]);
+    expect(keys.groupIds).toEqual([
+      "work-group:tool:turn-1:call-a",
+      "activity-group:thought",
+      "work-group:b",
+    ]);
   });
 });

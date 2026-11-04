@@ -194,6 +194,7 @@ import {
   shouldFollowWorkGroupAppend,
   shouldPreserveAssistantLineBreaks,
   toolGroupAction,
+  turnToolDisclosureKeys,
   workEntryDisplayLabel,
   workEntryIsVisibleInGroup,
   worktreeSetupAgentStarted,
@@ -291,6 +292,7 @@ interface TimelineRowSharedState {
   onToggleReasoning: (messageId: string, expanded: boolean, anchorKey: string) => void;
   expandedReasoningMessageIds: ReadonlySet<string>;
   workGroupViewState: WorkGroupViewState;
+  toolBulk: ToolBulkDisclosure;
   agentPanelModel: AgentPanelModel;
   expandedSpawnEntryIds: ReadonlySet<string>;
   onOpenAgents: () => void;
@@ -323,6 +325,22 @@ const TimelineRowActivityCtx = createContext<TimelineRowActivityState>(null!);
 interface WorkGroupViewState {
   scrollPositions: Map<string, WorkGroupScrollAnchor>;
   expandedEntries: Set<string>;
+}
+
+/** The latest bulk open/close of a turn's tool calls; rows apply a new `epoch` once. */
+interface ToolBulkDisclosure {
+  epoch: number;
+  turnId: TurnId | null;
+  expanded: boolean;
+}
+
+function applyDisclosure<T>(current: ReadonlySet<T>, items: readonly T[], open: boolean) {
+  const next = new Set(current);
+  for (const item of items) {
+    if (open) next.add(item);
+    else next.delete(item);
+  }
+  return next;
 }
 
 const WorkGroupViewCtx = createContext<{
@@ -460,6 +478,8 @@ interface MessagesTimelineProps {
   onSteerQueuedMessage?: (id: string) => void;
   steerQueuedMessageShortcutLabel?: string | null;
   onRemoveQueuedMessage?: (id: string) => void;
+  /** Each new value toggles every tool call of the latest turn open or closed. */
+  toggleToolOutputSerial?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -516,7 +536,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onSteerQueuedMessage = NOOP_QUEUED_MESSAGE_ACTION,
   steerQueuedMessageShortcutLabel = null,
   onRemoveQueuedMessage = NOOP_QUEUED_MESSAGE_ACTION,
+  toggleToolOutputSerial = 0,
 }: MessagesTimelineProps) {
+  const handledToolOutputSerialRef = useRef(toggleToolOutputSerial);
+  const [toolBulk, setToolBulk] = useState<ToolBulkDisclosure>({
+    epoch: 0,
+    turnId: null,
+    expanded: false,
+  });
   const listIdentityKey = displayThreadKey ?? routeThreadKey;
   const rememberedPosition = useMemo(
     () => readTimelinePosition(listIdentityKey),
@@ -695,6 +722,30 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     },
     [suspendEndScrollMaintenanceForDisclosure],
   );
+  useEffect(() => {
+    if (handledToolOutputSerialRef.current === toggleToolOutputSerial) return;
+    handledToolOutputSerialRef.current = toggleToolOutputSerial;
+    const turnId = latestTurn?.turnId;
+    if (!turnId) return;
+    const expanded = !(toolBulk.turnId === turnId && toolBulk.expanded);
+    const keys = turnToolDisclosureKeys(timelineEntries, turnId);
+    suspendEndScrollMaintenanceForDisclosure(`turn-fold:${turnId}`);
+    setExpandedTurnIds((current) => applyDisclosure(current, [turnId], expanded));
+    setExpandedWorkGroupIds((current) => applyDisclosure(current, keys.groupIds, expanded));
+    // Entries that mount later read this set; mounted ones follow the epoch.
+    for (const id of keys.workEntryIds) {
+      if (expanded) workGroupViewState.expandedEntries.add(id);
+      else workGroupViewState.expandedEntries.delete(id);
+    }
+    setToolBulk((current) => ({ epoch: current.epoch + 1, turnId, expanded }));
+  }, [
+    toggleToolOutputSerial,
+    toolBulk,
+    latestTurn?.turnId,
+    timelineEntries,
+    workGroupViewState,
+    suspendEndScrollMaintenanceForDisclosure,
+  ]);
 
   // An in-session interrupt leaves its turn expanded so the user keeps their
   // place; the next turn (or a reload, since this is local state) folds it.
@@ -1110,6 +1161,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onToggleReasoning,
       expandedReasoningMessageIds: paintedExpandedReasoningMessageIds,
       workGroupViewState,
+      toolBulk,
       agentPanelModel: agentPanelModel ?? EMPTY_AGENT_PANEL_MODEL,
       expandedSpawnEntryIds: paintedExpandedSpawnEntryIds,
       onOpenAgents,
@@ -1146,6 +1198,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onToggleReasoning,
       paintedExpandedReasoningMessageIds,
       workGroupViewState,
+      toolBulk,
       agentPanelModel,
       paintedExpandedSpawnEntryIds,
       onOpenAgents,
@@ -4678,21 +4731,26 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
   onToggleEntry?: ((collapsed: boolean) => void) | undefined;
 }) {
   const { workEntry, workspaceRoot, isExpandedToolGroupEntry, displayLabel } = props;
-  const { threadRef, onImageExpand, timestampFormat } = use(TimelineRowCtx);
+  const { threadRef, onImageExpand, timestampFormat, toolBulk, workGroupViewState } =
+    use(TimelineRowCtx);
   const groupView = use(WorkGroupViewCtx);
-  const [expanded, setExpanded] = useState(
-    () => groupView?.state.expandedEntries.has(workEntry.id) ?? false,
+  const viewState = groupView?.state ?? workGroupViewState;
+  const [expandedState, setExpandedState] = useState(() =>
+    viewState.expandedEntries.has(workEntry.id),
   );
+  const seenToolBulkEpochRef = useRef(toolBulk.epoch);
+  useEffect(() => {
+    if (seenToolBulkEpochRef.current === toolBulk.epoch) return;
+    seenToolBulkEpochRef.current = toolBulk.epoch;
+    if (workEntry.turnId === toolBulk.turnId) setExpandedState(toolBulk.expanded);
+  }, [toolBulk, workEntry.turnId]);
   const toggleExpanded = () => {
-    const next = !expanded;
-    if (groupView) {
-      groupView.onToggleEntry(!next);
-      if (next) groupView.state.expandedEntries.add(workEntry.id);
-      else groupView.state.expandedEntries.delete(workEntry.id);
-    } else {
-      props.onToggleEntry?.(!next);
-    }
-    setExpanded(next);
+    const next = !expandedState;
+    if (groupView) groupView.onToggleEntry(!next);
+    else props.onToggleEntry?.(!next);
+    if (next) viewState.expandedEntries.add(workEntry.id);
+    else viewState.expandedEntries.delete(workEntry.id);
+    setExpandedState(next);
   };
   const iconConfig = workToneIcon(workEntry.tone);
   const showWarningIndicator = workEntry.sourceActivityKind === "runtime.warning";
@@ -4729,6 +4787,8 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
       workEntry.changedFiles?.length ||
       viewedImage,
     );
+  // A bulk disclosure also reaches entries that have nothing to show.
+  const expanded = expandedState && canExpand;
   const expandedBody = expanded
     ? buildToolCallExpandedBody(
         workEntry,
