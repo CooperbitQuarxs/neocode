@@ -59,6 +59,8 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "sidebar.toggle",
   "navigation.back",
   "navigation.forward",
+  "sessionTab.previous",
+  "sessionTab.next",
   "terminal.toggle",
   "terminal.split",
   "terminal.splitVertical",

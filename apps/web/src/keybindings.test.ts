@@ -933,6 +933,28 @@ describe("resolveShortcutCommand", () => {
     );
   });
 
+  it("cycles session tabs with ctrl+tab and ctrl+shift+tab, even from an editable field", () => {
+    const next = event({ key: "Tab", code: "Tab", ctrlKey: true });
+    const previous = event({ key: "Tab", code: "Tab", ctrlKey: true, shiftKey: true });
+    const context = { editableFocus: true };
+    for (const platform of ["MacIntel", "Linux"]) {
+      assert.strictEqual(
+        resolveShortcutCommand(next, DEFAULT_RESOLVED_KEYBINDINGS, { platform, context }),
+        "sessionTab.next",
+      );
+      assert.strictEqual(
+        resolveShortcutCommand(previous, DEFAULT_RESOLVED_KEYBINDINGS, { platform, context }),
+        "sessionTab.previous",
+      );
+    }
+    assert.isNull(
+      resolveShortcutCommand(next, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "Linux",
+        context: { terminalFocus: true },
+      }),
+    );
+  });
+
   it("matches bracket shortcuts using the physical key code", () => {
     assert.strictEqual(
       resolveShortcutCommand(

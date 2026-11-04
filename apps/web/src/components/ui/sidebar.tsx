@@ -396,7 +396,10 @@ function SidebarRail({
     transitionTargets.forEach((element) => {
       element.style.setProperty("transition-duration", "0ms");
     });
-    wrapper.style.setProperty("--sidebar-width", `${width}px`);
+    // Drag writes land on the sidebar root, which contains every consumer of
+    // the width. Writing the wrapper instead re-resolved the inherited custom
+    // property for the whole app on each pointer move.
+    sidebarRoot.style.setProperty("--sidebar-width", `${width}px`);
 
     return {
       width,
@@ -415,7 +418,7 @@ function SidebarRail({
             wrapper,
           }) ?? true;
         if (accepted) {
-          wrapper.style.setProperty("--sidebar-width", `${nextWidth}px`);
+          sidebarRoot.style.setProperty("--sidebar-width", `${nextWidth}px`);
           width = nextWidth;
         }
         return width;
@@ -433,6 +436,8 @@ function SidebarRail({
         options?.onResize?.(finalWidth);
       },
       cleanup() {
+        wrapper.style.setProperty("--sidebar-width", `${width}px`);
+        sidebarRoot.style.removeProperty("--sidebar-width");
         transitionTargets.forEach((element) => {
           element.style.removeProperty("transition-duration");
         });
