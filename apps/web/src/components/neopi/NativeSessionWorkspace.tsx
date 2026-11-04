@@ -41,7 +41,6 @@ import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/at
 import {
   composerDraftHasUserContent,
   useComposerDraftStore,
-  useComposerThreadDraft,
   type ComposerImageAttachment,
   type ComposerFileAttachment,
 } from "../../composerDraftStore";
@@ -139,7 +138,6 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   const { feed, session, conversation, request, loading, error } = useNativeSession(target);
   const close = useAtomCommand(nativeSessionAtoms.close, { reportFailure: false });
   const key = nativeSessionKey(target);
-  const draft = useComposerThreadDraft(target);
   const draftStore = useComposerDraftStore;
   const panelOpen = useRightPanelStore(
     (value) => selectThreadRightPanelState(value.byThreadKey, target).isOpen,
@@ -161,7 +159,13 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   const terminalOpen = useTerminalUiStateStore(
     (value) => selectThreadTerminalUiState(value.terminalUiStateByThreadKey, target).terminalOpen,
   );
-  const promptRef = useRef(draft.prompt);
+  // ChatComposer keeps this ref in sync with its own draft subscription. Read the
+  // stored prompt once here: subscribing would re-render the whole workspace
+  // (transcript, panels) on every keystroke.
+  const [initialPrompt] = useState(
+    () => draftStore.getState().getComposerDraft(target)?.prompt ?? "",
+  );
+  const promptRef = useRef(initialPrompt);
   const imagesRef = useRef<ComposerImageAttachment[]>([]);
   const filesRef = useRef<ComposerFileAttachment[]>([]);
   const terminalContextsRef = useRef<TerminalContextDraft[]>([]);
