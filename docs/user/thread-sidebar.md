@@ -25,6 +25,14 @@ in a new thread's model picker to add or remove them. A regular click returns to
 single model. Choose a base branch and send. Each selection starts a separate thread
 and worktree while you stay in the new thread composer. This requires a Git project.
 
+## Session names
+
+Every NeoPi session has a name and a designation, such as **Azura K-47**, so you can
+refer to it without its title. The name comes with pronouns (she/her or he/him).
+It appears under the title in the session's tab, in its sidebar row, and on the
+assistant's messages; hover the tab to see the pronouns. A session keeps its name
+across reloads and devices, and its subagents have names of their own.
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.
@@ -113,6 +121,22 @@ Mixed values show where the selected environments disagree. Mobile applies these
 rules to connected environments that support shared settings. Offline environments
 and older servers keep their previous values. Changing a rule does not reopen
 already settled threads.
+
+## Find the sessions that need you
+
+The sidebar lists your NeoPi sessions by what they ask of you. **Needs attention** comes
+first: sessions waiting on a question or approval, then sessions that finished since you
+last opened them (marked **Done**). **Working** sessions follow, dimmed, and **Recent**
+holds everything else. Sessions idle for longer than the auto-settle window move to the
+collapsed **Settled** shelf, which shows the newest ten and offers **Show more**.
+
+Each row shows the project folder, title, branch and, when the branch has one, its pull
+request. Hover a row or right-click it to **Settle** or **Un-settle** it; sessions that are
+working or waiting cannot be settled. A settled session returns on its own when it becomes
+busy or gets new activity. Settling persists on the server, so it follows you across
+devices. NeoPi 18.14 or later reports what terminal sessions are doing; with older versions
+only sessions NeoCode itself runs show Working and Waiting. Search lists matches from every
+section in one list.
 
 ## Link a pull request
 

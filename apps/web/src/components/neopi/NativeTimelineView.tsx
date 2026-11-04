@@ -21,6 +21,8 @@ const noop = () => {};
 export function NativeTimelineView(props: {
   readonly rows: readonly TranscriptRow[];
   readonly busy: boolean;
+  /** The author label on the assistant's messages: the session's own name and designation. */
+  readonly assistantName?: string;
   readonly environmentId: EnvironmentId;
   /** Stable per native file; must not parse as a scoped thread key. */
   readonly timelineKey: string;
@@ -91,6 +93,7 @@ export function NativeTimelineView(props: {
         onIsAtEndChange={onIsAtEndChange}
         onManualNavigation={onManualNavigation}
         loadEarlier={props.loadEarlier}
+        {...(props.assistantName ? { assistantName: props.assistantName } : {})}
         {...(props.queuedMessages ? { queuedMessages: props.queuedMessages } : {})}
         {...(props.onSteerQueuedMessage
           ? { onSteerQueuedMessage: props.onSteerQueuedMessage }

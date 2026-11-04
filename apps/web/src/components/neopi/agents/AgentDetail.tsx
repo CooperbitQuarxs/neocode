@@ -132,6 +132,9 @@ export function AgentDetail({
           <span className="text-sm font-medium [overflow-wrap:anywhere]">{agent.title}</span>
           <span className="flex items-center gap-2 font-mono text-2xs text-muted-foreground">
             <span>{agentStatusLabel(agent.status)}</span>
+            <span>
+              · {agent.identity.label} ({agent.identity.pronouns})
+            </span>
             {agent.role ? <span>· {agent.role}</span> : null}
             <AgentElapsed agent={agent} />
           </span>

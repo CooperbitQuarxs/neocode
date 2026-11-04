@@ -33,6 +33,18 @@ export const NeoPiNativeSessionCommand = Schema.StructWithRest(
 );
 export type NeoPiNativeSessionCommand = typeof NeoPiNativeSessionCommand.Type;
 export const NeoPiNativeSessionAttachment = Schema.Literals(["owned", "terminal"]);
+/**
+ * What a running owner is doing. `waiting` means a dialog (question or
+ * approval) blocks the agent; `busy` means a turn is in flight.
+ */
+export const NeoPiNativeSessionLive = Schema.Struct({
+  state: Schema.Literals(["busy", "waiting", "idle"]),
+  isStreaming: Schema.Boolean,
+  pendingDialogs: Schema.Number,
+  /** VCS branch of the owner's working directory, when NeoPi could read it. */
+  branch: Schema.NullOr(Schema.String),
+});
+export type NeoPiNativeSessionLive = typeof NeoPiNativeSessionLive.Type;
 export const NeoPiNativeSessionSummary = Schema.Struct({
   ref: NeoPiNativeSessionRef,
   sessionId: Schema.String,
@@ -49,6 +61,10 @@ export const NeoPiNativeSessionSummary = Schema.Struct({
     }),
     Schema.Struct({ kind: Schema.Literal("neocode"), attachment: NeoPiNativeSessionAttachment }),
   ]),
+  /** Absent when no owner process answered or the server predates live state. */
+  live: Schema.optional(NeoPiNativeSessionLive),
+  /** When the session was settled out of the active list, ISO 8601; absent while active. */
+  settledAt: Schema.optional(Schema.String),
 });
 export type NeoPiNativeSessionSummary = typeof NeoPiNativeSessionSummary.Type;
 export const NeoPiNativeSessionsListInput = Schema.Struct({
@@ -106,6 +122,13 @@ export const NeoPiNativeSessionsCloseInput = NeoPiNativeSessionsWatchInput;
 export type NeoPiNativeSessionsCloseInput = typeof NeoPiNativeSessionsCloseInput.Type;
 export const NeoPiNativeSessionsCloseResult = Schema.Struct({ closed: Schema.Boolean });
 export type NeoPiNativeSessionsCloseResult = typeof NeoPiNativeSessionsCloseResult.Type;
+export const NeoPiNativeSessionsSetSettledInput = Schema.Struct({
+  ref: NeoPiNativeSessionRef,
+  settled: Schema.Boolean,
+});
+export type NeoPiNativeSessionsSetSettledInput = typeof NeoPiNativeSessionsSetSettledInput.Type;
+export const NeoPiNativeSessionsSetSettledResult = Schema.Struct({ settled: Schema.Boolean });
+export type NeoPiNativeSessionsSetSettledResult = typeof NeoPiNativeSessionsSetSettledResult.Type;
 export class NeoPiNativeSessionsError extends Schema.TaggedError<NeoPiNativeSessionsError>()(
   "NeoPiNativeSessionsError",
   { message: Schema.String, code: Schema.optional(Schema.String) },
