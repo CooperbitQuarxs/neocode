@@ -12,6 +12,10 @@ import {
   type CommandRow,
 } from "@t3tools/client-runtime/neopi-transcript";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { usePrimaryEnvironmentId } from "../../state/environments";
+import { isLocalEnvironmentDisabled } from "../../localEnvironment";
+import { nativeDictationAvailable } from "./nativeDictation";
+import { useNativeDictation } from "./useNativeDictation";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ComposerSurface } from "../chat/ComposerSurface";
 import { cn } from "../../lib/utils";
@@ -167,6 +171,15 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   const terminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const dictation = useNativeDictation({ feed, request, composerRef });
+  const dictationAvailable = nativeDictationAvailable({
+    isDesktop: isElectron,
+    localEnvironmentDisabled: isLocalEnvironmentDisabled(),
+    environmentId: target.environmentId,
+    primaryEnvironmentId,
+    attachment: session?.attachment,
+  });
   const timelineRef = useRef<LegendListRef | null>(null);
   const [followSignal, setFollowSignal] = useState(0);
   const submit = useCallback<Request>(
@@ -493,6 +506,8 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
         onOpenModels={() => setModels((value) => !value)}
         onInterrupt={interrupt}
         busy={feed.busy}
+        onToggleDictation={dictationAvailable ? dictation.toggle : undefined}
+        dictationActive={dictation.phase !== "idle"}
       >
         {error || localError ? (
           <p role="alert" className="shrink-0 px-5 py-1 text-xs text-destructive">
@@ -599,6 +614,7 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
                     setLocalError(String(cause)),
                   );
                 },
+                ...(dictationAvailable ? { dictation } : {}),
               }}
             />
           </ComposerSurface.Host>

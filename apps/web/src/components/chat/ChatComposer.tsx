@@ -143,6 +143,13 @@ import {
   type ComposerBannerStackContent,
   type ComposerBannerStackItem,
 } from "./ComposerBannerStack";
+import { ComposerDictationButton, composerDictationBannerItems } from "./ComposerDictation";
+import {
+  dictationCursor,
+  dictationInsertion,
+  type ComposerDictationAnchor,
+  type ComposerDictationControl,
+} from "./composerDictation.logic";
 import { compressImageForStash, prepareImageForAttachment } from "../../lib/imageCompression";
 import {
   fileAttachmentTooLargeMessage,
@@ -744,6 +751,8 @@ export interface ChatComposerHandle {
     expandedCursor: number;
     contextIds: string[];
   };
+  /** Insert dictated text where the capture started, or at the caret if the draft moved on. */
+  insertDictation: (text: string, anchor: ComposerDictationAnchor) => boolean;
   /** Reset composer cursor/trigger/highlight after external prompt mutations (e.g. onSend). */
   resetCursorState: (options?: {
     cursor?: number;
@@ -974,6 +983,8 @@ export type NativeChatComposerProps = Pick<
     onOpenModeControl: () => void;
     onToggleModelPicker: () => void;
     onCompactContext: () => void;
+    /** Present only when NeoPi can use the microphone of the machine this client runs on. */
+    dictation?: ComposerDictationControl;
   };
 };
 
@@ -4363,9 +4374,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         content: activityStackContent,
       }
     : null;
-  const bannerStackItems = activityStackItem
+  const dictation = nativeSession?.dictation ?? null;
+  const dictationShortcut = dictation
+    ? shortcutLabelForCommand(keybindings, "composer.dictation.toggle", {
+        context: { terminalFocus: false, terminalOpen, modelPickerOpen: false },
+      })
+    : null;
+  const dictationBannerItems = dictation
+    ? composerDictationBannerItems(dictation, dictationShortcut)
+    : [];
+  const baseBannerStackItems = activityStackItem
     ? [activityStackItem, ...(legacy?.bannerItems ?? [])]
     : (legacy?.bannerItems ?? []);
+  const bannerStackItems =
+    dictationBannerItems.length > 0
+      ? [...baseBannerStackItems, ...dictationBannerItems]
+      : baseBannerStackItems;
   useEffect(() => {
     if (activeTasksProgress === null || activeTaskSteps === null) {
       setIsTasksDrawerOpen(false);
@@ -5077,6 +5101,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       },
       compactContext: compactThreadContext,
       isModelPickerOpen: () => nativeSession?.modelPickerOpen ?? isComposerModelPickerOpen,
+      insertDictation: (text, anchor) => {
+        const prompt = promptRef.current;
+        const cursor = dictationCursor(anchor, prompt, readComposerSnapshot().expandedCursor);
+        const insertion = dictationInsertion(prompt, cursor, text);
+        return insertion !== "" && applyPromptReplacement(cursor, cursor, insertion);
+      },
       ...(nativeSession ? { openSessionTree: nativeSession.onOpenSessionTree } : {}),
       readSnapshot: () => {
         return readComposerSnapshot();
@@ -5906,6 +5936,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         <TooltipPopup>Attach files</TooltipPopup>
                       </Tooltip>
                     </>
+                  ) : null}
+                  {dictation ? (
+                    <ComposerDictationButton dictation={dictation} shortcut={dictationShortcut} />
                   ) : null}
                   <ComposerFooterPrimaryActions
                     compact={isComposerPrimaryActionsCompact}
