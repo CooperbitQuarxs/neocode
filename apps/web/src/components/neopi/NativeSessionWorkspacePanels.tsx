@@ -134,7 +134,7 @@ export function NativeSessionWorkspacePanels({
   /** Plain native reads and session-changing commands for the tree surface. */
   request: (command: Record<string, unknown> & { type: string }) => Promise<unknown>;
   execute: (command: Record<string, unknown> & { type: string }) => Promise<unknown>;
-  onTreeNavigated: () => void;
+  onTreeNavigated: (result: Record<string, unknown>) => void;
   onOpenModels: () => void;
   onInterrupt: () => void;
   /** Runs a keybinding command that only the native session implements. */

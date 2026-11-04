@@ -226,6 +226,7 @@ export function projectNativeTimeline(
   let turnId = TurnId.make("native:origin");
   let turnStartedAt: string | null = null;
   let lastAt: string | null = null;
+  let workEndedAt: string | null = null;
   let sawTurn = false;
   let lastSetting = null as SettingState | null;
   for (const row of rows) {
@@ -243,6 +244,10 @@ export function projectNativeTimeline(
       continue;
     }
     lastAt = row.timestamp;
+    // Journal bookkeeping (model, reasoning and tier changes, compaction,
+    // unrecognised records) lands after the reply when settings change later.
+    // It is not work, so it must not stretch the turn's "Worked for" span.
+    if (row.kind !== "divider" && row.kind !== "record") workEndedAt = row.timestamp;
     switch (row.kind) {
       case "user":
         // A steer joins the run it interrupts rather than starting a new turn.
@@ -282,6 +287,7 @@ export function projectNativeTimeline(
       case "tool":
         entries.push(work(toolWorkEntry(row, turnId, busy)));
         lastAt = row.result?.entry.timestamp ?? lastAt;
+        workEndedAt = lastAt;
         break;
       case "divider": {
         const setting = settingChange(row);
@@ -349,7 +355,7 @@ export function projectNativeTimeline(
         turnId,
         state: busy ? "running" : "completed",
         startedAt: turnStartedAt,
-        completedAt: busy ? null : lastAt,
+        completedAt: busy ? null : workEndedAt,
       }
     : null;
   return { entries, latestTurn, runningTurnId: busy && sawTurn ? turnId : null };
