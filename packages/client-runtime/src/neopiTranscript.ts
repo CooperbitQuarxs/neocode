@@ -149,13 +149,13 @@ export interface TranscriptOptions {
   readonly debug: boolean;
   /** Tool groups the user opened; a group above the fold size stays collapsed otherwise. */
   readonly expandedGroups: ReadonlySet<string>;
-  /** Tool rows beyond this count in one run collapse behind a toggle. */
+  /** Work rows (tools and thought) beyond this count in one finished run collapse behind a toggle. */
   readonly foldSize?: number;
   /** Local command outputs keyed by the entry id they follow (`null` = before everything). */
   readonly commandOutputs?: ReadonlyMap<string | null, ReadonlyArray<CommandRow>>;
 }
 
-const FOLD_SIZE = 6;
+const FOLD_SIZE = 2;
 
 export function blockText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -730,24 +730,24 @@ function foldToolRuns(
     const toolRows = run.filter((item): item is ToolRow => item.kind === "tool");
     const trailing = end === rows.length;
     const inProgress = trailing && toolRows.some((item) => item.result === null);
-    const expanded = expandedGroups.has(groupId) || inProgress || toolRows.length <= foldSize;
-    if (expanded) {
-      out.push(...run);
-    } else {
-      const first = run[0] as ToolRow | ThinkingRow | NoteRow;
-      out.push({
-        kind: "work-toggle",
-        id: `${groupId}:toggle`,
-        groupId,
-        count: toolRows.length,
-        failed: toolRows.filter((item) => item.result?.isError).length,
-        expanded: false,
-        entry: first.entry,
-        timestamp: first.timestamp,
-        live: first.live,
-        preview: toolRows.slice(0, 3).map((item) => item.label),
-      });
-    }
+    const foldable = !inProgress && run.length > foldSize;
+    const opened = expandedGroups.has(groupId);
+    const first = run[0] as ToolRow | ThinkingRow | NoteRow;
+    const toggle = (expanded: boolean): WorkToggleRow => ({
+      kind: "work-toggle",
+      id: `${groupId}:toggle`,
+      groupId,
+      count: run.length,
+      failed: toolRows.filter((item) => item.result?.isError).length,
+      expanded,
+      entry: first.entry,
+      timestamp: first.timestamp,
+      live: first.live,
+      preview: toolRows.slice(0, 3).map((item) => item.label),
+    });
+    if (!foldable) out.push(...run);
+    else if (opened) out.push(toggle(true), ...run);
+    else out.push(toggle(false));
     index = end;
   }
   return out;
