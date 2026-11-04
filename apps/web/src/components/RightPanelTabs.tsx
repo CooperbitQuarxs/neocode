@@ -424,7 +424,7 @@ function RightPanelEmptyState(props: {
     ...(props.nativeHistory
       ? [
           {
-            label: "Native history",
+            label: "Session tree",
             icon: GitBranch,
             shortcut: "H",
             available: true,
@@ -665,7 +665,7 @@ function surfaceTitle(
     case "agents":
       return "Agents";
     case "native-history":
-      return "Native history";
+      return "Session tree";
     case "background-tasks":
       return "Background tasks";
     case "device":
@@ -978,7 +978,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     ...(props.nativeHistory
       ? [
           {
-            label: "Native history",
+            label: "Session tree",
             icon: GitBranch,
             shortcut: "H",
             available: true,

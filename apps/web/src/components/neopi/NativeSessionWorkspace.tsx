@@ -35,7 +35,6 @@ import { Dialog, DialogPopup, DialogHeader, DialogTitle, DialogFooter } from "..
 import { NativeSessionStatusBar } from "./NativeSessionStatusBar";
 import { NativeSessionTabBar } from "./NativeSessionTabBar";
 import { useCreateNativeSession } from "./NativeSessionSidebar";
-import { NativeSessionTree } from "./NativeSessionTree";
 import { NativeTimelineView, nativeTimelineKey } from "./NativeTimelineView";
 import {
   nativeQueuedMessages,
@@ -232,7 +231,10 @@ export function NativeSessionView({
   );
   useEffect(() => () => pageScroll.dispose(), [pageScroll]);
   const [debug, setDebug] = useState(false);
-  const [tree, setTree] = useState(false);
+  const openTree = useCallback(
+    () => useRightPanelStore.getState().open(target, "native-history"),
+    [target],
+  );
   const [models, setModels] = useState(false);
   const [sending, setSending] = useState(false);
   const [paging, setPaging] = useState(false);
@@ -545,7 +547,7 @@ export function NativeSessionView({
                 panelOpen ? "pr-26.5 sm:pr-22.5" : "pr-18.25 sm:pr-14.25",
               )}
             >
-              <HeaderIconButton label="Session tree" onClick={() => setTree(true)}>
+              <HeaderIconButton label="Session tree" onClick={openTree}>
                 <GitForkIcon className="size-4" />
               </HeaderIconButton>
               <HeaderIconButton
@@ -584,7 +586,10 @@ export function NativeSessionView({
         workspaceMutationId={conversation.entries.at(-1)?.id ?? null}
         onAddTerminalContext={(selection) => composerRef.current?.addTerminalContext(selection)}
         onSendAnnotation={() => void send()}
-        onOpenTree={() => setTree(true)}
+        onOpenTree={openTree}
+        request={request}
+        execute={execute}
+        onTreeNavigated={focusComposer}
         onOpenModels={() => setModels((value) => !value)}
         onInterrupt={interrupt}
         busy={feed.busy}
@@ -695,7 +700,7 @@ export function NativeSessionView({
                 promptHistory,
                 modelPickerOpen: models,
                 onOpenModelPicker: () => setModels(true),
-                onOpenSessionTree: () => setTree(true),
+                onOpenSessionTree: openTree,
                 onOpenModeControl: () => {
                   void execute({ type: "prompt", message: "/chat" }).catch((cause) =>
                     setLocalError(String(cause)),
@@ -716,14 +721,6 @@ export function NativeSessionView({
       </NativeSessionWorkspacePanels>
       {expandedImage ? (
         <ExpandedImageDialog preview={expandedImage} onClose={() => setExpandedImage(null)} />
-      ) : null}
-      {tree ? (
-        <NativeSessionTree
-          target={target}
-          request={execute}
-          onClose={() => setTree(false)}
-          onReturnFocus={focusComposer}
-        />
       ) : null}
       {dialog ? (
         <NativeSessionDialog
