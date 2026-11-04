@@ -427,3 +427,19 @@ export function parseNativeQueuedMessageId(
   } catch {}
   return null;
 }
+
+/**
+ * The oldest queued prompt Send now can act on. NeoPi's `promote_queued_message` only moves
+ * follow-ups into steering, so prompts already steering (or dispatching) are skipped.
+ */
+export function nextPromotableNativeQueuedMessageId(
+  queued: readonly Pick<QueuedComposerMessage, "id" | "sending">[],
+): string | null {
+  return (
+    queued.find(
+      (message) =>
+        message.sending === undefined &&
+        parseNativeQueuedMessageId(message.id)?.lane === "followUp",
+    )?.id ?? null
+  );
+}

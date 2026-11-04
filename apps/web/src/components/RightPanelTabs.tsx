@@ -63,6 +63,7 @@ import {
 import { useBrowserDefaults } from "~/browser/browserDefaults";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { PanelTabCloseButton } from "~/components/ui/panel-tab-close-button";
+import { Tab, TAB_BASELINE_CLASS } from "~/components/ui/tab";
 import { faviconUrlForOrigin } from "~/lib/favicon";
 import { useTheme } from "~/hooks/useTheme";
 import { useDeviceState } from "~/state/device";
@@ -1142,6 +1143,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       <div
         className={cn(
           "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center gap-1 pl-2",
+          TAB_BASELINE_CLASS,
           // The sheet overlays from the viewport top, so its tab bar keeps
           // the titlebar's height: a compact row re-centers the layout
           // controls a few pixels higher and the cluster jumps on open.
@@ -1160,7 +1162,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           className="min-w-0 flex-1"
           data-right-panel-tab-list
         >
-          <div className="flex h-full w-max min-w-full items-center gap-1">
+          <div className="flex h-full w-max min-w-full items-end gap-1">
             {props.surfaces.map((surface) => {
               const active = surface.id === props.activeSurfaceId;
               const pending = props.pendingSurfaceIds.has(surface.id);
@@ -1175,19 +1177,13 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                 ? (props.previewRuntimeTabId?.(previewTabId) ?? null)
                 : null;
               return (
-                <div
+                <Tab
                   key={surface.id}
-                  data-active-tab={active}
+                  active={active}
                   onMouseDown={handleTabMouseDown}
                   onAuxClick={(event) => handleTabAuxClick(event, surface)}
                   onContextMenu={(event) => void handleTabContextMenu(event, surface)}
-                  className={cn(
-                    "cursor-pointer group/tab flex h-6 max-w-36 shrink-0 items-center gap-0.5 rounded-md pr-2 pl-1.5 text-xs",
-                    ownsDesktopTitleBar && "[-webkit-app-region:no-drag]",
-                    active
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-                  )}
+                  className={cn("max-w-36", ownsDesktopTitleBar && "[-webkit-app-region:no-drag]")}
                 >
                   <PanelTabCloseButton
                     label={`Close ${title}`}
@@ -1288,7 +1284,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                       </TooltipPopup>
                     </Tooltip>
                   )}
-                </div>
+                </Tab>
               );
             })}
             {props.surfaces.length > 0 ? (
@@ -1297,7 +1293,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                   render={
                     <Button
                       aria-label="Add panel surface"
-                      className="shrink-0"
+                      className="mb-1.5 shrink-0"
                       size="icon-xs"
                       variant="ghost-muted"
                     />
@@ -1382,7 +1378,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         </ScrollArea>
         {tabScrollState.hasOverflow ? (
           <div
-            className="flex shrink-0 items-center gap-0.5 [-webkit-app-region:no-drag]"
+            className="mb-1.5 flex shrink-0 items-center gap-0.5 self-end [-webkit-app-region:no-drag]"
             role="group"
             aria-label="Scroll panel tabs"
           >

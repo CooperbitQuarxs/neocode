@@ -94,6 +94,8 @@ export function NativeSessionWorkspacePanels({
   onOpenModels,
   onInterrupt,
   busy,
+  onToggleDictation,
+  dictationActive,
   children,
 }: {
   target: NativeSessionTarget;
@@ -112,6 +114,10 @@ export function NativeSessionWorkspacePanels({
   onOpenModels: () => void;
   onInterrupt: () => void;
   busy: boolean;
+  /** Absent when this client cannot use the microphone NeoPi records from. */
+  onToggleDictation: (() => void) | undefined;
+  /** Escape cancels a capture before it interrupts the running turn. */
+  dictationActive: boolean;
   children: ReactNode;
 }) {
   const key = workspaceKey(target);
@@ -371,9 +377,13 @@ export function NativeSessionWorkspacePanels({
         case "composer.mode":
           action = () => composerRef.current?.openControl(command);
           break;
+        case "composer.dictation.toggle":
+          action = onToggleDictation ?? null;
+          break;
         case "thread.stop":
           if (
             busy &&
+            !dictationActive &&
             !document.querySelector('[data-slot="dialog-popup"],[data-slot="menu-popup"]')
           )
             action = onInterrupt;
@@ -400,6 +410,8 @@ export function NativeSessionWorkspacePanels({
     onOpenModels,
     onInterrupt,
     busy,
+    onToggleDictation,
+    dictationActive,
   ]);
 
   const openFile = (path: string) => useRightPanelStore.getState().openFile(target, path);

@@ -76,17 +76,24 @@ device until you sign back into the same account.
 
 ## Switch models
 
-On web and desktop, click the current model or press `Alt+P` to open the native model switcher.
-Choose a NeoPi inference provider or Roles, or filter by provider, model ID or
-display name. The list shows the native catalog's intelligence, context and
-per-million-token prices. Catalog throughput is an estimate. A question mark
-means the native source has not supplied that fact, including measured TTFT.
-Missing metrics do not make a model unavailable; you can still select it.
-Saved selections that are no longer available stay visible.
+On web and desktop, click the current model or press `Alt+P` to open the model
+picker. It opens as a popover anchored to the button, with the cursor already in
+the search box, and nothing else on screen is blocked: click outside or press
+Escape to close it.
 
-Use the arrow keys and Enter to select, or click a model. Escape dismisses the
-switcher without changing the draft. This is the quick session switcher, separate
-from the Models management page.
+The left rail lists **Roles** first, then **Favorites**, then NeoPi's inference
+providers; the right side lists that entry's models. Typing searches every
+provider and role with NeoPi's own ranking. Each row shows what NeoPi reported
+for the model, such as context window, per-million-token prices and
+intelligence; hover a row for the full set. A question mark or a missing fact
+means the native source has not supplied it. Missing metrics do not make a model
+unavailable; you can still select it. Saved selections that are no longer
+available stay visible.
+
+Star a model to add it to Favorites. Use the arrow keys and Enter to select, or
+click a model; Left and Right move between the rail and the list. Choosing a role
+or model applies it to the session and returns focus to the prompt. This is the
+quick session switcher, separate from the Models management page.
 
 ## Custom models
 
@@ -183,6 +190,20 @@ awake; it can sleep normally once recording stops.
 
 Transcription runs on your device. T3 Code deletes the temporary audio after
 transcription or cancellation; only the message text is sent when you submit.
+
+## Dictate on the desktop app
+
+In the desktop app, the composer's microphone button (or `Ctrl+Space`, command
+`composer.dictation.toggle`) has NeoPi record from this computer's microphone.
+Click again to stop. While you speak, a notice above the composer shows the live
+transcript. When you stop, the final text is inserted at the cursor where you
+started, and nothing is sent. Press Escape to throw the recording away.
+
+Dictation needs NeoPi's `stt.enabled` setting. If it is off, the speech model is
+unavailable, or live voice is running, the composer shows NeoPi's message. The
+button appears only for native sessions NeoCode owns on the desktop app's own
+backend, because NeoPi records on the machine it runs on. Browsers and remote
+environments do not offer it.
 
 ## Commands and skills
 

@@ -28,6 +28,7 @@ import type {
   PullRequestListInput,
   PreviewAnnotationPayload,
   ProviderApprovalDecision,
+  ProviderOptionSelection,
   ProviderInteractionMode,
   ResolvedKeybindingsConfig,
   ScopedThreadRef,
@@ -143,6 +144,13 @@ import {
   type ComposerBannerStackContent,
   type ComposerBannerStackItem,
 } from "./ComposerBannerStack";
+import { ComposerDictationButton, composerDictationBannerItems } from "./ComposerDictation";
+import {
+  dictationCursor,
+  dictationInsertion,
+  type ComposerDictationAnchor,
+  type ComposerDictationControl,
+} from "./composerDictation.logic";
 import { compressImageForStash, prepareImageForAttachment } from "../../lib/imageCompression";
 import {
   fileAttachmentTooLargeMessage,
@@ -264,6 +272,7 @@ import {
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
 } from "./composerProviderState";
+import { TraitsMenuContent, TraitsPicker } from "./TraitsPicker";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import {
   providerSupportsManualCompaction,
@@ -472,9 +481,7 @@ import {
   PlayIcon,
   ShieldIcon,
   XIcon,
-  ChevronDownIcon,
 } from "lucide-react";
-import { NeoPiIcon } from "../Icons";
 import { proposedPlanTitle } from "../../proposedPlan";
 import { hasProviderSetup } from "./ProviderStatusBanner";
 import {
@@ -744,6 +751,8 @@ export interface ChatComposerHandle {
     expandedCursor: number;
     contextIds: string[];
   };
+  /** Insert dictated text where the capture started, or at the caret if the draft moved on. */
+  insertDictation: (text: string, anchor: ComposerDictationAnchor) => boolean;
   /** Reset composer cursor/trigger/highlight after external prompt mutations (e.g. onSend). */
   resetCursorState: (options?: {
     cursor?: number;
@@ -964,16 +973,26 @@ export type NativeChatComposerProps = Pick<
   composerDraftTarget: NativeSessionTarget;
   routeThreadRef: NativeSessionTarget;
   nativeSession: {
-    modelLabel: string;
-    displayState: string | null;
     commands: readonly ServerProviderSlashCommand[];
     promptHistory: readonly ComposerPromptHistoryMessage[];
+    /** The shared model picker, built by the workspace that owns the session. */
+    modelControl: ReactNode;
     modelPickerOpen: boolean;
     onOpenModelPicker: () => void;
     onOpenSessionTree: () => void;
     onOpenModeControl: () => void;
     onToggleModelPicker: () => void;
     onCompactContext: () => void;
+    /** Present only when NeoPi can use the microphone of the machine this client runs on. */
+    dictation?: ComposerDictationControl;
+    /** Effort and fast-mode controls built from NeoPi's own levels; null while none apply. */
+    traits: {
+      model: string;
+      models: ReadonlyArray<ServerProvider["models"][number]>;
+      onModelOptionsChange: (next: ReadonlyArray<ProviderOptionSelection> | undefined) => void;
+    } | null;
+    /** Sends NeoPi's oldest queued prompt now; false when nothing was queued. */
+    onSendQueuedNow: () => boolean;
   };
 };
 
@@ -2137,8 +2156,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Provider traits UI
   // ------------------------------------------------------------------
 
+  const nativeTraits = nativeSession?.traits ?? null;
   const providerTraitsMenuContent = nativeSession
-    ? null
+    ? nativeTraits && <TraitsMenuContent provider={selectedProvider} {...nativeTraits} />
     : renderProviderTraitsMenuContent({
         provider: selectedProvider,
         instanceId: selectedInstanceId,
@@ -2159,7 +2179,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isComposerOwned: true,
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
   const providerTraitsPicker = nativeSession
-    ? null
+    ? nativeTraits && <TraitsPicker provider={selectedProvider} {...nativeTraits} isComposerOwned />
     : renderProviderTraitsPicker(providerTraitsPickerInput);
   const expandedControlsLayout = useComposerControlsLayout();
   const pendingPrimaryAction = useMemo(
@@ -3479,6 +3499,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             prompt: promptRef.current,
           })
         : null;
+    // An empty composer has nothing to send, so Enter delivers the queued prompt instead.
+    if (
+      submissionIntent &&
+      nativeSession &&
+      !composerSendState.hasSendableContent &&
+      !event.isComposing &&
+      event.keyCode !== 229 &&
+      nativeSession.onSendQueuedNow()
+    ) {
+      return true;
+    }
     if (submissionIntent) {
       submitComposer(undefined, submissionIntent);
       return true;
@@ -4145,11 +4176,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const restingHiddenBlockCount = expandedControlsLayout.hiddenBlockCount;
   const iconOnlyBlockCount = expandedControlsLayout.iconOnlyBlockCount;
-  const restingProviderTraitsPicker = renderProviderTraitsPicker({
-    ...providerTraitsPickerInput,
-    size: "sm",
-    hidden: restingHiddenBlockCount > 1,
-  });
+  const restingProviderTraitsPicker = nativeTraits ? (
+    <TraitsPicker
+      provider={selectedProvider}
+      {...nativeTraits}
+      isComposerOwned
+      size="sm"
+      hidden={restingHiddenBlockCount > 1}
+    />
+  ) : (
+    renderProviderTraitsPicker({
+      ...providerTraitsPickerInput,
+      size: "sm",
+      hidden: restingHiddenBlockCount > 1,
+    })
+  );
   const restingBlockDefs = [
     ...(providerTraitsPicker
       ? [
@@ -4164,38 +4205,75 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           },
         ]
       : []),
-    {
-      id: "mode",
-      content: (
-        <ComposerFooterModeControls
-          showInteractionModeToggle={planModeUiEnabled}
-          interactionMode={interactionMode}
-          size="sm"
-          hidden={restingHiddenBlockCount > 0}
-          onToggleInteractionMode={() => toggleInteractionMode?.()}
-        />
-      ),
-    },
+    // Native sessions have no plan mode; NeoPi owns their mode.
+    ...(nativeSession
+      ? []
+      : [
+          {
+            id: "mode",
+            content: (
+              <ComposerFooterModeControls
+                showInteractionModeToggle={planModeUiEnabled}
+                interactionMode={interactionMode}
+                size="sm"
+                hidden={restingHiddenBlockCount > 0}
+                onToggleInteractionMode={() => toggleInteractionMode?.()}
+              />
+            ),
+          },
+        ]),
   ];
   const hiddenRestingBlockIds = restingBlockDefs
     .slice(restingBlockDefs.length - restingHiddenBlockCount)
     .map((def) => def.id);
+  const restingControlBlocks = (
+    <>
+      {restingBlockDefs.map((def, index) => {
+        const hidden = index >= restingBlockDefs.length - restingHiddenBlockCount;
+        return (
+          <div
+            key={def.id}
+            data-resting-block={def.id}
+            data-composer-block-icon-only={
+              index >= restingBlockDefs.length - iconOnlyBlockCount ? "true" : "false"
+            }
+            aria-hidden={hidden || undefined}
+            inert={hidden || undefined}
+            className={cn(
+              "flex w-max min-w-max shrink-0 items-center gap-1",
+              hidden && "pointer-events-none invisible absolute",
+              index >= restingBlockDefs.length - iconOnlyBlockCount &&
+                "[&_[data-composer-control-label]]:pointer-events-none [&_[data-composer-control-label]]:invisible [&_[data-composer-control-label]]:absolute [&_[data-composer-control-label]]:w-max [&_[data-composer-control-label]]:max-w-none [&_[data-composer-control-compact-icon]]:[visibility:inherit] [&_[data-composer-control-compact-icon]]:relative",
+            )}
+          >
+            {def.content}
+          </div>
+        );
+      })}
+      <div
+        data-resting-controls-overflow
+        aria-hidden={hiddenRestingBlockIds.length === 0 || undefined}
+        inert={hiddenRestingBlockIds.length === 0 || undefined}
+        className={cn(
+          "min-w-0 shrink-0",
+          hiddenRestingBlockIds.length === 0 && "pointer-events-none invisible absolute",
+        )}
+      >
+        <CompactComposerControlsMenu
+          interactionMode={interactionMode}
+          size="sm"
+          hidden={hiddenRestingBlockIds.length === 0}
+          showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}
+          traitsMenuContent={
+            hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
+          }
+          onToggleInteractionMode={() => toggleInteractionMode?.()}
+        />
+      </div>
+    </>
+  );
   const composerControls = nativeSession ? (
-    <ComposerControl
-      type="button"
-      onClick={nativeSession.onOpenModelPicker}
-      data-composer-shortcut="composer.model"
-      disabled={isSendBusy}
-      className="min-w-0"
-      aria-label={`Model: ${nativeSession.modelLabel}${nativeSession.displayState ? `, ${nativeSession.displayState}` : ""}`}
-    >
-      <NeoPiIcon aria-hidden className="size-4 shrink-0" />
-      <span className="truncate">{nativeSession.modelLabel}</span>
-      {nativeSession.displayState ? (
-        <span className="truncate text-muted-foreground">{nativeSession.displayState}</span>
-      ) : null}
-      <ComposerControlIcon icon={ChevronDownIcon} size="xs" className="opacity-60" />
-    </ComposerControl>
+    nativeSession.modelControl
   ) : runtimeReadOnlyReason || showProviderUnavailable ? (
     <ComposerControl
       type="button"
@@ -4290,50 +4368,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       />
       <NeoPiSessionStatus threadRef={isServerThread ? legacyThreadRef : null} />
 
-      <>
-        {restingBlockDefs.map((def, index) => {
-          const hidden = index >= restingBlockDefs.length - restingHiddenBlockCount;
-          return (
-            <div
-              key={def.id}
-              data-resting-block={def.id}
-              data-composer-block-icon-only={
-                index >= restingBlockDefs.length - iconOnlyBlockCount ? "true" : "false"
-              }
-              aria-hidden={hidden || undefined}
-              inert={hidden || undefined}
-              className={cn(
-                "flex w-max min-w-max shrink-0 items-center gap-1",
-                hidden && "pointer-events-none invisible absolute",
-                index >= restingBlockDefs.length - iconOnlyBlockCount &&
-                  "[&_[data-composer-control-label]]:pointer-events-none [&_[data-composer-control-label]]:invisible [&_[data-composer-control-label]]:absolute [&_[data-composer-control-label]]:w-max [&_[data-composer-control-label]]:max-w-none [&_[data-composer-control-compact-icon]]:[visibility:inherit] [&_[data-composer-control-compact-icon]]:relative",
-              )}
-            >
-              {def.content}
-            </div>
-          );
-        })}
-        <div
-          data-resting-controls-overflow
-          aria-hidden={hiddenRestingBlockIds.length === 0 || undefined}
-          inert={hiddenRestingBlockIds.length === 0 || undefined}
-          className={cn(
-            "min-w-0 shrink-0",
-            hiddenRestingBlockIds.length === 0 && "pointer-events-none invisible absolute",
-          )}
-        >
-          <CompactComposerControlsMenu
-            interactionMode={interactionMode}
-            size="sm"
-            hidden={hiddenRestingBlockIds.length === 0}
-            showInteractionModeToggle={planModeUiEnabled && hiddenRestingBlockIds.includes("mode")}
-            traitsMenuContent={
-              hiddenRestingBlockIds.includes("traits") ? providerTraitsMenuContent : undefined
-            }
-            onToggleInteractionMode={() => toggleInteractionMode?.()}
-          />
-        </div>
-      </>
+      {restingControlBlocks}
     </>
   ) : null;
   const showTasksTab =
@@ -4363,9 +4398,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         content: activityStackContent,
       }
     : null;
-  const bannerStackItems = activityStackItem
+  const dictation = nativeSession?.dictation ?? null;
+  const dictationShortcut = dictation
+    ? shortcutLabelForCommand(keybindings, "composer.dictation.toggle", {
+        context: { terminalFocus: false, terminalOpen, modelPickerOpen: false },
+      })
+    : null;
+  const dictationBannerItems = dictation
+    ? composerDictationBannerItems(dictation, dictationShortcut)
+    : [];
+  const baseBannerStackItems = activityStackItem
     ? [activityStackItem, ...(legacy?.bannerItems ?? [])]
     : (legacy?.bannerItems ?? []);
+  const bannerStackItems =
+    dictationBannerItems.length > 0
+      ? [...baseBannerStackItems, ...dictationBannerItems]
+      : baseBannerStackItems;
   useEffect(() => {
     if (activeTasksProgress === null || activeTaskSteps === null) {
       setIsTasksDrawerOpen(false);
@@ -5077,6 +5125,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       },
       compactContext: compactThreadContext,
       isModelPickerOpen: () => nativeSession?.modelPickerOpen ?? isComposerModelPickerOpen,
+      insertDictation: (text, anchor) => {
+        const prompt = promptRef.current;
+        const cursor = dictationCursor(anchor, prompt, readComposerSnapshot().expandedCursor);
+        const insertion = dictationInsertion(prompt, cursor, text);
+        return insertion !== "" && applyPromptReplacement(cursor, cursor, insertion);
+      },
       ...(nativeSession ? { openSessionTree: nativeSession.onOpenSessionTree } : {}),
       readSnapshot: () => {
         return readComposerSnapshot();
@@ -5844,6 +5898,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   className="relative -m-1 -ms-3.5 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto p-1 ps-3.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                 >
                   {composerControls}
+                  {nativeSession ? restingControlBlocks : null}
                   {providerComposerUi?.displayState ? (
                     <Tooltip>
                       <TooltipTrigger
@@ -5906,6 +5961,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         <TooltipPopup>Attach files</TooltipPopup>
                       </Tooltip>
                     </>
+                  ) : null}
+                  {dictation ? (
+                    <ComposerDictationButton dictation={dictation} shortcut={dictationShortcut} />
                   ) : null}
                   <ComposerFooterPrimaryActions
                     compact={isComposerPrimaryActionsCompact}

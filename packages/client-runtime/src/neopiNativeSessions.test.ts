@@ -976,4 +976,88 @@ describe("canonical native client projection", () => {
     feed = reduceNativeSessionFeed(feed, { type: "closed", reason: "gone" });
     expect(feed.queue).toEqual({ steering: [], followUp: [], liveSteered: 0 });
   });
+
+  it("projects one native dictation capture and ignores stragglers", () => {
+    const frame = (value: { type: string } & Record<string, unknown>) => ({
+      type: "event" as const,
+      frame: value,
+    });
+    let feed = initial();
+    expect(feed.dictation).toBeNull();
+    feed = reduceNativeSessionFeed(
+      feed,
+      frame({ type: "dictation_state", captureId: "a", state: "starting" }),
+    );
+    feed = reduceNativeSessionFeed(
+      feed,
+      frame({ type: "dictation_state", captureId: "a", state: "recording" }),
+    );
+    feed = reduceNativeSessionFeed(
+      feed,
+      frame({ type: "dictation_transcript", captureId: "a", text: "hello wor" }),
+    );
+    expect(feed.dictation).toEqual({
+      captureId: "a",
+      phase: "recording",
+      text: "hello wor",
+      error: null,
+    });
+    // A preview replaces the previous one, and another capture's frames are not ours.
+    feed = reduceNativeSessionFeed(
+      feed,
+      frame({ type: "dictation_transcript", captureId: "b", text: "intruder" }),
+    );
+    feed = reduceNativeSessionFeed(
+      feed,
+      frame({ type: "dictation_state", captureId: "a", state: "transcribing" }),
+    );
+    expect(feed.dictation).toMatchObject({ phase: "transcribing", text: "hello wor" });
+    feed = reduceNativeSessionFeed(
+      feed,
+      frame({ type: "dictation_end", captureId: "a", text: "hello world" }),
+    );
+    expect(feed.dictation).toEqual({
+      captureId: "a",
+      phase: "ended",
+      text: "hello world",
+      error: null,
+    });
+    // Nothing revives a finished capture; the next capture starts with its state frame.
+    feed = reduceNativeSessionFeed(
+      feed,
+      frame({ type: "dictation_transcript", captureId: "a", text: "late" }),
+    );
+    expect(feed.dictation?.text).toBe("hello world");
+    feed = reduceNativeSessionFeed(
+      feed,
+      frame({ type: "dictation_state", captureId: "b", state: "starting" }),
+    );
+    expect(feed.dictation).toEqual({ captureId: "b", phase: "starting", text: "", error: null });
+    feed = reduceNativeSessionFeed(
+      feed,
+      frame({
+        type: "dictation_end",
+        captureId: "b",
+        text: "",
+        error: "Speech-to-text is disabled",
+      }),
+    );
+    expect(feed.dictation).toMatchObject({ phase: "ended", error: "Speech-to-text is disabled" });
+  });
+
+  it("ends a live dictation capture when the native connection closes", () => {
+    let feed = reduceNativeSessionFeed(initial(), {
+      type: "event",
+      frame: { type: "dictation_state", captureId: "a", state: "recording" },
+    });
+    feed = reduceNativeSessionFeed(feed, {
+      type: "closed",
+      reason: "The native connection closed.",
+    });
+    expect(feed.dictation).toMatchObject({
+      captureId: "a",
+      phase: "ended",
+      error: "The native connection closed.",
+    });
+  });
 });

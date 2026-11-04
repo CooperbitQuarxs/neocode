@@ -3,7 +3,7 @@ import {
   type ProviderDriverKind,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
-import { memo, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { Badge } from "../ui/badge";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -23,7 +23,7 @@ import {
 } from "./ComposerControl";
 import { useComposerMenuProps } from "./composerEventScope";
 import { shortcutLabelForCommand } from "../../keybindings";
-import type { NativeSelectorContext } from "./neopiModelSwitcher";
+import type { NativeModelChoice, NativeSelectorContext } from "./neopiModelSwitcher";
 
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   /**
@@ -51,41 +51,22 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   triggerClassName?: string;
   /** Aggregate settings can show a neutral value without claiming one provider is selected. */
   triggerLabel?: string;
+  /** Muted text after the trigger label, e.g. the effort beside a native model name. */
+  triggerDetail?: string | null;
   triggerAriaLabel?: string;
   onOpenChange?: (open: boolean) => void;
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
-  onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
+  onInstanceModelChange: (
+    instanceId: ProviderInstanceId,
+    model: string,
+    /** The native routing fields of the picked row; settings consumers only need the selector. */
+    choice?: NativeModelChoice,
+  ) => void;
 }) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const [uncontrolledIsMenuOpen, setUncontrolledIsMenuOpen] = useState(false);
   const isMenuOpen = props.open ?? uncontrolledIsMenuOpen;
   const size = props.size ?? "sm";
-  const [triggerElement, setTriggerElement] = useState<HTMLButtonElement | null>(null);
-  const [pickerAnchor, setPickerAnchor] = useState<HTMLElement | null>(null);
-  const [pickerWidth, setPickerWidth] = useState<number | undefined>(undefined);
-  useLayoutEffect(() => {
-    if (!isMenuOpen || !triggerElement) return;
-    // Status controls may be portaled outside the form. They still open over
-    // the active composer, rather than inheriting the tiny trigger width.
-    const anchor = props.isComposerOwned
-      ? (triggerElement.closest<HTMLElement>('[data-chat-composer-form="true"]') ??
-        document.querySelector<HTMLElement>('[data-chat-composer-form="true"]') ??
-        triggerElement.closest<HTMLElement>("main"))
-      : triggerElement.closest<HTMLElement>("main");
-    setPickerAnchor(props.isComposerOwned ? anchor : null);
-    const update = () =>
-      setPickerWidth(
-        anchor?.getBoundingClientRect().width ?? Math.min(1000, window.innerWidth - 16),
-      );
-    update();
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
-    if (anchor) observer?.observe(anchor);
-    window.addEventListener("resize", update);
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener("resize", update);
-    };
-  }, [isMenuOpen, triggerElement, props.isComposerOwned]);
 
   // Resolve the active instance entry by exact routing key. The composer
   // resolves fallbacks before rendering this component; if the selected
@@ -120,57 +101,13 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     }
   };
 
-  useEffect(() => {
-    if (!isMenuOpen) {
-      return;
-    }
-
-    const { documentElement, body } = document;
-    const previousDocumentOverscrollBehavior = documentElement.style.overscrollBehavior;
-    const previousBodyOverflow = body.style.overflow;
-    const previousBodyPaddingRight = body.style.paddingRight;
-    const scrollbarWidth = window.innerWidth - documentElement.clientWidth;
-
-    documentElement.style.overscrollBehavior = "contain";
-    body.style.overflow = "hidden";
-    if (scrollbarWidth > 0) {
-      body.style.paddingRight = `${scrollbarWidth}px`;
-    }
-
-    const shouldAllowOverlayScroll = (target: EventTarget | null) => {
-      return target instanceof Element && target.closest("[data-model-picker-content]");
-    };
-    const preventBackgroundWheel = (event: WheelEvent) => {
-      if (shouldAllowOverlayScroll(event.target)) {
-        return;
-      }
-      event.preventDefault();
-    };
-    const preventBackgroundTouchMove = (event: TouchEvent) => {
-      if (shouldAllowOverlayScroll(event.target)) {
-        return;
-      }
-      event.preventDefault();
-    };
-
-    document.addEventListener("wheel", preventBackgroundWheel, { capture: true, passive: false });
-    document.addEventListener("touchmove", preventBackgroundTouchMove, {
-      capture: true,
-      passive: false,
-    });
-
-    return () => {
-      document.removeEventListener("wheel", preventBackgroundWheel, { capture: true });
-      document.removeEventListener("touchmove", preventBackgroundTouchMove, { capture: true });
-      documentElement.style.overscrollBehavior = previousDocumentOverscrollBehavior;
-      body.style.overflow = previousBodyOverflow;
-      body.style.paddingRight = previousBodyPaddingRight;
-    };
-  }, [isMenuOpen]);
-
-  const handleInstanceModelChange = (instanceId: ProviderInstanceId, model: string) => {
+  const handleInstanceModelChange = (
+    instanceId: ProviderInstanceId,
+    model: string,
+    choice?: NativeModelChoice,
+  ) => {
     if (props.disabled) return;
-    props.onInstanceModelChange(instanceId, model);
+    props.onInstanceModelChange(instanceId, model, choice);
     setIsMenuOpen(false);
   };
 
@@ -221,7 +158,6 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       <PopoverTrigger
         render={
           <ComposerControl
-            ref={setTriggerElement}
             aria-label={props.triggerAriaLabel ?? allModelNames ?? `Switch model: ${triggerTitle}`}
             size={size}
             data-chat-provider-model-picker="true"
@@ -287,6 +223,11 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             </TooltipTrigger>
             <TooltipPopup side="top">{triggerTooltipContent}</TooltipPopup>
           </Tooltip>
+          {props.triggerDetail ? (
+            <span className="min-w-0 shrink-0 truncate text-muted-foreground">
+              {props.triggerDetail}
+            </span>
+          ) : null}
           {selectedModel?.isUnavailable && !selectedEntries && props.triggerLabel === undefined ? (
             <Badge variant="outline" size="sm">
               Unavailable
@@ -301,10 +242,12 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         {...(props.isComposerOwned ? composerFloatingLayerProps : {})}
         align="start"
         side={props.isComposerOwned ? "top" : "bottom"}
-        {...(pickerAnchor ? { anchor: pickerAnchor } : {})}
-        style={{ width: pickerWidth, maxWidth: "var(--available-width)" }}
         className="before:hidden"
         padding="none"
+        // Typing starts at once: the search box takes focus instead of the first rail button.
+        initialFocus={() =>
+          document.querySelector<HTMLElement>("[data-model-picker-content] input") ?? true
+        }
       >
         <ModelPickerContent
           activeInstanceId={activeInstanceId}

@@ -20,6 +20,10 @@ workspace, and `mod+shift+g` for the Git branch. The workspace menu includes the
 current checkout, a new worktree, and the previous worktree when available.
 Use `mod+shift+l` to reuse the previous worktree directly.
 
+On the desktop app, `ctrl+space` starts and stops [dictation](composer.md#dictate-on-the-desktop-app)
+in a native session. It is literal Ctrl on every platform, so it can be rebound
+under `composer.dictation.toggle` if your system uses it for input sources.
+
 In the model picker, press Left in an empty search field or Shift+Tab to reach
 the provider list. Use Up/Down to move and Enter to choose. Right returns to
 model search. `mod+shift+up` and `mod+shift+down` switch providers directly and clear the
@@ -119,6 +123,12 @@ terminals so native undo keeps working there.
 
 `navigation.back` (`mod+[` by default) and `navigation.forward` (`mod+]`) move
 through the pages you have visited, like a browser's back and forward buttons.
+
+`sessionTab.next` (`ctrl+tab` by default) and `sessionTab.previous`
+(`ctrl+shift+tab`) switch between the session tabs at the top of the window and
+wrap around at either end. They work from the composer and are skipped while the
+terminal has focus. Browsers reserve `ctrl+tab` for their own tabs, so this is a
+desktop shortcut; assign another binding to use it on the web.
 
 `chat.new` may ask you to choose a project when there is more than one.
 `chat.newLocal` skips that chooser. Both use your

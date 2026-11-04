@@ -1190,3 +1190,76 @@ it.live("closes a bounded native observer even with an undrained event and activ
     }),
   ),
 );
+
+it.live("carries a dictation capture: both commands and every frame in order", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const peer = yield* scriptedPeer({
+        ready: v2Ready,
+        onLine: (message, emit) =>
+          negotiate(message, emit).pipe(
+            Effect.flatMap((handled) => {
+              if (handled) return Effect.void;
+              if (message.type === "dictation_start")
+                return emit({
+                  type: "dictation_state",
+                  captureId: message.captureId,
+                  state: "recording",
+                }).pipe(
+                  Effect.andThen(
+                    emit({
+                      id: message.id,
+                      type: "response",
+                      command: "dictation_start",
+                      success: true,
+                    }),
+                  ),
+                );
+              if (message.type === "dictation_stop")
+                return emit({
+                  type: "dictation_transcript",
+                  captureId: "capture-1",
+                  text: "hello wor",
+                }).pipe(
+                  Effect.andThen(
+                    emit({ type: "dictation_end", captureId: "capture-1", text: "hello world" }),
+                  ),
+                  Effect.andThen(
+                    emit({
+                      id: message.id,
+                      type: "response",
+                      command: "dictation_stop",
+                      success: true,
+                      data: { text: "hello world" },
+                    }),
+                  ),
+                );
+              return Effect.void;
+            }),
+          ),
+      });
+      const client = yield* makeClient(peer);
+      const received = yield* Queue.unbounded<Client.SessionEventFrame>();
+      yield* Stream.runForEach(client.events, (frame) => Queue.offer(received, frame)).pipe(
+        Effect.forkScoped,
+      );
+      yield* client.request({ type: "dictation_start", captureId: "capture-1" });
+      assert.deepEqual(yield* client.request({ type: "dictation_stop" }), { text: "hello world" });
+      assert.deepEqual(yield* Queue.take(received), {
+        type: "dictation_state",
+        captureId: "capture-1",
+        state: "recording",
+      });
+      assert.deepEqual(yield* Queue.take(received), {
+        type: "dictation_transcript",
+        captureId: "capture-1",
+        text: "hello wor",
+      });
+      assert.deepEqual(yield* Queue.take(received), {
+        type: "dictation_end",
+        captureId: "capture-1",
+        text: "hello world",
+      });
+    }),
+  ),
+);

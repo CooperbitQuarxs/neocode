@@ -1,11 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
-import type {
-  NativeSessionList,
-  NativeSessionTarget,
-} from "@t3tools/client-runtime/neopi-native-sessions";
+import type { NativeSessionList } from "@t3tools/client-runtime/neopi-native-sessions";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LockIcon, PlusIcon } from "lucide-react";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { isElectron } from "../../env";
@@ -185,6 +182,48 @@ export function NativeSessionSidebar() {
   );
 }
 
+// Rows mounted at first and added per step as the list scrolls near its end.
+// Hundreds of sessions are normal; mounting all of them made sidebar resizing
+// lay out every row on each frame.
+const SESSION_ROWS_STEP = 60;
+
+type NativeSessionEntry = NativeSessionList["sessions"][number];
+
+const NativeSessionRow = memo(function NativeSessionRow({
+  session,
+  active,
+  disabled,
+  onChoose,
+}: {
+  session: NativeSessionEntry;
+  active: boolean;
+  disabled: boolean;
+  onChoose: (session: NativeSessionEntry) => void;
+}) {
+  const locked = session.owner.kind === "process" && !session.owner.attachable;
+  return (
+    <SidebarMenuItem className="[contain-intrinsic-size:auto_2rem] [content-visibility:auto]">
+      <SidebarMenuButton
+        isActive={active}
+        disabled={disabled || locked}
+        onClick={() => onChoose(session)}
+      >
+        <span className="min-w-0 flex-1 truncate">
+          {session.title ?? (session.firstMessage || "New session")}
+        </span>
+        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          {locked ? (
+            <LockIcon className="size-3 text-icon-muted" aria-label="In use by another process" />
+          ) : null}
+          <span className="text-3xs tabular-nums text-secondary-label">
+            {formatRelativeTimeLabel(session.modifiedAt)}
+          </span>
+        </span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+});
+
 export function NativeEnvironmentSessions({
   environmentId,
   label,
@@ -207,19 +246,68 @@ export function NativeEnvironmentSessions({
   const selected = useNativeSessionSelection((state) => state.target);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const choose = async (session: NativeSessionList["sessions"][number]) => {
-    if (pending) return;
-    setPending(session.ref.sessionFile);
-    setError(null);
-    try {
-      await open(environmentId, session.ref);
-      onSelect?.();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setPending(null);
-    }
-  };
+  // Guards a second click synchronously; `pending` only drives the disabled rows.
+  const pendingRef = useRef(false);
+  const chooseSession = useCallback(
+    async (session: NativeSessionEntry) => {
+      if (pendingRef.current) return;
+      pendingRef.current = true;
+      setPending(session.ref.sessionFile);
+      setError(null);
+      try {
+        await open(environmentId, session.ref);
+        onSelect?.();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        pendingRef.current = false;
+        setPending(null);
+      }
+    },
+    [environmentId, onSelect, open],
+  );
+  const sessions = result.data?.sessions;
+  const matching = useMemo(() => {
+    const needle = query.toLowerCase();
+    if (!sessions || !needle) return sessions ?? [];
+    return sessions.filter((session) =>
+      `${session.title ?? ""} ${session.firstMessage} ${session.cwd}`
+        .toLowerCase()
+        .includes(needle),
+    );
+  }, [sessions, query]);
+  // The window belongs to one query; a new search starts from the first step.
+  const [shown, setShown] = useState({ query, limit: SESSION_ROWS_STEP });
+  const limit = shown.query === query ? shown.limit : SESSION_ROWS_STEP;
+  const hasMore = matching.length > limit;
+  // Keyed by `limit`, so each step mounts a fresh sentinel and observes it again
+  // even when it is still on screen after the rows above it grew.
+  const sentinel = useCallback(
+    (element: HTMLLIElement | null) => {
+      if (!element) return;
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (!entries.some((entry) => entry.isIntersecting)) return;
+          setShown((current) => ({
+            query,
+            limit:
+              (current.query === query ? current.limit : SESSION_ROWS_STEP) + SESSION_ROWS_STEP,
+          }));
+        },
+        {
+          root: element.closest("[data-slot=scroll-area-viewport]"),
+          rootMargin: "0px 0px 600px 0px",
+        },
+      );
+      observer.observe(element);
+      return () => observer.disconnect();
+    },
+    [query],
+  );
+  const choose = useCallback(
+    (session: NativeSessionEntry) => void chooseSession(session),
+    [chooseSession],
+  );
   return (
     <SidebarGroup>
       {label ? (
@@ -236,47 +324,20 @@ export function NativeEnvironmentSessions({
         </p>
       ))}
       <SidebarMenu>
-        {result.data?.sessions
-          .filter((session) =>
-            `${session.title ?? ""} ${session.firstMessage} ${session.cwd}`
-              .toLowerCase()
-              .includes(query.toLowerCase()),
-          )
-          .map((session) => {
-            const target: NativeSessionTarget = { environmentId, ref: session.ref };
-            const disabled = session.owner.kind === "process" && !session.owner.attachable;
-            return (
-              <SidebarMenuItem key={`${session.ref.providerInstanceId}:${session.ref.sessionFile}`}>
-                <SidebarMenuButton
-                  isActive={
-                    selected?.environmentId === target.environmentId &&
-                    selected.ref.providerInstanceId === target.ref.providerInstanceId &&
-                    selected.ref.sessionFile === target.ref.sessionFile
-                  }
-                  disabled={pending !== null || disabled}
-                  onClick={() => void choose(session)}
-                >
-                  <span className="min-w-0 flex-1 truncate">
-                    {session.title ?? (session.firstMessage || "New session")}
-                  </span>
-                  <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                    {disabled ? (
-                      <LockIcon
-                        className="size-3 text-icon-muted"
-                        aria-label="In use by another process"
-                      />
-                    ) : null}
-                    <span
-                      className="text-3xs tabular-nums text-secondary-label"
-                      title={session.owner.kind === "process" ? "Running in a terminal" : undefined}
-                    >
-                      {formatRelativeTimeLabel(session.modifiedAt)}
-                    </span>
-                  </span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            );
-          })}
+        {matching.slice(0, limit).map((session) => (
+          <NativeSessionRow
+            key={`${session.ref.providerInstanceId}:${session.ref.sessionFile}`}
+            session={session}
+            active={
+              selected?.environmentId === environmentId &&
+              selected.ref.providerInstanceId === session.ref.providerInstanceId &&
+              selected.ref.sessionFile === session.ref.sessionFile
+            }
+            disabled={pending !== null}
+            onChoose={choose}
+          />
+        ))}
+        {hasMore ? <li key={limit} ref={sentinel} aria-hidden className="h-px" /> : null}
       </SidebarMenu>
       {!result.data && result.isPending ? (
         <p className="text-xs text-muted-foreground">Reading sessions…</p>

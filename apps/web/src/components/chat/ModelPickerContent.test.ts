@@ -13,8 +13,11 @@ import { deriveProviderInstanceEntries } from "../../providerInstances";
 import {
   nativeSelectorRequests,
   nativeSelectorTarget,
+  filterNativeSwitcherModels,
   nativeSwitcherFactCells,
+  nativeSwitcherFactSummary,
   nativeSwitcherModels,
+  pinNativeSwitcherModel,
 } from "./neopiModelSwitcher";
 import { modelPickerModelKey, parseModelPickerModelKey } from "./modelPickerKeys";
 
@@ -174,6 +177,111 @@ describe("native model selector consumers", () => {
         selectorFacts: { ...facts, contextWindow: 200000 },
       })[3],
     ).toBe("Unknown");
+  });
+
+  it("routes a role through set_role and a model through its own provider and id, never a slash split", () => {
+    const models = rows(
+      new Map([
+        [
+          instanceId,
+          result(
+            [item("custom-route/Zed.V2:blue", { provider: "custom/route", id: "Zed.V2:blue" })],
+            [item("@review", { provider: "custom-route", id: "review" })],
+          ),
+        ],
+      ]),
+    );
+    expect(models.map((model) => model.choice)).toEqual([
+      { kind: "role", role: "review" },
+      { kind: "model", provider: "custom/route", modelId: "Zed.V2:blue" },
+    ]);
+  });
+
+  it("narrows the loaded catalog locally on every token, in the catalog's own order", () => {
+    const models = rows(
+      new Map([
+        [
+          instanceId,
+          result(
+            [
+              item("anthropic/claude-opus-4", {
+                provider: "anthropic",
+                id: "claude-opus-4",
+                name: "Claude Opus 4",
+              }),
+              item("openai/gpt-5", { provider: "openai", id: "gpt-5", name: "GPT-5" }),
+              item("anthropic/claude-sonnet-4", {
+                provider: "anthropic",
+                id: "claude-sonnet-4",
+                name: "Claude Sonnet 4",
+              }),
+            ],
+            [item("@review", { provider: "anthropic", id: "review", name: "Reviewer" })],
+          ),
+        ],
+      ]),
+    );
+    const names = (query: string) =>
+      filterNativeSwitcherModels(models, query).map((model) => model.name);
+    expect(names("OPUS")).toEqual(["Claude Opus 4"]);
+    expect(names("anthropic 4")).toEqual(["Claude Opus 4", "Claude Sonnet 4"]);
+    expect(names("  review ")).toEqual(["Reviewer"]);
+    expect(names("claude-sonnet")).toEqual(["Claude Sonnet 4"]);
+    expect(names("gpt opus")).toEqual([]);
+    expect(filterNativeSwitcherModels(models, "   ")).toBe(models);
+  });
+
+  it("keeps the highlighted row at its position when ranked results replace a provisional list", () => {
+    const models = rows(
+      new Map([[instanceId, result(["a/one", "a/two", "a/three"].map((slug) => item(slug)))]]),
+    );
+    const slugs = (list: ReadonlyArray<{ slug: string }>) => list.map((model) => model.slug);
+    const pin = (slug: string, index: number) => ({
+      key: modelPickerModelKey(instanceId, slug),
+      index,
+    });
+    expect(slugs(pinNativeSwitcherModel(models, pin("a/three", 0)))).toEqual([
+      "a/three",
+      "a/one",
+      "a/two",
+    ]);
+    expect(slugs(pinNativeSwitcherModel(models, pin("a/one", 1)))).toEqual([
+      "a/two",
+      "a/one",
+      "a/three",
+    ]);
+    expect(pinNativeSwitcherModel(models, pin("a/two", 1))).toBe(models);
+    expect(pinNativeSwitcherModel(models, pin("gone/row", 1))).toBe(models);
+    expect(pinNativeSwitcherModel(models, null)).toBe(models);
+    expect(slugs(pinNativeSwitcherModel(models, pin("a/one", 9)))).toEqual([
+      "a/two",
+      "a/three",
+      "a/one",
+    ]);
+  });
+
+  it("summarises only the facts NeoPi reported in a compact line", () => {
+    expect(
+      nativeSwitcherFactSummary({
+        slug: "custom-route/model",
+        name: "Model",
+        selectorFacts: {
+          ...facts,
+          intelligence: 43,
+          effectiveContextWindow: 120000,
+          inputCostPerMillion: 0,
+          outputCostPerMillion: 15,
+        },
+      }),
+    ).toBe("120K ctx · $0 / $15 per M · intelligence 43");
+    expect(
+      nativeSwitcherFactSummary({
+        slug: "custom-route/model",
+        name: "Model",
+        selectorFacts: { ...facts, outputCostPerMillion: 2 },
+      }),
+    ).toBe("? / $2 per M");
+    expect(nativeSwitcherFactSummary({ slug: "local/unknown", name: "Unknown" })).toBe("");
   });
 
   it("does not substitute catalog models after native errors or an empty enabled scope", () => {
