@@ -1820,7 +1820,7 @@ function QueuedMessageTimelineRow({
         ? "Sends after the next tool call or when the turn ends"
         : "Sends after the messages above it";
   return (
-    <div className="flex flex-col items-end pe-2.5" data-queued-message-id={queuedMessage.id}>
+    <div className="flex flex-col items-end pe-3" data-queued-message-id={queuedMessage.id}>
       <div className="max-w-[80%] rounded-2xl border border-dashed border-border p-3 text-message-foreground/80">
         {text.length > 0 ? (
           <UserMessageBody text={text} skills={ctx.skills} markdownCwd={ctx.markdownCwd} />
@@ -2131,7 +2131,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   );
 
   return (
-    <div className="group flex flex-col items-end gap-1 pe-2.5">
+    <div className="group flex flex-col items-end gap-1 pe-3">
       <div data-bubble="user" className="chat-bubble max-w-[80%] rounded-2xl p-3">
         <MessageAuthorHeading>You</MessageAuthorHeading>
         {(regularImages.length > 0 || userVideos.length > 0) && (
@@ -2407,7 +2407,7 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
   const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
 
   return (
-    <div className="relative min-w-0 ps-2.5">
+    <div className="relative min-w-0 ps-3">
       <MessageAuthorHeading>{ctx.assistantName}</MessageAuthorHeading>
       {row.showAssistantIdentity ? (
         <p
@@ -2468,7 +2468,7 @@ function AssistantMetaTimelineRow({
   row: Extract<TimelineRow, { kind: "assistant-meta" }>;
 }) {
   return (
-    <div className="ps-6">
+    <div className="ps-6.5">
       <AssistantMessageMeta
         className="mt-0.5"
         message={row.message}

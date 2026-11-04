@@ -1543,16 +1543,16 @@ html[data-theme-id="t3-chat"] [data-app-sidebar] {
 
 /* Conversation palette. The user's bubble is the composer's own surface: a
    message is a snapshot of the composer, so it keeps the composer's color.
-   The assistant's bubble is a muted lilac drawn from the palette's action
-   color over that same surface, so it follows every installed theme and stays
-   distinct from the user's. Harness rows (tools, thoughts, folds) sit in a
+   The assistant's bubble is a faint lilac tint of the palette's action color
+   over that same surface, so it follows every installed theme and reads as the
+   user bubble's sibling. Harness rows (tools, thoughts, folds) sit in a
    low grey between the bubbles. Recomputed wherever a subtree owns its own
    background, like the contrast tokens above. */
 :root,
 [data-slot="sidebar-inset"] {
   --chat-composer-surface: var(--card);
   --chat-bubble-user: var(--chat-composer-surface);
-  --chat-bubble-assistant: color-mix(in oklab, var(--primary) 22%, var(--chat-composer-surface));
+  --chat-bubble-assistant: color-mix(in oklab, var(--primary) 12%, var(--chat-composer-surface));
   --contrast-chat-bubble-user-foreground: color-mix(
     in oklab,
     color-mix(in oklab, var(--foreground) var(--appearance-contrast-base), var(--chat-bubble-user)),
@@ -1575,17 +1575,18 @@ html[data-theme-id="t3-chat"] [data-app-sidebar] {
 
   @variant dark {
     --chat-composer-surface: var(--surface-raised);
-    --chat-bubble-assistant: color-mix(in oklab, var(--primary) 38%, var(--chat-composer-surface));
+    --chat-bubble-assistant: color-mix(in oklab, var(--primary) 18%, var(--chat-composer-surface));
   }
 }
 
 @layer components {
-  /* A message bubble with a static tail on its outer bottom corner. The tail
-     is a corner-sized box carved by one elliptical mask, so it is plain
-     geometry (no animation, no extra element, no measurement) and always
-     matches the bubble fill. */
+  /* A message bubble with a static tail on its outer bottom corner: a 13x16px
+     fin cut from the bubble fill by one SVG mask. It overlaps the bubble edge
+     by 1px so there is no seam, and rows reserve 0.75rem on the tail side so
+     the column's overflow clip never trims it. Plain geometry: no animation,
+     no extra element, no measurement. */
   .chat-bubble {
-    --chat-bubble-tail: 0.625rem;
+    --chat-bubble-tail-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 13 16'%3E%3Cpath d='M0 0H1C1 8 5 12 13 15C9 16.5 4 16 0 16Z'/%3E%3C/svg%3E");
     position: relative;
     background-color: var(--chat-bubble-fill);
     color: var(--chat-bubble-foreground);
@@ -1595,9 +1596,10 @@ html[data-theme-id="t3-chat"] [data-app-sidebar] {
     content: "";
     position: absolute;
     bottom: 0;
-    width: var(--chat-bubble-tail);
-    height: var(--chat-bubble-tail);
+    width: 0.8125rem;
+    height: 1rem;
     background-color: var(--chat-bubble-fill);
+    mask: var(--chat-bubble-tail-mask) no-repeat 0 0 / 100% 100%;
     pointer-events: none;
   }
 
@@ -1611,8 +1613,6 @@ html[data-theme-id="t3-chat"] [data-app-sidebar] {
 
   .chat-bubble[data-bubble="user"]::after {
     left: calc(100% - 1px);
-    width: calc(var(--chat-bubble-tail) + 1px);
-    mask-image: radial-gradient(ellipse 100% 100% at 100% 0, transparent 98%, #000 100%);
   }
 
   .chat-bubble[data-bubble="assistant"] {
@@ -1625,8 +1625,7 @@ html[data-theme-id="t3-chat"] [data-app-sidebar] {
 
   .chat-bubble[data-bubble="assistant"]::after {
     right: calc(100% - 1px);
-    width: calc(var(--chat-bubble-tail) + 1px);
-    mask-image: radial-gradient(ellipse 100% 100% at 0 0, transparent 98%, #000 100%);
+    transform: scaleX(-1);
   }
 
   /* Harness rows (tool calls, thoughts, folds, notices) are scenery between
@@ -1635,6 +1634,15 @@ html[data-theme-id="t3-chat"] [data-app-sidebar] {
     --contrast-secondary-label: var(--chat-harness-foreground);
     --contrast-icon-muted: var(--chat-harness-foreground);
   }
+}
+
+/* Inline code inside a bubble sits in the bubble: a translucent tint of its
+   own text color instead of the near-black page chip. Unlayered, and ahead of
+   the themed chip overrides by specificity, like the rules it replaces. */
+html .chat-bubble[data-bubble] .chat-markdown :not(pre) > code {
+  border-color: color-mix(in oklab, var(--chat-bubble-foreground) 16%, transparent);
+  background: color-mix(in oklab, var(--chat-bubble-foreground) 9%, transparent);
+  color: var(--chat-bubble-foreground);
 }
 
 body {
