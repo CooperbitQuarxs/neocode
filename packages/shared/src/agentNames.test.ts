@@ -10,7 +10,7 @@ const sessionIds = Array.from(
 
 describe("agent name catalog", () => {
   it("is large enough to be memorable and has no duplicate names", () => {
-    expect(AGENT_NAME_CATALOG.length).toBeGreaterThanOrEqual(250);
+    expect(AGENT_NAME_CATALOG.length).toBeGreaterThanOrEqual(150);
     const names = AGENT_NAME_CATALOG.map((entry) => entry.name.toLowerCase());
     expect(new Set(names).size).toBe(names.length);
   });
@@ -55,9 +55,9 @@ describe("agentIdentity", () => {
       names.set(identity.name, (names.get(identity.name) ?? 0) + 1);
       letters.set(identity.designation[0]!, (letters.get(identity.designation[0]!) ?? 0) + 1);
     }
-    // 5000 draws over ~360 names: every name is hit, none dominates.
+    // 5000 draws over the catalog: nearly every name is hit, none dominates.
     expect(names.size).toBeGreaterThan(AGENT_NAME_CATALOG.length * 0.95);
-    expect(Math.max(...names.values())).toBeLessThan(40);
+    expect(Math.max(...names.values())).toBeLessThan((5000 / AGENT_NAME_CATALOG.length) * 2);
     expect(letters.size).toBe(24);
     expect(Math.max(...letters.values())).toBeLessThan((5000 / 24) * 1.4);
   });

@@ -30,119 +30,45 @@ const group = (
 ): readonly AgentNameEntry[] =>
   names.split(",").map((name) => ({ name: name.trim(), gender, origin }));
 
+// Sifted from a larger candidate list: three models (Claude Opus 5.5, GPT-6.1 Sol, DeepSeek V4.1 Flash)
+// each chose the names they liked as session names, and only names chosen by at least two are kept.
 export const AGENT_NAME_CATALOG: readonly AgentNameEntry[] = [
-  // Planets, dwarf planets, moons: by the gender of the deity or figure they carry.
-  ...group("astronomy", "she", "Venus, Ceres, Eris, Haumea, Sedna, Vesta, Pallas, Juno, Hygiea"),
-  ...group(
-    "astronomy",
-    "he",
-    "Mercury, Mars, Jupiter, Saturn, Uranus, Neptune, Pluto, Makemake, Quaoar, Orcus",
-  ),
   ...group(
     "astronomy",
     "she",
-    "Io, Europa, Callisto, Amalthea, Rhea, Dione, Tethys, Phoebe, Pandora, Calypso, Titania, Miranda, Juliet, Portia, Rosalind, Nereid",
+    "Ceres, Vesta, Pallas, Juno, Io, Europa, Callisto, Phoebe, Calypso, Titania, Miranda, Rosalind, Vega, Capella, Spica, Polaris, Alcyone, Maia, Electra, Andromeda, Cassiopeia, Lyra, Nova",
   ),
   ...group(
     "astronomy",
     "he",
-    "Ganymede, Titan, Iapetus, Enceladus, Janus, Prometheus, Atlas, Pan, Oberon, Ariel, Puck, Triton, Charon, Phobos, Deimos",
+    "Mercury, Ganymede, Atlas, Oberon, Ariel, Triton, Sirius, Arcturus, Rigel, Altair, Antares, Castor, Regulus, Orion, Perseus",
   ),
-  // Bright stars and star clusters' members.
-  ...group(
-    "astronomy",
-    "she",
-    "Vega, Capella, Spica, Bellatrix, Polaris, Alcyone, Maia, Electra, Merope, Proxima",
-  ),
-  ...group(
-    "astronomy",
-    "he",
-    "Sirius, Canopus, Arcturus, Rigel, Procyon, Achernar, Betelgeuse, Altair, Aldebaran, Antares, Pollux, Castor, Fomalhaut, Deneb, Regulus, Alphard, Algol, Albireo, Thuban",
-  ),
-  // Constellations.
-  ...group("astronomy", "she", "Andromeda, Cassiopeia, Carina, Lyra, Vela, Nova"),
-  ...group(
-    "astronomy",
-    "he",
-    "Orion, Cygnus, Aquila, Draco, Perseus, Pegasus, Cepheus, Auriga, Halley",
-  ),
-
-  // Greek: Olympians, Titans, primordials, Muses, Horae, and lesser deities.
   ...group(
     "greek",
     "she",
-    "Hera, Demeter, Athena, Artemis, Aphrodite, Hestia, Persephone, Hecate, Nike, Eos, Selene, Gaia, Themis, Metis, Leto, Nyx, Iris, Hebe, Tyche, Hygieia, Mnemosyne, Amphitrite, Thetis, Calliope, Clio, Erato, Melpomene, Thalia, Harmonia, Ananke, Circe, Ariadne, Cassandra, Penelope",
+    "Athena, Artemis, Hestia, Persephone, Eos, Selene, Themis, Metis, Nyx, Iris, Mnemosyne, Calliope, Clio, Thalia, Harmonia, Ariadne, Penelope",
   ),
-  ...group(
-    "greek",
-    "he",
-    "Zeus, Poseidon, Hades, Apollo, Ares, Hermes, Hephaestus, Dionysus, Helios, Hypnos, Morpheus, Nereus, Cronus, Oceanus, Aeolus, Boreas, Zephyrus, Heracles, Orpheus",
-  ),
-
-  // Roman.
-  ...group(
-    "roman",
-    "she",
-    "Minerva, Diana, Proserpina, Flora, Fortuna, Aurora, Victoria, Bellona, Pax, Luna, Pomona, Fauna, Cybele, Terra",
-  ),
-  ...group(
-    "roman",
-    "he",
-    "Vulcan, Bacchus, Cupid, Faunus, Silvanus, Quirinus, Sol, Somnus, Vertumnus, Terminus, Mithras, Hercules",
-  ),
-
-  // Norse and wider Germanic.
-  ...group(
-    "norse",
-    "she",
-    "Frigg, Freyja, Sif, Idun, Eir, Sigyn, Skadi, Nanna, Gerd, Ran, Gefjon, Saga, Jord, Urd, Verdandi, Skuld, Angrboda, Embla, Nerthus",
-  ),
+  ...group("greek", "he", "Apollo, Hermes, Helios, Zephyrus, Orpheus"),
+  ...group("roman", "she", "Minerva, Diana, Flora, Fortuna, Aurora, Victoria, Luna, Pomona"),
+  ...group("roman", "he", "Silvanus, Sol"),
+  ...group("norse", "she", "Frigg, Freyja, Sif, Idun, Eir, Skadi, Saga, Verdandi, Skuld, Embla"),
   ...group(
     "norse",
     "he",
-    "Odin, Thor, Loki, Baldr, Tyr, Heimdall, Njord, Freyr, Bragi, Vidar, Vali, Ullr, Hoenir, Mimir, Aegir, Kvasir, Ymir, Surtr, Fenrir, Sleipnir, Huginn, Muninn, Mani, Sindri",
+    "Odin, Thor, Baldr, Tyr, Heimdall, Freyr, Bragi, Mimir, Kvasir, Huginn, Muninn",
   ),
-
-  // Hindu.
-  ...group(
-    "hindu",
-    "she",
-    "Lakshmi, Saraswati, Parvati, Durga, Kali, Sita, Radha, Ganga, Yamuna, Ushas, Shakti, Uma, Tara, Draupadi",
-  ),
-  ...group(
-    "hindu",
-    "he",
-    "Vishnu, Shiva, Brahma, Ganesha, Hanuman, Krishna, Rama, Indra, Agni, Vayu, Varuna, Surya, Soma, Kartikeya, Skanda, Murugan, Kubera, Yama, Garuda, Arjuna, Rudra, Nandi, Shani",
-  ),
-
-  // Persian: Zoroastrian yazatas, Amesha Spentas, and Shahnameh figures.
-  ...group(
-    "persian",
-    "she",
-    "Anahita, Armaiti, Daena, Ashi, Haurvatat, Ameretat, Simurgh, Rudabeh, Tahmineh, Aban",
-  ),
-  ...group(
-    "persian",
-    "he",
-    "Ahura Mazda, Mithra, Atar, Tishtrya, Zurvan, Haoma, Sraosha, Rashnu, Verethragna, Vohu Manah, Khshathra Vairya, Apam Napat, Rostam, Zal, Faridun, Jamshid, Arash, Bahram, Tir",
-  ),
-
-  // The Elder Scrolls: Aedra and the divines.
+  ...group("hindu", "she", "Lakshmi, Saraswati, Parvati, Radha, Ushas, Uma, Tara"),
+  ...group("hindu", "he", "Krishna, Indra, Agni, Vayu, Varuna, Surya, Soma, Garuda, Arjuna"),
+  ...group("persian", "she", "Anahita, Armaiti, Daena, Ashi, Simurgh, Rudabeh"),
+  ...group("persian", "he", "Mithra, Atar, Rostam, Zal, Faridun, Arash, Bahram, Tir"),
   ...group(
     "tes",
     "she",
-    "Dibella, Kynareth, Mara, Nirni, Khenarthi, Mafala, Kyne, Alessia, Almalexia, Tava, Leki, Morwha, Diagna, Secunda, Jone",
+    "Dibella, Kynareth, Mara, Nirni, Khenarthi, Kyne, Alessia, Almalexia, Tava, Morwha, Secunda, Jone, Azura, Meridia, Nocturnal, Ithelia",
   ),
   ...group(
     "tes",
     "he",
-    "Akatosh, Arkay, Julianos, Stendarr, Zenithar, Talos, Auri-El, Trinimac, Y'ffre, Magnus, Xarxes, Jhunal, Phynaster, Lorkhan, Shor, Ysmir, Sep, Tsun, Stuhn, Syrabane, Ruptga, Satakal, Alkosh, Lorkhaj, Orkey, Morihaus, Pelinal, Zeht, Onsi, Tu'whacca, Baan Dar, Magrus, Masser, Jode, Anu, Padomay, Sithis",
-  ),
-  // The Elder Scrolls: Daedric Princes and the Tribunal.
-  ...group("tes", "she", "Azura, Mephala, Meridia, Namira, Nocturnal, Vaermina, Ithelia"),
-  ...group(
-    "tes",
-    "he",
-    "Boethiah, Clavicus Vile, Hermaeus Mora, Hircine, Jyggalag, Malacath, Mehrunes Dagon, Molag Bal, Peryite, Sanguine, Sheogorath, Vivec, Sotha Sil, Barbas, Merrunz, Nerevar, Vanus Galerion, Mannimarco, Paarthurnax",
+    "Akatosh, Arkay, Julianos, Stendarr, Zenithar, Talos, Auri-El, Trinimac, Y'ffre, Magnus, Xarxes, Jhunal, Phynaster, Lorkhan, Shor, Ysmir, Tsun, Syrabane, Satakal, Alkosh, Morihaus, Pelinal, Onsi, Baan Dar, Masser, Anu, Hermaeus Mora, Sheogorath, Vivec, Sotha Sil, Barbas, Nerevar, Vanus Galerion, Paarthurnax",
   ),
 ];
