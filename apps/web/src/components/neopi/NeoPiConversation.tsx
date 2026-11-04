@@ -99,10 +99,12 @@ export function NeoPiConversation({
         className={transcriptRowClassName(item)}
         data-native-entry-id={item.kind === "command" ? undefined : item.entry.id}
       >
-        <NativeTranscriptRowView key={item.id} row={item} />
+        <NativeTranscriptCtx value={transcriptContext}>
+          <NativeTranscriptRowView key={item.id} row={item} />
+        </NativeTranscriptCtx>
       </div>
     ),
-    [],
+    [transcriptContext],
   );
   const attached = connection?.status === "connected";
   const olderAvailable =
