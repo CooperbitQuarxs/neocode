@@ -89,7 +89,7 @@ export function NativeSessionTreePanel({
   request: Request;
   /** Commands that change the session; refreshes the workspace state afterwards. */
   execute: Request;
-  onNavigated: () => void;
+  onNavigated: (result: Record<string, unknown>) => void;
 }) {
   const { feed, conversation, session } = useNativeSession(target);
   const identity = conversation.identity;
@@ -138,7 +138,7 @@ const TreeBody = memo(function TreeBody({
   leafId: string | null;
   request: Request;
   execute: Request;
-  onNavigated: () => void;
+  onNavigated: (result: Record<string, unknown>) => void;
 }) {
   const timestampFormat = useEnvironmentSettings(
     environmentId,
@@ -297,7 +297,7 @@ const TreeBody = memo(function TreeBody({
           ...nativeNavigationGuards({ sessionId, sessionFile, leafId }),
         }),
       );
-      if (result.cancelled !== true) onNavigated();
+      if (result.cancelled !== true) onNavigated(result);
     } catch (cause) {
       setError(String(cause));
     } finally {
