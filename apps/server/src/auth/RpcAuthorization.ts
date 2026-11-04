@@ -107,6 +107,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.neopiNativeSessionsRequest]: AuthOrchestrationOperateScope,
   [WS_METHODS.neopiNativeSessionsWatch]: AuthOrchestrationReadScope,
   [WS_METHODS.neopiNativeSessionsClose]: AuthOrchestrationOperateScope,
+  [WS_METHODS.neopiNativeSessionsSetSettled]: AuthOrchestrationOperateScope,
   [WS_METHODS.neopiNativeSessionsGetDiffPreview]: AuthReviewWriteScope,
   [WS_METHODS.neopiNativeSessionsGetDiffFileContents]: AuthReviewWriteScope,
   [WS_METHODS.neopiSessionsList]: AuthOrchestrationReadScope,

@@ -114,6 +114,22 @@ rules to connected environments that support shared settings. Offline environmen
 and older servers keep their previous values. Changing a rule does not reopen
 already settled threads.
 
+## Find the sessions that need you
+
+The sidebar lists your NeoPi sessions by what they ask of you. **Needs attention** comes
+first: sessions waiting on a question or approval, then sessions that finished since you
+last opened them (marked **Done**). **Working** sessions follow, dimmed, and **Recent**
+holds everything else. Sessions idle for longer than the auto-settle window move to the
+collapsed **Settled** shelf, which shows the newest ten and offers **Show more**.
+
+Each row shows the project folder, title, branch and, when the branch has one, its pull
+request. Hover a row or right-click it to **Settle** or **Un-settle** it; sessions that are
+working or waiting cannot be settled. A settled session returns on its own when it becomes
+busy or gets new activity. Settling persists on the server, so it follows you across
+devices. NeoPi 18.14 or later reports what terminal sessions are doing; with older versions
+only sessions NeoCode itself runs show Working and Waiting. Search lists matches from every
+section in one list.
+
 ## Link a pull request
 
 The server finds the PR for each unsettled thread's saved branch, even when your

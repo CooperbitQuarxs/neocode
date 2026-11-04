@@ -26,6 +26,7 @@ import {
 } from "../ui/sidebar";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
+import { NativeEnvironmentAttentionList } from "./NativeSessionAttentionList";
 
 export function useOpenNativeSession() {
   const open = useAtomCommand(nativeSessionAtoms.open, { reportFailure: false });
@@ -45,6 +46,8 @@ export function useOpenNativeSession() {
     [navigate, open],
   );
 }
+
+export type OpenNativeSession = ReturnType<typeof useOpenNativeSession>;
 
 export function useCreateNativeSession() {
   const configs = useServerConfigs();
@@ -93,6 +96,7 @@ export function useCreateNativeSession() {
 export function NativeSessionSidebar() {
   const { environments } = useEnvironments();
   const create = useCreateNativeSession();
+  const open = useOpenNativeSession();
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -142,11 +146,12 @@ export function NativeSessionSidebar() {
         }
       >
         {environments.map((environment) => (
-          <NativeEnvironmentSessions
+          <NativeEnvironmentAttentionList
             key={environment.environmentId}
             environmentId={environment.environmentId}
             label={environment.label}
             query={query}
+            open={open}
           />
         ))}
         {saved.length ? (
