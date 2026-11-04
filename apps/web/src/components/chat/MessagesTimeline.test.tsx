@@ -473,6 +473,7 @@ describe("MessagesTimeline", () => {
     const {
       resolveTimelineIsAtEnd,
       resolveTimelineMinimapHasPersistentGutter,
+      resolveTimelineMinimapIsPersistent,
       resolveTimelineMinimapCurrentIndex,
       resolveTimelineMinimapHeightStyle,
       resolveTimelineMinimapHitStripWidth,
@@ -571,6 +572,10 @@ describe("MessagesTimeline", () => {
     expect(resolveTimelineMinimapHasPersistentGutter(1400, 1152)).toBe(true);
     expect(resolveTimelineMinimapHasPersistentGutter(1200, 1152)).toBe(false);
     expect(resolveTimelineMinimapHasPersistentGutter(2560, 2560)).toBe(false);
+    // A short thread has nothing to navigate, so its bars wait for hover.
+    expect(resolveTimelineMinimapIsPersistent(true, 3)).toBe(false);
+    expect(resolveTimelineMinimapIsPersistent(true, 6)).toBe(true);
+    expect(resolveTimelineMinimapIsPersistent(false, 40)).toBe(false);
 
     // No usable gutter (zoomed in / narrow pane): the strip must go inert
     // instead of overlaying the centered content column.

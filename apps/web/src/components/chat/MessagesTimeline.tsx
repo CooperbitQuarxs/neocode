@@ -183,6 +183,7 @@ import {
   resolveAssistantMessageCopyState,
   resolveTimelineIsAtEnd,
   resolveTimelineMinimapHasPersistentGutter,
+  resolveTimelineMinimapIsPersistent,
   resolveTimelineMinimapCurrentIndex,
   resolveTimelineMinimapHeightStyle,
   resolveTimelineMinimapHitStripWidth,
@@ -1470,16 +1471,17 @@ function TimelineMinimap({
     return null;
   }
 
+  const persistent = resolveTimelineMinimapIsPersistent(hasPersistentGutter, items.length);
   return (
     <div
       className={cn(
         "group/minimap pointer-events-none absolute inset-y-0 left-0 z-40 hidden w-18 [@media(pointer:fine)]:block",
-        hasPersistentGutter
+        persistent
           ? "opacity-100"
           : "opacity-0 transition-opacity duration-150 hover:opacity-100 focus-within:opacity-100",
       )}
       data-testid="timeline-minimap"
-      data-persistent-gutter={hasPersistentGutter ? "true" : "false"}
+      data-persistent-gutter={persistent ? "true" : "false"}
     >
       <div className="relative h-full w-full select-none">
         <div

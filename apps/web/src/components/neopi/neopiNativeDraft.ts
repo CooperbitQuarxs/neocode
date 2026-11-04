@@ -1,14 +1,31 @@
-import type { NeoPiNavigateTreeResult, ScopedThreadRef } from "@t3tools/contracts";
+import type { ScopedThreadRef } from "@t3tools/contracts";
 import { nativeIdentityKey, type NativeIdentity } from "@t3tools/client-runtime/neopi-conversation";
 import { useEffect } from "react";
 import * as Schema from "effect/Schema";
 import {
+  composerDraftHasUserContent,
   composerTargetKey,
   useComposerDraftStore,
   type ComposerImageAttachment,
+  type ComposerThreadTarget,
 } from "../../composerDraftStore";
 import { getLocalStorageItem, setLocalStorageItem } from "../../hooks/useLocalStorage";
 import { randomUUID } from "../../lib/utils";
+
+/** The part of a `navigate_tree` answer that repopulates the editor. */
+const NativeEditorState = Schema.Struct({
+  editorText: Schema.optional(Schema.String),
+  editorImages: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        type: Schema.Literal("image"),
+        data: Schema.String,
+        mimeType: Schema.String,
+      }),
+    ),
+  ),
+});
+type NativeEditorState = typeof NativeEditorState.Type;
 
 const bindingKey = (threadRef: ScopedThreadRef) =>
   `neocode:native-draft-binding:${composerTargetKey(threadRef)}`;
@@ -54,9 +71,7 @@ export function useNativeDraftIdentity(
   }, [alias, key, threadRef.environmentId, threadRef.threadId]);
 }
 
-export function nativeDraftImages(
-  result: Pick<NeoPiNavigateTreeResult, "editorImages">,
-): ComposerImageAttachment[] {
+export function nativeDraftImages(result: NativeEditorState): ComposerImageAttachment[] {
   return (result.editorImages ?? []).map((image, index) => {
     const bytes = Uint8Array.from(atob(image.data), (character) => character.charCodeAt(0));
     const name = `native-draft-${index + 1}.${image.mimeType.split("/")[1] ?? "image"}`;
@@ -73,7 +88,7 @@ export function nativeDraftImages(
   });
 }
 
-export function restoreNativeDraft(threadRef: ScopedThreadRef, result: NeoPiNavigateTreeResult) {
+export function restoreNativeDraft(threadRef: ComposerThreadTarget, result: NativeEditorState) {
   if (result.editorText === undefined && result.editorImages === undefined) return;
   // Decode before replacing anything. A malformed native attachment must not erase a local draft.
   const images = nativeDraftImages(result);
@@ -89,4 +104,21 @@ export function restoreNativeDraft(threadRef: ScopedThreadRef, result: NeoPiNavi
     if (!draft) return state;
     return { draftsByThreadKey: { ...state.draftsByThreadKey, [alias]: { ...draft, images } } };
   });
+}
+
+/**
+ * Puts the user message a tree navigation selected back in the composer, as the
+ * TUI does, from a raw `navigate_tree` answer. A draft the user is still
+ * composing is never overwritten: `kept` tells the caller to say so instead.
+ */
+export function restoreNativeEditor(
+  threadRef: ComposerThreadTarget,
+  answer: unknown,
+): "restored" | "kept" | "none" {
+  const editor = Schema.decodeUnknownSync(NativeEditorState)(answer);
+  if (!editor.editorText?.trim() && !editor.editorImages?.length) return "none";
+  if (composerDraftHasUserContent(useComposerDraftStore.getState().getComposerDraft(threadRef)))
+    return "kept";
+  restoreNativeDraft(threadRef, editor);
+  return "restored";
 }

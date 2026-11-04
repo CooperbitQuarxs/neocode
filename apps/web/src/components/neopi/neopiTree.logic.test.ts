@@ -10,6 +10,7 @@ import { composerTargetKey, useComposerDraftStore } from "../../composerDraftSto
 import {
   nativeDraftImages,
   restoreNativeDraft,
+  restoreNativeEditor,
   switchNativeDraftIdentity,
 } from "./neopiNativeDraft";
 import { nativeAskQuestions, nativeAskReanswer } from "@t3tools/client-runtime/neopi-tree";
@@ -91,6 +92,31 @@ describe("native tree draft restoration", () => {
       useComposerDraftStore.getState().draftsByThreadKey[composerTargetKey(thread)]?.prompt,
     ).toBe("keep local text");
     expect(nativeDraftImages(result())).toEqual([]);
+  });
+
+  it("puts the selected message in an empty composer", () => {
+    expect(restoreNativeEditor(thread, { editorText: "selected message", cancelled: false })).toBe(
+      "restored",
+    );
+    expect(
+      useComposerDraftStore.getState().draftsByThreadKey[composerTargetKey(thread)]?.prompt,
+    ).toBe("selected message");
+  });
+
+  it("keeps a draft the user is composing and reports it", () => {
+    useComposerDraftStore.getState().setPrompt(thread, "half-written");
+    expect(restoreNativeEditor(thread, { editorText: "selected message" })).toBe("kept");
+    expect(
+      useComposerDraftStore.getState().draftsByThreadKey[composerTargetKey(thread)]?.prompt,
+    ).toBe("half-written");
+  });
+
+  it("leaves the composer alone when navigation returns no editor content", () => {
+    expect(restoreNativeEditor(thread, { cancelled: false })).toBe("none");
+    expect(restoreNativeEditor(thread, { editorText: "" })).toBe("none");
+    expect(
+      useComposerDraftStore.getState().draftsByThreadKey[composerTargetKey(thread)],
+    ).toBeUndefined();
   });
 });
 

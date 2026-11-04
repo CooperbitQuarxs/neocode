@@ -43,6 +43,12 @@ const TIMELINE_MINIMAP_ITEM_SPACING = 8;
 export const TIMELINE_MINIMAP_MIN_ITEMS = 2;
 const TIMELINE_MINIMAP_MAX_HEIGHT_CSS = "calc(100vh - 18rem)";
 const TIMELINE_MINIMAP_PERSISTENT_GUTTER = 48;
+/**
+ * Below this many user messages the whole thread fits on screen, and two or
+ * three short bars at the edge read as a stray mark rather than navigation, so
+ * the minimap waits for hover.
+ */
+const TIMELINE_MINIMAP_PERSISTENT_MIN_ITEMS = 6;
 
 function singleToolCallLabel(entry: WorkLogEntry): string {
   const toolPresentation = resolveWorkEntryToolPresentation(entry, "completed");
@@ -253,6 +259,13 @@ export function resolveTimelineMinimapHasPersistentGutter(
   return (
     resolveTimelineSideGutter(viewportWidth, contentWidth) >= TIMELINE_MINIMAP_PERSISTENT_GUTTER
   );
+}
+
+export function resolveTimelineMinimapIsPersistent(
+  hasPersistentGutter: boolean,
+  itemCount: number,
+): boolean {
+  return hasPersistentGutter && itemCount >= TIMELINE_MINIMAP_PERSISTENT_MIN_ITEMS;
 }
 
 const TIMELINE_MINIMAP_HIT_STRIP_LEFT = 12;
@@ -817,9 +830,18 @@ function deriveTurnFolds(input: {
     const isLatestInterruptedTurn =
       input.latestTurn?.turnId === turnId && input.latestTurn.state === "interrupted";
     // A turn cut short by a steer leaves trailing work entries behind its
-    // terminal message — take whichever ended last.
+    // terminal message — take whichever ended last. Compaction and
+    // configuration dividers (model, reasoning, tier changes) are journalled
+    // against the turn they follow but are not work, so they never extend it.
+    const lastActivityEntry =
+      group.entries.findLast(
+        (entry) =>
+          !(entry.kind === "work" && entry.entry.sourceActivityKind === "context-compaction"),
+      ) ?? lastEntry;
     const lastEntryEnd =
-      lastEntry.kind === "message" ? lastEntry.message.updatedAt : lastEntry.createdAt;
+      lastActivityEntry.kind === "message"
+        ? lastActivityEntry.message.updatedAt
+        : lastActivityEntry.createdAt;
     const elapsedMs =
       input.latestTurn?.turnId === turnId &&
       input.latestTurn.startedAt &&
