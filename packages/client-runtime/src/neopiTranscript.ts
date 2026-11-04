@@ -28,6 +28,8 @@ interface RowBase {
   readonly timestamp: string;
   /** A live (not yet persisted) message from the current turn. */
   readonly live: boolean;
+  /** Sits under an opened "Worked through N steps" toggle. */
+  readonly grouped?: boolean;
 }
 
 export interface UserRow extends RowBase {
@@ -726,7 +728,7 @@ function foldToolRuns(
       else if (isWorkFiller(candidate) && findGroupId(rows, end) === groupId) end++;
       else break;
     }
-    const run = rows.slice(index, end);
+    const run = mergeThoughts(rows.slice(index, end));
     const toolRows = run.filter((item): item is ToolRow => item.kind === "tool");
     const trailing = end === rows.length;
     const inProgress = trailing && toolRows.some((item) => item.result === null);
@@ -746,9 +748,28 @@ function foldToolRuns(
       preview: toolRows.slice(0, 3).map((item) => item.label),
     });
     if (!foldable) out.push(...run);
-    else if (opened) out.push(toggle(true), ...run);
+    else if (opened) out.push(toggle(true), ...run.map((item) => ({ ...item, grouped: true })));
     else out.push(toggle(false));
     index = end;
+  }
+  return out;
+}
+
+/** Back-to-back thinking blocks read as one thought; the texts join with a rule between. */
+function mergeThoughts(run: readonly TranscriptRow[]): TranscriptRow[] {
+  const out: TranscriptRow[] = [];
+  for (const row of run) {
+    const last = out.at(-1);
+    if (row.kind === "thinking" && last?.kind === "thinking") {
+      out[out.length - 1] = {
+        ...last,
+        text: `${last.text}\n\n---\n\n${row.text}`,
+        summary: last.summary && row.summary,
+        live: row.live,
+      };
+      continue;
+    }
+    out.push(row);
   }
   return out;
 }
