@@ -391,10 +391,12 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
         className={transcriptRowClassName(item)}
         data-native-entry-id={item.kind === "command" ? undefined : item.entry.id}
       >
-        <NativeTranscriptRowView key={item.id} row={item} />
+        <NativeTranscriptCtx value={transcriptContext}>
+          <NativeTranscriptRowView key={item.id} row={item} />
+        </NativeTranscriptCtx>
       </div>
     ),
-    [],
+    [transcriptContext],
   );
   const promptHistory = useMemo(
     () => transcriptUserText(conversation.entries),
