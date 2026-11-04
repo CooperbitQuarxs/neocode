@@ -17,6 +17,7 @@ import { isElectron } from "../../env";
 import { nativeDictationAvailable } from "./nativeDictation";
 import { useNativeDictation } from "./useNativeDictation";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { toastManager } from "../ui/toast";
 import { ComposerSurface } from "../chat/ComposerSurface";
 import { cn } from "../../lib/utils";
 import {
@@ -32,9 +33,9 @@ import { Textarea } from "../ui/textarea";
 import { Checkbox } from "../ui/checkbox";
 import { SidebarInset } from "../ui/sidebar";
 import { Dialog, DialogPopup, DialogHeader, DialogTitle, DialogFooter } from "../ui/dialog";
+import { NativeSessionStatusBar } from "./NativeSessionStatusBar";
 import { NativeSessionTabBar } from "./NativeSessionTabBar";
 import { useCreateNativeSession } from "./NativeSessionSidebar";
-import { NativeSessionTree } from "./NativeSessionTree";
 import { NativeTimelineView, nativeTimelineKey } from "./NativeTimelineView";
 import {
   nativeQueuedMessages,
@@ -75,7 +76,21 @@ import type { ExpandedImagePreview } from "../chat/ExpandedImagePreview";
 import { createPageScrollController } from "../chat/pageScrollController";
 import type { NativeModelChoice } from "../chat/neopiModelSwitcher";
 import { NativeSessionModelPicker } from "./NativeSessionModelPicker";
+import { appAtomRegistry } from "../../rpc/atomRegistry";
+import { NativeBranchToolbar } from "./NativeBranchToolbar";
 import { NativeSessionWorkspacePanels } from "./NativeSessionWorkspacePanels";
+import { AgentHubSourceProvider, useNativeAgentHubSource } from "./agents/useNativeAgentHubSource";
+import {
+  NATIVE_CYCLE_ROLE_CAPABILITY,
+  NATIVE_ROLE_CYCLE_UNSUPPORTED,
+  nativeRoleCycleNotice,
+  nativeThinkingCycleNotice,
+  type NativeSessionCommand,
+} from "./nativeSessionShortcuts";
+import {
+  toggleNativeThinkingVisibility,
+  useNativeTranscriptView,
+} from "../../state/nativeTranscriptView";
 import { consumeNativeDraft, prepareNativePrompt } from "./neopiNativeComposer";
 import type { ComposerSubmissionIntent } from "../../composer-logic";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../../terminalUiStateStore";
@@ -171,6 +186,7 @@ export function NativeSessionView({
   const { feed, session, conversation, request, loading, error } = useNativeSession(target);
   const close = useAtomCommand(nativeSessionAtoms.close, { reportFailure: false });
   const key = nativeSessionKey(target);
+  const agentHub = useNativeAgentHubSource({ target, feed, request });
   const draftStore = useComposerDraftStore;
   const panelOpen = useRightPanelStore(
     (value) => selectThreadRightPanelState(value.byThreadKey, target).isOpen,
@@ -231,7 +247,10 @@ export function NativeSessionView({
   );
   useEffect(() => () => pageScroll.dispose(), [pageScroll]);
   const [debug, setDebug] = useState(false);
-  const [tree, setTree] = useState(false);
+  const openTree = useCallback(
+    () => useRightPanelStore.getState().open(target, "native-history"),
+    [target],
+  );
   const [models, setModels] = useState(false);
   const [sending, setSending] = useState(false);
   const [paging, setPaging] = useState(false);
@@ -242,10 +261,21 @@ export function NativeSessionView({
   useEffect(() => {
     if (session) setState(session.state);
   }, [session]);
+  // NeoPi moved this session to another file (`/wt`, fork): the selection and
+  // its tab follow in place, never a second tab for the same session.
+  const movedRef = feed.movedTo ?? session?.ref ?? null;
   useEffect(() => {
-    if (session && session.ref.sessionFile !== target.ref.sessionFile)
-      replaceNativeSession(target, { environmentId: target.environmentId, ref: session.ref });
-  }, [session, target]);
+    if (movedRef && movedRef.sessionFile !== target.ref.sessionFile)
+      replaceNativeSession(target, { environmentId: target.environmentId, ref: movedRef });
+  }, [movedRef, target]);
+  // The sidebar and tab titles read the session list, which still names the old file.
+  const hasMoved = feed.movedTo !== null;
+  useEffect(() => {
+    if (hasMoved)
+      appAtomRegistry.refresh(
+        nativeSessionAtoms.list({ environmentId: target.environmentId, input: {} }),
+      );
+  }, [hasMoved, target.environmentId]);
   const loadOlder = async () => {
     if (paging || !conversation.cursor) return;
     setPaging(true);
@@ -529,11 +559,54 @@ export function NativeSessionView({
   const interrupt = useCallback(() => {
     void execute({ type: "abort" }).catch((cause) => setLocalError(String(cause)));
   }, [execute]);
+  const hideThinking = useNativeTranscriptView((state) => state.hideThinking);
+  const [toolOutputSerial, setToolOutputSerial] = useState(0);
+  const canCycleRole = session?.capabilities.includes(NATIVE_CYCLE_ROLE_CAPABILITY) === true;
+  const runNativeCommand = useCallback(
+    (command: NativeSessionCommand) => {
+      const notify = (title: string) =>
+        toastManager.add({ id: `native-shortcut:${command}`, title, timeout: 1500 });
+      const fail = (cause: unknown) =>
+        setLocalError(cause instanceof Error ? cause.message : String(cause));
+      switch (command) {
+        case "composer.thinking.cycle":
+          void execute({ type: "cycle_thinking_level" })
+            .then((result) => notify(nativeThinkingCycleNotice(result)))
+            .catch(fail);
+          return;
+        case "composer.role.cycleForward":
+        case "composer.role.cycleBackward":
+          if (!canCycleRole) {
+            notify(NATIVE_ROLE_CYCLE_UNSUPPORTED);
+            return;
+          }
+          void execute({
+            type: "cycle_role",
+            direction: command === "composer.role.cycleForward" ? "forward" : "backward",
+          })
+            .then((result) => notify(nativeRoleCycleNotice(result)))
+            .catch(fail);
+          return;
+        case "transcript.thinking.toggle":
+          toggleNativeThinkingVisibility();
+          notify(
+            useNativeTranscriptView.getState().hideThinking
+              ? "Reasoning hidden"
+              : "Reasoning shown",
+          );
+          return;
+        case "transcript.tools.toggleExpand":
+          setToolOutputSerial((value) => value + 1);
+          return;
+      }
+    },
+    [execute, canCycleRole],
+  );
   const dialog = feed.dialogs.find(
     (item) => typeof item.id === "string" && !dismissed.has(item.id),
   );
   return (
-    <>
+    <AgentHubSourceProvider source={agentHub}>
       {actionsSlot
         ? createPortal(
             // Leaves room for the fixed terminal and panel toggles at the titlebar edge.
@@ -544,7 +617,7 @@ export function NativeSessionView({
                 panelOpen ? "pr-26.5 sm:pr-22.5" : "pr-18.25 sm:pr-14.25",
               )}
             >
-              <HeaderIconButton label="Session tree" onClick={() => setTree(true)}>
+              <HeaderIconButton label="Session tree" onClick={openTree}>
                 <GitForkIcon className="size-4" />
               </HeaderIconButton>
               <HeaderIconButton
@@ -583,12 +656,16 @@ export function NativeSessionView({
         workspaceMutationId={conversation.entries.at(-1)?.id ?? null}
         onAddTerminalContext={(selection) => composerRef.current?.addTerminalContext(selection)}
         onSendAnnotation={() => void send()}
-        onOpenTree={() => setTree(true)}
+        onOpenTree={openTree}
+        request={request}
+        execute={execute}
+        onTreeNavigated={focusComposer}
         onOpenModels={() => setModels((value) => !value)}
         onInterrupt={interrupt}
         busy={feed.busy}
         onToggleDictation={dictationAvailable ? dictation.toggle : undefined}
         dictationActive={dictation.phase !== "idle"}
+        onNativeCommand={runNativeCommand}
       >
         {error || localError ? (
           <p role="alert" className="shrink-0 px-5 py-1 text-xs text-destructive">
@@ -607,11 +684,13 @@ export function NativeSessionView({
             followSignal={followSignal}
             onImageExpand={setExpandedImage}
             queuedMessages={queuedMessages}
+            hideThinking={hideThinking}
+            toggleToolOutputSerial={toolOutputSerial}
             onSteerQueuedMessage={steerQueued}
             onRemoveQueuedMessage={removeQueued}
           />
         </div>
-        <ComposerSurface.Shell ref={setComposerElement} className="shrink-0">
+        <ComposerSurface.Shell ref={setComposerElement} contextStrip className="shrink-0">
           {Object.values(feed.notices).some(Boolean) ? (
             <div className="flex flex-col gap-0.5 ps-(--workspace-gutter-start) pe-(--workspace-gutter-end) pt-2 text-xs text-muted-foreground">
               {Object.values(feed.notices)
@@ -694,7 +773,7 @@ export function NativeSessionView({
                 promptHistory,
                 modelPickerOpen: models,
                 onOpenModelPicker: () => setModels(true),
-                onOpenSessionTree: () => setTree(true),
+                onOpenSessionTree: openTree,
                 onOpenModeControl: () => {
                   void execute({ type: "prompt", message: "/chat" }).catch((cause) =>
                     setLocalError(String(cause)),
@@ -710,18 +789,23 @@ export function NativeSessionView({
               }}
             />
           </ComposerSurface.Host>
+          <NativeBranchToolbar
+            environmentId={target.environmentId}
+            cwd={session?.cwd ?? null}
+            busy={feed.busy}
+            connected={feed.connected}
+            onRunCommand={(message) => {
+              void execute({ type: "prompt", message }).catch((cause) =>
+                setLocalError(String(cause)),
+              );
+            }}
+            onReturnFocus={focusComposer}
+          />
         </ComposerSurface.Shell>
+        <NativeSessionStatusBar target={target} />
       </NativeSessionWorkspacePanels>
       {expandedImage ? (
         <ExpandedImageDialog preview={expandedImage} onClose={() => setExpandedImage(null)} />
-      ) : null}
-      {tree ? (
-        <NativeSessionTree
-          target={target}
-          request={execute}
-          onClose={() => setTree(false)}
-          onReturnFocus={focusComposer}
-        />
       ) : null}
       {dialog ? (
         <NativeSessionDialog
@@ -735,7 +819,7 @@ export function NativeSessionView({
           }}
         />
       ) : null}
-    </>
+    </AgentHubSourceProvider>
   );
 }
 

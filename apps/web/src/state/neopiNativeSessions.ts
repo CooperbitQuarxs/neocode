@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { createNativeSessionAtoms } from "@t3tools/client-runtime/state/neopi-native-sessions";
 import {
   emptyNativeSessionFeed,
+  type NativeSessionFeed,
   type NativeSessionTarget,
 } from "@t3tools/client-runtime/neopi-native-sessions";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
@@ -63,12 +64,10 @@ export const cycleNativeSession = (direction: "previous" | "next") => {
   return next !== null;
 };
 
-export function useNativeSession(target: NativeSessionTarget) {
-  const result = useAtomValue(
-    nativeSessionAtoms.watch({ environmentId: target.environmentId, input: { ref: target.ref } }),
-  );
+/** Sends one native command to the session's owner and resolves with its response. */
+export function useNativeSessionRequest(target: NativeSessionTarget) {
   const send = useAtomCommand(nativeSessionAtoms.request, { reportFailure: false });
-  const request = useCallback(
+  return useCallback(
     async (
       command: Record<string, unknown> & { type: string },
       attachments?: NeoPiNativeSessionsRequestInput["attachments"],
@@ -82,6 +81,13 @@ export function useNativeSession(target: NativeSessionTarget) {
     },
     [send, target.environmentId, target.ref.providerInstanceId, target.ref.sessionFile],
   );
+}
+
+export function useNativeSession(target: NativeSessionTarget) {
+  const result = useAtomValue(
+    nativeSessionAtoms.watch({ environmentId: target.environmentId, input: { ref: target.ref } }),
+  );
+  const request = useNativeSessionRequest(target);
   const feed = AsyncResult.isSuccess(result)
     ? result.value
     : (nativeSessionAtoms.cached(target) ?? emptyNativeSessionFeed());
@@ -93,4 +99,30 @@ export function useNativeSession(target: NativeSessionTarget) {
     loading: AsyncResult.isInitial(result),
     error: AsyncResult.isFailure(result) ? String(Cause.squash(result.cause)) : feed.error,
   };
+}
+
+const EMPTY_FEED = emptyNativeSessionFeed();
+
+/**
+ * One part of a session's feed. The component re-renders only when the selected
+ * value changes by reference, so a status bar can follow `feed.agents` without
+ * re-rendering on every streamed token. `select` must be a stable function.
+ */
+export function useNativeSessionSlice<A>(
+  target: NativeSessionTarget,
+  select: (feed: NativeSessionFeed) => A,
+): A {
+  const project = useCallback(
+    (result: AsyncResult.AsyncResult<NativeSessionFeed, unknown>) =>
+      select(
+        AsyncResult.isSuccess(result)
+          ? result.value
+          : (nativeSessionAtoms.cached(target) ?? EMPTY_FEED),
+      ),
+    [select, target],
+  );
+  return useAtomValue(
+    nativeSessionAtoms.watch({ environmentId: target.environmentId, input: { ref: target.ref } }),
+    project,
+  );
 }
