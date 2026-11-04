@@ -238,9 +238,12 @@ export function NativeAgentView({
   const [followSignal, setFollowSignal] = useState(0);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const missing = agent === null;
   useEffect(() => {
-    if (agent === null) rootRef.current?.focus();
-  }, [agent]);
+    // The composer takes focus itself while the agent runs; otherwise the view owns the keyboard.
+    const root = rootRef.current;
+    if (root && !root.contains(document.activeElement)) root.focus({ preventScroll: true });
+  }, [missing]);
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "Escape" || event.defaultPrevented) return;
     // Portaled popups bubble through React; only keys typed inside this view count.

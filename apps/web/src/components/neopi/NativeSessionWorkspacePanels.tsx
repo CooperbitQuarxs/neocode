@@ -129,6 +129,8 @@ export function NativeSessionWorkspacePanels({
   useEffect(() => {
     // The session view was inert behind the hub or an agent; hand the keyboard back to the prompt.
     if (agentViewWasActive.current && !agentViewActive) composerRef.current?.focusAtEnd();
+    // The stash drawer portals out of the inert session view; do not leave it over the hub.
+    if (!agentViewWasActive.current && agentViewActive) composerRef.current?.dismissMenus();
     agentViewWasActive.current = agentViewActive;
   }, [agentViewActive, composerRef]);
   const resourceId = workspaceResourceId(target);
