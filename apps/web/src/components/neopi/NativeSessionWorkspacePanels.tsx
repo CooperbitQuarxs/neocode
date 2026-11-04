@@ -26,7 +26,7 @@ import { requestConfirmDialog } from "~/confirmDialog";
 import { isElectron } from "~/env";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
-import { resolveShortcutCommand } from "~/keybindings";
+import { resolveShortcutCommand, shortcutLabelForCommand } from "~/keybindings";
 import { getTerminalFocusOwner } from "~/lib/terminalFocus";
 import { isPreviewFocused } from "~/lib/previewFocus";
 import { confirmTerminalClose, isTerminalCloseConfirmPending } from "~/lib/terminalCloseConfirm";
@@ -61,6 +61,7 @@ import type { ChatComposerHandle } from "../chat/ChatComposer";
 import { makeWorkspaceFileDropHandlers } from "../chat/workspaceFileDrop";
 import { RightPanelTabs } from "../RightPanelTabs";
 import { RightPanelSheet } from "../RightPanelSheet";
+import { PanelLayoutControls, RightPanelMaximizeControl } from "../chat/PanelLayoutControls";
 import { Button } from "../ui/button";
 import { addBrowserSurface } from "../preview/addBrowserSurface";
 import { closePreviewSession } from "../preview/closePreviewSession";
@@ -568,81 +569,36 @@ export function NativeSessionWorkspacePanels({
   });
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {/* Same viewport anchor as the thread view's titlebar controls. Surfaces are added from the panel's tab bar. */}
       <div
-        className="flex shrink-0 flex-wrap items-center gap-1 border-b px-4 py-1"
-        aria-label="Workspace tools"
+        className="pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] z-50 mr-px flex h-[var(--workspace-topbar-height)] items-center gap-1 [-webkit-app-region:no-drag]"
+        data-workspace-titlebar-controls
       >
-        <Button
-          size="xs"
-          variant="ghost"
-          aria-pressed={terminalUi.terminalOpen}
-          disabled={!cwd}
-          onClick={() =>
-            useTerminalUiStateStore.getState().setTerminalOpen(target, !terminalUi.terminalOpen)
-          }
-        >
-          Terminal
-        </Button>
-        <Button
-          size="xs"
-          variant="ghost"
-          disabled={!cwd}
-          onClick={() =>
-            useRightPanelStore.getState().openTerminal(target, terminalUi.activeTerminalId)
-          }
-        >
-          Move terminal to panel
-        </Button>
-        <Button
-          size="xs"
-          variant="ghost"
-          onClick={() => useRightPanelStore.getState().toggle(target, "preview")}
-        >
-          Browser
-        </Button>
-        <Button
-          size="xs"
-          variant="ghost"
-          disabled={!cwd}
-          onClick={() => useRightPanelStore.getState().toggle(target, "files")}
-        >
-          Files
-        </Button>
-        <Button
-          size="xs"
-          variant="ghost"
-          disabled={gitStatus.data?.isRepo !== true}
-          onClick={() => useRightPanelStore.getState().toggle(target, "diff")}
-        >
-          Diff
-        </Button>
-        <Button
-          size="xs"
-          variant="ghost"
-          onClick={() => useRightPanelStore.getState().toggle(target, "agents")}
-        >
-          Agents {agentModel.liveCount || ""}
-        </Button>
-        <Button
-          size="xs"
-          variant="ghost"
-          onClick={() => useRightPanelStore.getState().toggle(target, "device")}
-        >
-          Devices
-        </Button>
-        <Button
-          size="xs"
-          variant="ghost"
-          aria-pressed={panel.isOpen}
-          onClick={() => useRightPanelStore.getState().toggleVisibility(target)}
-        >
-          Panel
-        </Button>
-        {panel.isOpen ? (
-          <Button size="xs" variant="ghost" onClick={() => setMaximized((value) => !value)}>
-            {maximized ? "Restore chat" : "Maximize panel"}
-          </Button>
+        {panel.isOpen && !sheet ? (
+          <span className="pointer-events-auto flex shrink-0">
+            <RightPanelMaximizeControl
+              maximized={maximized}
+              onToggle={() => setMaximized((value) => !value)}
+            />
+          </span>
         ) : null}
+        <div className="pointer-events-auto flex h-full items-center">
+          <PanelLayoutControls
+            terminalAvailable={cwd !== null}
+            terminalOpen={terminalUi.terminalOpen}
+            terminalShortcutLabel={shortcutLabelForCommand(keybindings, "terminal.toggle")}
+            rightPanelAvailable
+            rightPanelOpen={panel.isOpen}
+            rightPanelShortcutLabel={shortcutLabelForCommand(keybindings, "rightPanel.toggle")}
+            liveAgentCount={
+              panel.isOpen && activeSurface?.kind === "agents" ? 0 : agentModel.liveCount
+            }
+            onToggleTerminal={() =>
+              useTerminalUiStateStore.getState().setTerminalOpen(target, !terminalUi.terminalOpen)
+            }
+            onToggleRightPanel={() => useRightPanelStore.getState().toggleVisibility(target)}
+          />
+        </div>
       </div>
       {error ? (
         <p role="alert" className="px-4 py-1 text-xs text-destructive">

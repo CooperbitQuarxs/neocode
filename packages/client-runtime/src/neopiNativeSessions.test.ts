@@ -951,4 +951,29 @@ describe("canonical native client projection", () => {
     expect(feed.agents).toEqual([]);
     expect(feed.conversation.entries).toEqual([]);
   });
+
+  it("tracks NeoPi's prompt queue until the session closes", () => {
+    let feed = reduceNativeSessionFeed(emptyNativeSessionFeed(), {
+      type: "snapshot",
+      session: {
+        ...session,
+        state: {
+          isStreaming: true,
+          queuedMessages: { steering: ["steer now"], followUp: [], liveSteered: 1 },
+        },
+      },
+      journal: null,
+    });
+    expect(feed.queue).toEqual({ steering: ["steer now"], followUp: [], liveSteered: 1 });
+    feed = reduceNativeSessionFeed(feed, {
+      type: "event",
+      frame: { type: "queue_update", steering: [], followUp: ["after the run"], liveSteered: 0 },
+    });
+    expect(feed.queue).toEqual({ steering: [], followUp: ["after the run"], liveSteered: 0 });
+    // A state read without a queue (older NeoPi) keeps the last known queue.
+    feed = reduceNativeSessionFeed(feed, { type: "state", state: { isStreaming: true } });
+    expect(feed.queue.followUp).toEqual(["after the run"]);
+    feed = reduceNativeSessionFeed(feed, { type: "closed", reason: "gone" });
+    expect(feed.queue).toEqual({ steering: [], followUp: [], liveSteered: 0 });
+  });
 });
