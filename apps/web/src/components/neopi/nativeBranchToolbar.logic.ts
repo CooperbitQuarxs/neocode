@@ -22,22 +22,10 @@ export function nativeBranchPickerItems(
 }
 
 /**
- * Git tells us which checkout holds each branch but not which checkout is the
- * repository's primary one. A session is in a linked worktree when its branch
- * is not the default branch and the default branch is checked out somewhere
- * else: that is how `/wt` leaves the original checkout. A primary checkout that
- * sits on another branch while a linked worktree holds the default is
- * indistinguishable and reads as a worktree.
+ * In a linked worktree `.git` is a file pointing into the primary repository's
+ * `worktrees/` directory; the primary checkout has a `.git` directory (which
+ * cannot be read as a file) and a submodule's file points into `modules/`.
  */
-export function isNativeLinkedWorktree(refs: ReadonlyArray<VcsRef>): boolean {
-  const current = refs.find((ref) => ref.current && ref.isRemote !== true);
-  const base = refs.find((ref) => ref.isDefault && ref.isRemote !== true);
-  return (
-    current !== undefined &&
-    base !== undefined &&
-    current.name !== base.name &&
-    current.worktreePath !== null &&
-    base.worktreePath !== null &&
-    current.worktreePath !== base.worktreePath
-  );
+export function isLinkedWorktreeGitFile(contents: string | null | undefined): boolean {
+  return /^gitdir:\s*\S.*[\\/]worktrees[\\/][^\\/\n]+\s*$/.test(contents ?? "");
 }

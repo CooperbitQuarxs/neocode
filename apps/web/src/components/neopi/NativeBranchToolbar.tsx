@@ -10,6 +10,7 @@ import { useDeferredValue, useMemo, useState, useTransition } from "react";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { usePaginatedBranches } from "../../state/queries";
 import { useEnvironmentQuery } from "../../state/query";
+import { projectEnvironment } from "../../state/projects";
 import { vcsEnvironment } from "../../state/vcs";
 import { ComposerControl } from "../chat/ComposerControl";
 import { ComposerSurface } from "../chat/ComposerSurface";
@@ -29,7 +30,7 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 import { NativeWorktreeDialog } from "./NativeWorktreeDialog";
 import {
   CREATE_BRANCH_PREFIX,
-  isNativeLinkedWorktree,
+  isLinkedWorktreeGitFile,
   nativeBranchPickerItems,
 } from "./nativeBranchToolbar.logic";
 
@@ -69,14 +70,14 @@ export function NativeBranchToolbar(props: {
       [environmentId, cwd, open, deferredQuery],
     ),
   );
-  // The unfiltered first page also answers "is this checkout a linked worktree".
-  const allRefs = useEnvironmentQuery(
-    cwd ? vcsEnvironment.listRefs({ environmentId, input: { cwd, limit: 100 } }) : null,
+  // A linked worktree's `.git` is a file; the primary checkout's is a directory,
+  // which reads as an error here.
+  const gitFile = useEnvironmentQuery(
+    cwd
+      ? projectEnvironment.readFile({ environmentId, input: { cwd, relativePath: ".git" } })
+      : null,
   );
-  const linkedWorktree = useMemo(
-    () => isNativeLinkedWorktree(allRefs.data?.refs ?? []),
-    [allRefs.data],
-  );
+  const linkedWorktree = isLinkedWorktreeGitFile(gitFile.data?.contents);
   const picker = useMemo(
     () => nativeBranchPickerItems(branches.refs, deferredQuery),
     [branches.refs, deferredQuery],
@@ -95,7 +96,6 @@ export function NativeBranchToolbar(props: {
   const hasMore = branches.data?.nextCursor != null;
   const refresh = () => {
     branches.refresh();
-    allRefs.refresh();
     status.refresh();
   };
   const report = (title: string, result: AtomCommandResult<unknown, unknown>) => {

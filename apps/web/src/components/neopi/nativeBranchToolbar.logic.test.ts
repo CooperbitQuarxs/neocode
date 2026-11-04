@@ -3,7 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   CREATE_BRANCH_PREFIX,
-  isNativeLinkedWorktree,
+  isLinkedWorktreeGitFile,
   nativeBranchPickerItems,
 } from "./nativeBranchToolbar.logic";
 
@@ -30,27 +30,14 @@ describe("nativeBranchPickerItems", () => {
   });
 });
 
-describe("isNativeLinkedWorktree", () => {
-  it("is true when the default branch lives in another checkout", () => {
-    expect(
-      isNativeLinkedWorktree([
-        ref("main", { isDefault: true, worktreePath: "/repo" }),
-        ref("wt/a", { current: true, worktreePath: "/worktrees/a" }),
-      ]),
-    ).toBe(true);
+describe("isLinkedWorktreeGitFile", () => {
+  it("recognises a linked worktree's .git file", () => {
+    expect(isLinkedWorktreeGitFile("gitdir: /repo/.git/worktrees/demo-wt\n")).toBe(true);
   });
 
-  it("is false on the default branch, in the primary checkout, or without worktree data", () => {
-    expect(
-      isNativeLinkedWorktree([
-        ref("main", { isDefault: true, current: true, worktreePath: "/repo" }),
-      ]),
-    ).toBe(false);
-    expect(
-      isNativeLinkedWorktree([
-        ref("main", { isDefault: true }),
-        ref("feature", { current: true, worktreePath: "/repo" }),
-      ]),
-    ).toBe(false);
+  it("rejects submodule pointers, unreadable files and empty contents", () => {
+    expect(isLinkedWorktreeGitFile("gitdir: ../.git/modules/lib\n")).toBe(false);
+    expect(isLinkedWorktreeGitFile("")).toBe(false);
+    expect(isLinkedWorktreeGitFile(null)).toBe(false);
   });
 });

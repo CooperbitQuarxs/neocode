@@ -75,6 +75,7 @@ import type { ExpandedImagePreview } from "../chat/ExpandedImagePreview";
 import { createPageScrollController } from "../chat/pageScrollController";
 import type { NativeModelChoice } from "../chat/neopiModelSwitcher";
 import { NativeSessionModelPicker } from "./NativeSessionModelPicker";
+import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { NativeBranchToolbar } from "./NativeBranchToolbar";
 import { NativeSessionWorkspacePanels } from "./NativeSessionWorkspacePanels";
 import { consumeNativeDraft, prepareNativePrompt } from "./neopiNativeComposer";
@@ -250,6 +251,14 @@ export function NativeSessionView({
     if (movedRef && movedRef.sessionFile !== target.ref.sessionFile)
       replaceNativeSession(target, { environmentId: target.environmentId, ref: movedRef });
   }, [movedRef, target]);
+  // The sidebar and tab titles read the session list, which still names the old file.
+  const hasMoved = feed.movedTo !== null;
+  useEffect(() => {
+    if (hasMoved)
+      appAtomRegistry.refresh(
+        nativeSessionAtoms.list({ environmentId: target.environmentId, input: {} }),
+      );
+  }, [hasMoved, target.environmentId]);
   const loadOlder = async () => {
     if (paging || !conversation.cursor) return;
     setPaging(true);
