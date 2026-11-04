@@ -107,6 +107,7 @@ describe("electron development launcher", () => {
     const values = resolveMacBundleInfoPlistStrings("Example App Launcher");
     assert.isNotEmpty(values.NSScreenCaptureUsageDescription);
     assert.isNotEmpty(values.NSDocumentsFolderUsageDescription);
+    assert.isNotEmpty(values.NSMicrophoneUsageDescription);
   });
 
   it("ad-hoc signs the complete development app bundle", () => {
