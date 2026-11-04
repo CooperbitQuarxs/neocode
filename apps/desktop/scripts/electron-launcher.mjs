@@ -270,6 +270,7 @@ export function resolveMacBundleInfoPlistStrings(executableName) {
     CFBundleExecutable: executableName,
     CFBundleIconFile: "icon.icns",
     NSScreenCaptureUsageDescription: `${APP_DISPLAY_NAME} captures the active window when you use the snapshot shortcut.`,
+    NSMicrophoneUsageDescription: `${APP_DISPLAY_NAME} lets NeoPi record your voice when you dictate into the composer.`,
     NSDocumentsFolderUsageDescription: `${APP_DISPLAY_NAME} reads project files you open in the desktop app.`,
   };
 }

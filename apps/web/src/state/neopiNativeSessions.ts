@@ -12,16 +12,56 @@ import { useCallback } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { connectionAtomRuntime } from "../connection/runtime";
+import {
+  closeNativeSessionTab,
+  cycleNativeSessionTab,
+  openNativeSessionTab,
+  replaceNativeSessionTab,
+  type NativeSessionTabs,
+} from "./nativeSessionTabs";
 import { useAtomCommand } from "./use-atom-command";
 
 export const nativeSessionAtoms = createNativeSessionAtoms(connectionAtomRuntime);
+interface NativeSessionSelection {
+  readonly target: NativeSessionTarget | null;
+  /** Open session tabs in display order; the selected target is always one of them. */
+  readonly tabs: NativeSessionTabs;
+}
 export const useNativeSessionSelection = create(
-  persist<{ target: NativeSessionTarget | null }>(() => ({ target: null }), {
+  persist<NativeSessionSelection>(() => ({ target: null, tabs: [] }), {
     name: "neocode-native-selected-session",
+    // Selections saved before tabs existed hold only `target`.
+    merge: (saved, current) => {
+      const persisted: Partial<NativeSessionSelection> = saved ?? {};
+      const target = persisted.target ?? null;
+      const tabs = persisted.tabs ?? [];
+      return { ...current, target, tabs: target ? openNativeSessionTab(tabs, target) : tabs };
+    },
   }),
 );
-export const selectNativeSession = (target: NativeSessionTarget | null) =>
-  useNativeSessionSelection.setState({ target });
+/** Selecting opens the session's tab when it has none. */
+export const selectNativeSession = (target: NativeSessionTarget) =>
+  useNativeSessionSelection.setState((state) => ({
+    target,
+    tabs: openNativeSessionTab(state.tabs, target),
+  }));
+export const closeNativeSession = (target: NativeSessionTarget) =>
+  useNativeSessionSelection.setState((state) => {
+    const next = closeNativeSessionTab(state.tabs, state.target, target);
+    return { target: next.active, tabs: next.tabs };
+  });
+export const replaceNativeSession = (from: NativeSessionTarget, to: NativeSessionTarget) =>
+  useNativeSessionSelection.setState((state) => ({
+    target: to,
+    tabs: replaceNativeSessionTab(state.tabs, from, to),
+  }));
+/** Returns whether there was another tab to move to. */
+export const cycleNativeSession = (direction: "previous" | "next") => {
+  const { target, tabs } = useNativeSessionSelection.getState();
+  const next = tabs.length > 1 ? cycleNativeSessionTab(tabs, target, direction) : null;
+  if (next) useNativeSessionSelection.setState({ target: next });
+  return next !== null;
+};
 
 export function useNativeSession(target: NativeSessionTarget) {
   const result = useAtomValue(

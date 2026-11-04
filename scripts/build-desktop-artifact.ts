@@ -2714,6 +2714,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       category: "public.app-category.developer-tools",
       extendInfo: {
         NSScreenCaptureUsageDescription: `${APP_BASE_NAME} captures the active window when you use the window capture shortcut.`,
+        NSMicrophoneUsageDescription: `${APP_BASE_NAME} lets NeoPi record your voice when you dictate into the composer.`,
       },
       protocols: [
         {
