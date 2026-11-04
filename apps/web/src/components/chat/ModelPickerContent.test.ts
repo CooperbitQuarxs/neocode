@@ -14,6 +14,7 @@ import {
   nativeSelectorRequests,
   nativeSelectorTarget,
   nativeSwitcherFactCells,
+  nativeSwitcherFactSummary,
   nativeSwitcherModels,
 } from "./neopiModelSwitcher";
 import { modelPickerModelKey, parseModelPickerModelKey } from "./modelPickerKeys";
@@ -174,6 +175,48 @@ describe("native model selector consumers", () => {
         selectorFacts: { ...facts, contextWindow: 200000 },
       })[3],
     ).toBe("Unknown");
+  });
+
+  it("routes a role through set_role and a model through its own provider and id, never a slash split", () => {
+    const models = rows(
+      new Map([
+        [
+          instanceId,
+          result(
+            [item("custom-route/Zed.V2:blue", { provider: "custom/route", id: "Zed.V2:blue" })],
+            [item("@review", { provider: "custom-route", id: "review" })],
+          ),
+        ],
+      ]),
+    );
+    expect(models.map((model) => model.choice)).toEqual([
+      { kind: "role", role: "review" },
+      { kind: "model", provider: "custom/route", modelId: "Zed.V2:blue" },
+    ]);
+  });
+
+  it("summarises only the facts NeoPi reported in a compact line", () => {
+    expect(
+      nativeSwitcherFactSummary({
+        slug: "custom-route/model",
+        name: "Model",
+        selectorFacts: {
+          ...facts,
+          intelligence: 43,
+          effectiveContextWindow: 120000,
+          inputCostPerMillion: 0,
+          outputCostPerMillion: 15,
+        },
+      }),
+    ).toBe("120K ctx · $0 / $15 per M · intelligence 43");
+    expect(
+      nativeSwitcherFactSummary({
+        slug: "custom-route/model",
+        name: "Model",
+        selectorFacts: { ...facts, outputCostPerMillion: 2 },
+      }),
+    ).toBe("? / $2 per M");
+    expect(nativeSwitcherFactSummary({ slug: "local/unknown", name: "Unknown" })).toBe("");
   });
 
   it("does not substitute catalog models after native errors or an empty enabled scope", () => {

@@ -52,16 +52,25 @@ export function nativeSelectorRequests(
     }));
 }
 
+/** What a native session applies for a picked row: `set_role` for a role, `set_model` for a model. */
+export type NativeModelChoice =
+  | { readonly kind: "role"; readonly role: string }
+  | { readonly kind: "model"; readonly provider: string; readonly modelId: string };
+
 export type NativeSwitcherModel = ModelEsque & {
   instanceId: ProviderInstanceId;
   instanceDisplayName: string;
   group: string;
+  /** Native routing fields of the row; absent for a saved selection NeoPi no longer lists. */
+  choice?: NativeModelChoice;
   selectorFacts?: NeoPiModelSelectorFacts;
   resolvedSelector?: string | null;
 };
 
+export const ROLES_GROUP = "Roles";
+
 export function nativeSwitcherGroup(model: ModelEsque): string {
-  if (model.slug.startsWith("@") && !model.slug.includes("/")) return "Roles";
+  if (model.slug.startsWith("@") && !model.slug.includes("/")) return ROLES_GROUP;
   return model.subProvider || model.slug.split("/")[0] || "Unknown provider";
 }
 
@@ -92,7 +101,10 @@ export function nativeSwitcherModels(input: {
           resolvedSelector: row.resolvedSelector,
           instanceId: entry.instanceId,
           instanceDisplayName: entry.displayName,
-          group: role ? "Roles" : row.provider,
+          group: role ? ROLES_GROUP : row.provider,
+          choice: role
+            ? { kind: "role", role: row.id }
+            : { kind: "model", provider: row.provider, modelId: row.id },
           isUnavailable:
             !entry.enabled ||
             !entry.isAvailable ||
@@ -158,4 +170,27 @@ export function nativeSwitcherFactCells(
       (n) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 4 })}`,
     ),
   ];
+}
+
+/** The compact secondary text of a row: only the facts NeoPi reported, never "Unknown". */
+export function nativeSwitcherFactSummary(
+  model: ModelEsque & { selectorFacts?: NeoPiModelSelectorFacts },
+): string {
+  const known = (value: number | null | undefined): value is number =>
+    value != null && Number.isFinite(value) && value >= 0;
+  const price = (value: number | null | undefined) =>
+    known(value) ? `$${value.toLocaleString(undefined, { maximumFractionDigits: 4 })}` : "?";
+  const context = model.selectorFacts?.effectiveContextWindow;
+  const input = model.selectorFacts?.inputCostPerMillion;
+  const output = model.selectorFacts?.outputCostPerMillion;
+  const intelligence = model.selectorFacts?.intelligence;
+  return [
+    known(context)
+      ? `${context.toLocaleString(undefined, { notation: "compact", maximumFractionDigits: 1 })} ctx`
+      : null,
+    known(input) || known(output) ? `${price(input)} / ${price(output)} per M` : null,
+    known(intelligence) ? `intelligence ${intelligence}` : null,
+  ]
+    .filter((part) => part !== null)
+    .join(" · ");
 }
