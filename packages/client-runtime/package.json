@@ -27,6 +27,10 @@
       "types": "./src/neopiTranscript.ts",
       "default": "./src/neopiTranscript.ts"
     },
+    "./neopi-native-agent-hub": {
+      "types": "./src/neopiNativeAgentHub.ts",
+      "default": "./src/neopiNativeAgentHub.ts"
+    },
     "./neopi-tree": {
       "types": "./src/neopiTree.ts",
       "default": "./src/neopiTree.ts"

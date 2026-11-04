@@ -13,6 +13,24 @@ const text = (value: unknown) => (typeof value === "string" ? value : null);
 const number = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 
+/** Observed facts the source-neutral panel model has no field for; absent until NeoPi reports them. */
+export interface NativeSubagentFacts {
+  /** The assignment NeoPi gave the child, else its short task line. */
+  readonly task: string | null;
+  readonly requests: number | null;
+  readonly cost: number | null;
+  /** Current per-turn context size against the model's window. */
+  readonly contextTokens: number | null;
+  readonly contextWindow: number | null;
+  /** Only `get_subagents` rows carry live fast-mode state. */
+  readonly fast: { readonly enabled: boolean; readonly active: boolean } | null;
+  readonly recentTools: readonly {
+    readonly tool: string;
+    readonly args: string;
+    readonly isError: boolean;
+  }[];
+}
+
 /** Native ownership and read barriers stay out of the source-neutral panel model. */
 export interface NativeSubagent extends RuntimeSubagent {
   readonly native: {
@@ -21,6 +39,52 @@ export interface NativeSubagent extends RuntimeSubagent {
     readonly sessionFile: string | null;
     readonly disconnected: boolean;
     readonly usageBase: SubagentUsage | null;
+    readonly facts: NativeSubagentFacts;
+  };
+}
+
+const EMPTY_FACTS: NativeSubagentFacts = {
+  task: null,
+  requests: null,
+  cost: null,
+  contextTokens: null,
+  contextWindow: null,
+  fast: null,
+  recentTools: [],
+};
+
+function facts(
+  previous: NativeSubagentFacts | undefined,
+  payload: Record<string, unknown>,
+  progress: Record<string, unknown>,
+): NativeSubagentFacts {
+  const before = previous ?? EMPTY_FACTS;
+  const enabled = payload.fastModeEnabled ?? progress.fastModeEnabled;
+  const active = payload.fastModeActive ?? progress.fastModeActive;
+  const tools = Array.isArray(progress.recentTools)
+    ? progress.recentTools.flatMap((value) => {
+        const tool = record(value);
+        return typeof tool.tool === "string"
+          ? [{ tool: tool.tool, args: text(tool.args) ?? "", isError: tool.isError === true }]
+          : [];
+      })
+    : null;
+  return {
+    task:
+      text(payload.assignment) ??
+      text(payload.task) ??
+      text(progress.assignment) ??
+      text(progress.task) ??
+      before.task,
+    requests: number(progress.requests) ?? before.requests,
+    cost: number(progress.cost) ?? before.cost,
+    contextTokens: number(progress.contextTokens) ?? before.contextTokens,
+    contextWindow: number(progress.contextWindow) ?? before.contextWindow,
+    fast:
+      typeof enabled === "boolean"
+        ? { enabled, active: typeof active === "boolean" ? active : enabled }
+        : before.fast,
+    recentTools: tools ? tools.slice(-8) : before.recentTools,
   };
 }
 
@@ -155,6 +219,7 @@ function observe(
       sessionFile: text(payload.sessionFile) ?? previous?.native.sessionFile ?? null,
       disconnected: false,
       usageBase: base,
+      facts: facts(fresh ? undefined : previous.native.facts, payload, progress),
     },
   };
 }
