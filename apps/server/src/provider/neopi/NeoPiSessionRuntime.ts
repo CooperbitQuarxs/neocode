@@ -6,6 +6,7 @@ import {
   type NeoPiRpcClient,
   type NeoPiRpcTransport,
   type PromptHandle,
+  type PromptOutcome,
   type SpawnFn,
   type HostToolCallFrame,
 } from "effect-neopi-rpc/client";
@@ -25,6 +26,11 @@ import { ChildProcess } from "effect/unstable/process";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { buildNeoPiLaunchPlan, isSharedNeoPiCursor } from "./NeoPiLaunchArgs.ts";
+import {
+  neoPiAvailableCommands,
+  neoPiSlashCommandName,
+  neoPiTerminalTextRoute,
+} from "./NeoPiCommandCatalog.ts";
 import { NEOPI_CAPABILITIES, neopiCompatibility } from "./NeoPiCompatibility.ts";
 import { neoPiRoleFromModelSlug } from "./NeoPiModelCatalog.ts";
 import { NeoPiRuntimeError } from "./NeoPiRuntimeError.ts";
@@ -1012,6 +1018,20 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
         });
       if (!attached && turn.modelSelection) yield* applyModelSelection(turn.modelSelection);
       const peer = yield* current();
+      // An attached prompt runs only headless commands; the terminal's TUI dispatches
+      // the rest when the text is typed into its editor.
+      let typedInTerminal = false;
+      if (attached && turn.images.length === 0 && neoPiSlashCommandName(turn.text)) {
+        const listed = yield* peer
+          .request({ type: "get_available_commands" })
+          .pipe(Effect.mapError(rpcError));
+        typedInTerminal =
+          neoPiTerminalTextRoute(
+            turn.text,
+            neoPiAvailableCommands(record(listed).commands),
+            capabilities.has(NEOPI_CAPABILITIES.commandCatalog),
+          ) === "tui";
+      }
       const baseline = record(
         yield* request({ type: "get_entries" }).pipe(Effect.mapError(rpcError)),
       );
@@ -1033,6 +1053,27 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
         return next;
       });
       yield* setState("running");
+      if (typedInTerminal) {
+        // The pane answers once the editor took the text; the command's work is the terminal's.
+        const outcome = yield* Deferred.make<PromptOutcome>();
+        yield* Deferred.succeed(entry.promptReady!, { id: `tui-${turn.turnId}`, outcome });
+        yield* peer.request({ type: "slash", text: turn.text }).pipe(
+          Effect.matchEffect({
+            onFailure: (error) =>
+              Deferred.succeed(outcome, {
+                kind: "rejected",
+                error: error.message,
+                ...(error.code !== undefined ? { code: error.code } : {}),
+              }).pipe(Effect.andThen(settle(entry, "failed", error.message))),
+            onSuccess: () =>
+              Deferred.succeed(outcome, { kind: "local", agentInvoked: false }).pipe(
+                Effect.andThen(settle(entry, "completed")),
+              ),
+          }),
+          Effect.forkIn(lifetime!),
+        );
+        return { turnId: turn.turnId };
+      }
       const handle = yield* peer
         .prompt({
           type: "prompt",

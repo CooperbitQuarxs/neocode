@@ -51,6 +51,12 @@ import type { McpCapability } from "../../mcp/McpInvocationContext.ts";
 import { makeNeoPiNativeHostToolPump } from "./NeoPiHostToolBridge.ts";
 import { collectUint8StreamText } from "../../stream/collectUint8StreamText.ts";
 import { ProviderInstanceRegistry } from "../Services/ProviderInstanceRegistry.ts";
+import {
+  neoPiAvailableCommands,
+  neoPiSlashCommandName,
+  neoPiTerminalTextRoute,
+} from "./NeoPiCommandCatalog.ts";
+import { NEOPI_CAPABILITIES } from "./NeoPiCompatibility.ts";
 import { parseNeoPiLaunchArguments } from "./NeoPiLaunchArgs.ts";
 import { prepareNeoPiNativePrompt } from "./NeoPiNativeAttachments.ts";
 import { makeNeoPiNativeEventHub } from "./NeoPiNativeEventHub.ts";
@@ -690,7 +696,31 @@ export const makeNeoPiNativeSessionsWith = Effect.fn("NeoPiNativeSessions.makeWi
       }
       // Window-local ids must not collide; native Models login uses a server-generated UUID.
       const { id, requestId: _requestId, ...payload } = preparedCommand;
-      const nativeCommand = preserveId && typeof id === "string" ? { ...payload, id } : payload;
+      let nativeCommand: Record<string, unknown> & { readonly type: string } =
+        preserveId && typeof id === "string" ? { ...payload, id } : payload;
+      // A terminal's prompt path runs only headless commands. Text its TUI would dispatch
+      // is typed into the pane's editor instead, exactly as the user would type it there.
+      if (
+        session.native.attachment === "terminal" &&
+        nativeCommand.type === "prompt" &&
+        typeof nativeCommand.message === "string" &&
+        nativeCommand.images === undefined &&
+        !input.attachments?.length &&
+        neoPiSlashCommandName(nativeCommand.message)
+      ) {
+        const listed = yield* client.request({ type: "get_available_commands" });
+        const route = neoPiTerminalTextRoute(
+          nativeCommand.message,
+          neoPiAvailableCommands(
+            Schema.is(NeoPiNativeSessionRecord)(listed) ? listed.commands : [],
+          ),
+          client.capabilities.has(NEOPI_CAPABILITIES.commandCatalog),
+        );
+        if (route === "tui") {
+          const { message, streamingBehavior: _streaming, type: _type, ...rest } = nativeCommand;
+          nativeCommand = { ...rest, type: "slash", text: message };
+        }
+      }
       let guardedCommand = nativeCommand;
       if (session.native.attachment === "terminal") {
         const current = yield* Schema.decodeUnknownEffect(ControlIdentity)(

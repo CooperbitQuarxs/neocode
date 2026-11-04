@@ -55,7 +55,7 @@ import {
   type PendingUi,
 } from "../neopi/mappers/ui.ts";
 import { mapPlanProposal, neoPiInteractionModeFromFrame } from "../neopi/mappers/mode.ts";
-import { toNeoPiCommandCatalog, type NeoPiAvailableCommand } from "../neopi/NeoPiCommandCatalog.ts";
+import { neoPiAvailableCommands, toNeoPiCommandCatalog } from "../neopi/NeoPiCommandCatalog.ts";
 import { NEOPI_CAPABILITIES } from "../neopi/NeoPiCompatibility.ts";
 import type { NeoPiDiscoveryHub } from "../neopi/NeoPiDiscovery.ts";
 import { makeNeoPiHostToolBridge, type NeoPiHostToolBridge } from "../neopi/NeoPiHostToolBridge.ts";
@@ -229,14 +229,8 @@ export const makeNeoPiAdapter = Effect.fn("NeoPiAdapter.make")(function* (
       const turnId = frame.turnId ?? session.activeTurnId;
       const ctx = context(session, DateTime.formatIso(yield* DateTime.now), turnId);
       if (data.type === "available_commands_update") {
-        const commands = Array.isArray(data.commands)
-          ? data.commands.filter(
-              (entry): entry is NeoPiAvailableCommand =>
-                typeof entry === "object" && entry !== null && typeof entry.name === "string",
-            )
-          : [];
         const catalog = toNeoPiCommandCatalog(
-          commands,
+          neoPiAvailableCommands(data.commands),
           new Set([...session.ui.capabilities, ...session.runtime.capabilities]),
         );
         yield* options.discovery.publish({

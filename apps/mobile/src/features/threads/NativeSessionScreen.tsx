@@ -1,11 +1,18 @@
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
 import {
+  NATIVE_COMMAND_COMPLETIONS_CAPABILITY,
   nativeCatalogModels,
+  nativeCommandCompletions,
+  nativeCommandNeedsTerminal,
   nativeRecord,
   nativeSessionKey,
+  nativeSlashArgument,
+  nativeSlashCommands,
   nativeTranscriptRows,
+  type NativeCommandCompletion,
   type NativeSessionTarget,
+  type NativeSlashCommand,
   type NativeTranscriptRow,
 } from "@t3tools/client-runtime/neopi-native-sessions";
 import { journalEntryLabel } from "@t3tools/client-runtime/neopi-journal";
@@ -124,7 +131,11 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
   const [debug, setDebug] = useState(false);
   const [agents, setAgents] = useState(false);
   const [state, setState] = useState<Record<string, unknown>>({});
-  const [commands, setCommands] = useState<readonly Record<string, unknown>[]>([]);
+  const [commands, setCommands] = useState<readonly NativeSlashCommand[]>([]);
+  const [completions, setCompletions] = useState<{
+    readonly command: string;
+    readonly items: readonly NativeCommandCompletion[];
+  } | null>(null);
   const key = nativeSessionKey(target);
   const [dismissed, setDismissed] = useState(() => answered.get(key) ?? new Set<string>());
   const navigation = useNavigation();
@@ -163,13 +174,13 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
       setPaging(false);
     }
   };
+  // NeoPi owns the command list; an announcement of a changed list re-reads it.
   useEffect(() => {
     if (!feed.connected) return;
     let active = true;
     void request({ type: "get_available_commands" })
       .then((value) => {
-        const commands = nativeRecord(value).commands;
-        if (active && Array.isArray(commands)) setCommands(commands.map(nativeRecord));
+        if (active) setCommands(nativeSlashCommands(value));
       })
       .catch((cause) => {
         if (active) setLocalError(String(cause));
@@ -177,7 +188,42 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
     return () => {
       active = false;
     };
-  }, [feed.connected, request]);
+  }, [feed.connected, feed.commandsRevision, request]);
+  const argument = nativeSlashArgument(composer.draft.text);
+  const argumentCommand =
+    argument &&
+    feed.session?.capabilities.includes(NATIVE_COMMAND_COMPLETIONS_CAPABILITY) &&
+    commands.some(
+      (command) => command.name === argument.command || command.aliases?.includes(argument.command),
+    )
+      ? argument.command
+      : null;
+  const argumentPrefix = argumentCommand ? (argument?.prefix ?? "") : null;
+  useEffect(() => {
+    if (argumentCommand === null || argumentPrefix === null) return;
+    let active = true;
+    const timer = setTimeout(() => {
+      void request({
+        type: "get_command_completions",
+        command: argumentCommand,
+        prefix: argumentPrefix,
+      })
+        .then((value) => {
+          if (active)
+            setCompletions({
+              command: argumentCommand,
+              items: nativeCommandCompletions(value, argumentPrefix),
+            });
+        })
+        .catch(() => {
+          if (active) setCompletions({ command: argumentCommand, items: [] });
+        });
+    }, 80);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [argumentCommand, argumentPrefix, request]);
   useEffect(() => {
     const editor = feed.editor;
     if (!editor || editors.get(key) === editor.id) return;
@@ -225,12 +271,12 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
     !composer.draft.text.includes(" ") &&
     !composer.draft.text.includes("\n")
       ? commands
-          .filter(
-            (command) =>
-              typeof command.name === "string" &&
-              `/${command.name}`.startsWith(composer.draft.text),
-          )
+          .filter((command) => `/${command.name}`.startsWith(composer.draft.text))
           .slice(0, 10)
+      : [];
+  const argumentSuggestions =
+    argumentCommand && completions?.command === argumentCommand
+      ? completions.items.filter((item) => item.value !== argumentPrefix).slice(0, 10)
       : [];
   const dialog = feed.dialogs.find(
     (dialog) => typeof dialog.id === "string" && !dismissed.has(dialog.id),
@@ -375,10 +421,33 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
           <ScrollView horizontal>
             {suggestions.map((command) => (
               <MaterialButton
-                key={String(command.name)}
-                label={`/${command.name}`}
+                key={command.name}
+                label={[
+                  `/${command.name}`,
+                  command.input?.hint,
+                  nativeCommandNeedsTerminal(command, feed.session?.attachment)
+                    ? "· terminal only"
+                    : undefined,
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 tone="text"
                 onPress={() => composer.setText(`/${command.name} `)}
+              />
+            ))}
+          </ScrollView>
+        ) : null}
+        {argumentCommand && argumentSuggestions.length ? (
+          <ScrollView horizontal>
+            {argumentSuggestions.map((item) => (
+              <MaterialButton
+                key={item.value}
+                label={item.label}
+                tone="text"
+                onPress={() => {
+                  composer.setText(`/${argumentCommand} ${item.value}`);
+                  if (item.submitsCommand) void composer.send();
+                }}
               />
             ))}
           </ScrollView>

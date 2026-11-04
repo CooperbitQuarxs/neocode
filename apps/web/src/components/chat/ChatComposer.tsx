@@ -1,6 +1,11 @@
 import { getThreadRuntimeReadOnlyReason } from "@t3tools/shared/serverSettings";
 import { workspaceResourceId } from "@t3tools/client-runtime/environment";
-import type { NativeSessionTarget } from "@t3tools/client-runtime/neopi-native-sessions";
+import {
+  nativeCommandNeedsTerminal,
+  type NativeCommandCompletion,
+  type NativeSessionTarget,
+  type NativeSlashCommand,
+} from "@t3tools/client-runtime/neopi-native-sessions";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { usePrimaryEnvironmentId } from "../../state/environments";
@@ -76,6 +81,7 @@ import {
   collapseExpandedComposerCursor,
   composerStateAtPromptEnd,
   composerSubmissionIntentForEnter,
+  detectComposerSlashArgument,
   detectComposerTrigger,
   expandCollapsedComposerCursor,
   formatAssistantCitationForComposer,
@@ -977,7 +983,14 @@ export type NativeChatComposerProps = Pick<
   composerDraftTarget: NativeSessionTarget;
   routeThreadRef: NativeSessionTarget;
   nativeSession: {
-    commands: readonly ServerProviderSlashCommand[];
+    commands: readonly NativeSlashCommand[];
+    /** A terminal NeoPi runs every command; an owned session cannot run terminal-only ones. */
+    attachment: "owned" | "terminal" | undefined;
+    /** Present when NeoPi completes command arguments. */
+    completeCommandArgument?: (
+      command: string,
+      prefix: string,
+    ) => Promise<readonly NativeCommandCompletion[]>;
     promptHistory: readonly ComposerPromptHistoryMessage[];
     /** The shared model picker, built by the workspace that owns the session. */
     modelControl: ReactNode;
@@ -1652,12 +1665,60 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     collapseExpandedComposerCursor(prompt, prompt.length),
   );
   const {
-    trigger: composerTrigger,
+    trigger: composerTextTrigger,
     setTrigger: setComposerTrigger,
     resolveTrigger: resolveComposerTrigger,
     dismissTrigger: dismissComposerTrigger,
     resetTrigger: resetComposerTrigger,
   } = useComposerTriggerState(() => detectComposerTrigger(prompt, prompt.length));
+  const completeCommandArgument = nativeSession?.completeCommandArgument;
+  // Argument completions come from NeoPi, so only a native session that offers them opens one.
+  const composerTrigger = useMemo(
+    () =>
+      composerTextTrigger ??
+      (completeCommandArgument
+        ? resolveComposerTrigger(
+            detectComposerSlashArgument(
+              prompt,
+              expandCollapsedComposerCursor(prompt, composerCursor),
+            ),
+          )
+        : null),
+    [composerTextTrigger, completeCommandArgument, composerCursor, prompt, resolveComposerTrigger],
+  );
+  const [commandArgumentCompletions, setCommandArgumentCompletions] = useState<{
+    readonly command: string;
+    readonly items: readonly NativeCommandCompletion[];
+  } | null>(null);
+  const argumentCommand =
+    composerTrigger?.kind === "slash-argument" &&
+    composerTrigger.command &&
+    nativeSession?.commands.some(
+      (command) =>
+        command.name === composerTrigger.command ||
+        command.aliases?.includes(composerTrigger.command!),
+    )
+      ? composerTrigger.command
+      : null;
+  const argumentPrefix = argumentCommand ? (composerTrigger?.query ?? "") : null;
+  useEffect(() => {
+    if (!completeCommandArgument || argumentCommand === null || argumentPrefix === null) return;
+    let active = true;
+    // Typing settles before NeoPi is asked; the previous answer stays visible meanwhile.
+    const timer = window.setTimeout(() => {
+      void completeCommandArgument(argumentCommand, argumentPrefix)
+        .then((items) => {
+          if (active) setCommandArgumentCompletions({ command: argumentCommand, items });
+        })
+        .catch(() => {
+          if (active) setCommandArgumentCompletions({ command: argumentCommand, items: [] });
+        });
+    }, 80);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [argumentCommand, argumentPrefix, completeCommandArgument]);
   const [composerHighlightedItemId, setComposerHighlightedItemId] = useState<string | null>(null);
   // Active ArrowUp recall. Cleared on edit and on thread switch.
   const promptHistoryPositionRef = useRef<ComposerPromptHistoryPosition | null>(null);
@@ -1705,6 +1766,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerMenuOpenRef = useRef(false);
   const composerMenuItemsRef = useRef<ComposerCommandItem[]>([]);
   const activeComposerMenuItemRef = useRef<ComposerCommandItem | null>(null);
+  // Choosing a completion that runs its command sends from the menu, which is declared first.
+  const submitComposerRef = useRef<(() => void) | null>(null);
   const stashPulseKeyRef = useRef(0);
   const stashPulseTimeoutRef = useRef<number | null>(null);
   /**
@@ -1935,8 +1998,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         command,
         label: `/${command.name}`,
         description:
-          (command.description ?? command.input?.hint ?? "Run provider command") +
+          (command.description ?? (command.input ? "" : "Run provider command")) +
           (providerComposerCapabilities?.commandSourceLabel(command.source) ?? ""),
+        ...(command.input ? { hint: command.input.hint } : {}),
+        needsTerminal: nativeCommandNeedsTerminal(command, nativeSession?.attachment),
       }));
       const query = composerTrigger.query.trim().toLowerCase();
       const skillItems = slashMenuSkills.map((skill) => ({
@@ -1967,6 +2032,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           providerComposerCapabilities?.ownsSlashCommands === true,
       );
       return searchSlashCommandItems(slashCommandItems, query);
+    }
+    if (composerTrigger.kind === "slash-argument") {
+      if (
+        !commandArgumentCompletions ||
+        commandArgumentCompletions.command !== composerTrigger.command
+      )
+        return [];
+      return commandArgumentCompletions.items
+        .filter((completion) => completion.value !== composerTrigger.query)
+        .map((completion) => ({
+          id: `command-argument:${completion.value}`,
+          type: "command-argument" as const,
+          completion,
+          label: completion.label,
+          description: completion.description ?? completion.hint ?? "",
+        }));
     }
     if (composerTrigger.kind === "skill") {
       return searchProviderSkills(selectedProviderSkills, composerTrigger.query).map((skill) => ({
@@ -2034,10 +2115,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     return [];
   }, [
+    commandArgumentCompletions,
     compactSlashCommandAvailable,
     composerTrigger,
     exactPullRequestLookup.data,
     noProviderAvailable,
+    nativeSession?.attachment,
     providerComposerCapabilities,
     planModeUiEnabled,
     pullRequestLookup.data,
@@ -2052,7 +2135,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     workspaceEntries.entries,
   ]);
 
-  const composerMenuOpen = Boolean(composerTrigger);
+  // An argument menu exists only while NeoPi has completions for it.
+  const composerMenuOpen =
+    Boolean(composerTrigger) &&
+    (composerTrigger?.kind !== "slash-argument" || composerMenuItems.length > 0);
   const composerMenuSearchKey = composerTrigger
     ? `${composerTrigger.kind}:${composerTrigger.query.trim().toLowerCase()}`
     : null;
@@ -3067,10 +3153,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     return {
       snapshot,
       trigger: resolveComposerTrigger(
-        detectComposerTrigger(snapshot.value, snapshot.expandedCursor),
+        detectComposerTrigger(snapshot.value, snapshot.expandedCursor) ??
+          (completeCommandArgument
+            ? detectComposerSlashArgument(snapshot.value, snapshot.expandedCursor)
+            : null),
       ),
     };
-  }, [readComposerSnapshot, resolveComposerTrigger]);
+  }, [completeCommandArgument, readComposerSnapshot, resolveComposerTrigger]);
 
   const onUsageLimitsCommand = legacy?.onUsageLimitsCommand;
   const onSelectComposerItem = useCallback(
@@ -3198,6 +3287,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             appendReference: false,
           });
           setComposerHighlightedItemId(null);
+        }
+        return;
+      }
+      if (item.type === "command-argument") {
+        if (trigger.kind !== "slash-argument") return;
+        const applied = applyPromptReplacement(
+          trigger.rangeStart,
+          trigger.rangeEnd,
+          item.completion.value,
+          { expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd) },
+        );
+        if (applied) {
+          setComposerHighlightedItemId(null);
+          if (item.completion.submitsCommand) submitComposerRef.current?.();
         }
         return;
       }
@@ -3335,6 +3438,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       shouldBlurMobileComposerOnSubmit,
     ],
   );
+  submitComposerRef.current = () => submitComposer();
   const submitCitationAndSend = useCallback(() => {
     const intent = composerSubmissionIntentForEnter({
       isMobileViewport,
@@ -3464,14 +3568,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       toggleInteractionMode?.();
       return true;
     }
-    const { trigger } = resolveActiveComposerTrigger();
+    const { trigger: detected } = resolveActiveComposerTrigger();
+    // Argument text with no completions is plain text, and Enter still sends it unless the
+    // user picked a completion; Tab takes the first one.
+    const argumentMenu = detected?.kind === "slash-argument";
+    const trigger = argumentMenu && composerMenuItemsRef.current.length === 0 ? null : detected;
     const menuIsActive = composerMenuOpenRef.current || trigger !== null;
     if (key === "Escape") {
       if (!menuIsActive || event.isComposing || event.keyCode === 229) return false;
       dismissComposerTrigger(trigger);
+      if (argumentMenu) setCommandArgumentCompletions(null);
       composerMenuOpenRef.current = false;
       return true;
     }
+    const completionPicked =
+      composerHighlightedItemId !== null && composerHighlightedSearchKey === composerMenuSearchKey;
     if (menuIsActive) {
       const currentItems = composerMenuItemsRef.current;
       const selectedItem = activeComposerMenuItemRef.current ?? currentItems[0];
@@ -3483,7 +3594,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         nudgeComposerMenuHighlight("ArrowUp");
         return true;
       }
-      if ((key === "Enter" || key === "Tab") && selectedItem) {
+      if (
+        (key === "Tab" || (key === "Enter" && (!argumentMenu || completionPicked))) &&
+        selectedItem
+      ) {
         onSelectComposerItem(selectedItem);
         return true;
       }
