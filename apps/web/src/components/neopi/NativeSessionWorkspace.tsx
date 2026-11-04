@@ -3,13 +3,17 @@ import {
   nativeCatalogModels,
   nativeRecord,
   nativeSessionKey,
-  nativeTranscriptRows,
   type NativeSessionTarget,
-  type NativeTranscriptRow,
 } from "@t3tools/client-runtime/neopi-native-sessions";
-import { journalEntryLabel } from "@t3tools/client-runtime/neopi-journal";
+import {
+  projectTranscript,
+  transcriptUserText,
+  type CommandRow,
+  type TranscriptRow,
+} from "@t3tools/client-runtime/neopi-transcript";
 import { createNativeSubmissionFollow } from "@t3tools/client-runtime/neopi-submission-follow";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { cn } from "../../lib/utils";
 import {
   nativeSessionAtoms,
   selectNativeSession,
@@ -24,10 +28,16 @@ import { SidebarInset } from "../ui/sidebar";
 import { Dialog, DialogPopup, DialogHeader, DialogTitle, DialogFooter } from "../ui/dialog";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { isElectron } from "../../env";
-import { NeoPiJournalContent } from "./NeoPiJournalContent";
 import { useCreateNativeSession } from "./NativeSessionSidebar";
 import { NativeSessionTree } from "./NativeSessionTree";
-import { NativeCommandOutput } from "./NativeCommandOutput";
+import {
+  NativeTranscriptCtx,
+  NativeTranscriptRowView,
+  transcriptRowClassName,
+  transcriptRowType,
+  useTranscriptOpenRows,
+  type NativeTranscriptContext,
+} from "./NativeTranscript";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useAtomValue } from "@effect/atom-react";
@@ -127,7 +137,7 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   const timelineRef = useRef<LegendListRef | null>(null);
   const followRevisionRef = useRef(conversation.revision);
   followRevisionRef.current = conversation.revision;
-  const followRowsRef = useRef<readonly NativeTranscriptRow[]>([]);
+  const followRowsRef = useRef<readonly TranscriptRow[]>([]);
   const submissionFollow = useMemo(
     () =>
       createNativeSubmissionFollow({
@@ -314,60 +324,80 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
       focusComposer();
     }
   }, [target, feed.connected, feed.busy, submit, composerRef, focusComposer]);
+  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleGroup = useCallback((groupId: string) => {
+    setExpandedGroups((previous) => {
+      const next = new Set(previous);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  }, []);
+  const commandOutputs = useMemo(() => {
+    // Command results are local display history anchored after the entry they followed.
+    const outputs = new Map<string | null, CommandRow[]>();
+    for (const output of feed.commandOutputs) {
+      const anchor = output.afterMessageId
+        ? (conversation.persisted.get(output.afterMessageId) ?? `live:${output.afterMessageId}`)
+        : output.afterEntryId;
+      const row: CommandRow = { kind: "command", id: output.id, text: output.text };
+      const group = outputs.get(anchor);
+      if (group) group.push(row);
+      else outputs.set(anchor, [row]);
+    }
+    return outputs;
+  }, [feed.commandOutputs, conversation.persisted]);
   const rows = useMemo(
-    () => nativeTranscriptRows({ conversation, commandOutputs: feed.commandOutputs }, debug),
-    [conversation, feed.commandOutputs, debug],
+    () =>
+      projectTranscript(
+        {
+          entries: conversation.entries,
+          pending: conversation.pending,
+          leafId: conversation.identity?.leafId ?? null,
+        },
+        { debug, expandedGroups, commandOutputs },
+      ),
+    [
+      conversation.entries,
+      conversation.pending,
+      conversation.identity?.leafId,
+      debug,
+      expandedGroups,
+      commandOutputs,
+    ],
   );
   followRowsRef.current = rows;
   useEffect(() => {
     if (!feed.connected) cancelSubmissionFollow();
     else submissionFollow.changed();
   }, [rows, feed.connected, submissionFollow, cancelSubmissionFollow]);
+  const openRows = useTranscriptOpenRows();
+  const transcriptContext = useMemo<NativeTranscriptContext>(
+    () => ({
+      environmentId: target.environmentId,
+      nativeRef: session?.ref ?? target.ref,
+      threadRef: undefined,
+      cwd: session?.cwd,
+      debug,
+      onToggleGroup: toggleGroup,
+      onImageExpand: setExpandedImage,
+      openRows,
+    }),
+    [target.environmentId, target.ref, session?.ref, session?.cwd, debug, toggleGroup, openRows],
+  );
   const renderEntry = useCallback(
-    ({ item }: { item: NativeTranscriptRow }) =>
-      item.kind === "command" ? (
-        <article
-          className="mx-auto w-full max-w-(--chat-max-width) px-5 py-4"
-          aria-label="Command output"
-        >
-          <NativeCommandOutput text={item.text} />
-        </article>
-      ) : (
-        <article
-          className="mx-auto w-full max-w-(--chat-max-width) px-5 py-4"
-          data-native-entry-id={item.entry.id}
-        >
-          <p className="mb-2 text-xs font-medium text-muted-foreground">
-            {journalEntryLabel(item.entry)}
-          </p>
-          <NeoPiJournalContent
-            entry={item.entry}
-            environmentId={target.environmentId}
-            nativeRef={session?.ref ?? target.ref}
-            cwd={session?.cwd}
-          />
-        </article>
-      ),
-    [target.environmentId, target.ref, session?.ref, session?.cwd],
+    ({ item }: { item: TranscriptRow }) => (
+      <div
+        className={transcriptRowClassName(item)}
+        data-native-entry-id={item.kind === "command" ? undefined : item.entry.id}
+      >
+        <NativeTranscriptRowView key={item.id} row={item} />
+      </div>
+    ),
+    [],
   );
   const promptHistory = useMemo(
-    () =>
-      conversation.entries.flatMap((entry) => {
-        const message = nativeRecord(entry.message);
-        if (entry.type !== "message" || message.role !== "user") return [];
-        const text =
-          typeof message.content === "string"
-            ? message.content
-            : Array.isArray(message.content)
-              ? message.content
-                  .map((part) => nativeRecord(part))
-                  .flatMap((part) =>
-                    part.type === "text" && typeof part.text === "string" ? [part.text] : [],
-                  )
-                  .join("\n")
-              : "";
-        return [{ id: entry.id, role: "user", text }];
-      }),
+    () => transcriptUserText(conversation.entries),
     [conversation.entries],
   );
   const model = nativeRecord(state.model);
@@ -393,10 +423,25 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   const dialog = feed.dialogs.find(
     (item) => typeof item.id === "string" && !dismissed.has(item.id),
   );
+  const status = feed.connected
+    ? feed.busy
+      ? { label: "Working", dot: "bg-warning animate-pulse" }
+      : session?.attachment === "terminal"
+        ? { label: "Following a terminal", dot: "bg-info" }
+        : { label: "Ready", dot: "bg-success" }
+    : loading
+      ? { label: "Connecting", dot: "bg-muted-foreground/50 animate-pulse" }
+      : { label: "Reconnecting · showing cached conversation", dot: "bg-muted-foreground/50" };
   return (
     <>
       <WorkspacePageHeader electron={isElectron}>
         <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span
+            role="status"
+            aria-label={status.label}
+            title={status.label}
+            className={cn("size-2 shrink-0 rounded-full", status.dot)}
+          />
           <span className="truncate text-sm">
             {String(state.sessionName ?? "Native conversation")}
           </span>
@@ -447,17 +492,6 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
         onInterrupt={interrupt}
         busy={feed.busy}
       >
-        <div role="status" className="shrink-0 px-5 py-1 text-xs text-muted-foreground">
-          {feed.connected
-            ? feed.busy
-              ? "Working"
-              : session?.attachment === "terminal"
-                ? "Attached to terminal"
-                : "Ready"
-            : loading
-              ? "Connecting…"
-              : "Reconnecting · showing cached conversation"}
-        </div>
         {error || localError ? (
           <p role="alert" className="shrink-0 px-5 py-1 text-xs text-destructive">
             {localError ?? error}
@@ -475,36 +509,40 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
           }}
           onPointerDownCapture={cancelSubmissionFollow}
         >
-          <LegendList
-            ref={timelineRef}
-            data={rows}
-            keyExtractor={(entry) => entry.id}
-            renderItem={renderEntry}
-            estimatedItemSize={160}
-            recycleItems
-            maintainVisibleContentPosition
-            maintainScrollAtEnd={{ animated: false }}
-            maintainScrollAtEndThreshold={0.1}
-            onItemSizeChanged={submissionFollow.changed}
-            onLayout={submissionFollow.changed}
-            onLoad={submissionFollow.changed}
-            onScroll={submissionFollow.changed}
-            ListHeaderComponent={
-              conversation.cursor ? (
-                <div className="p-3">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={paging}
-                    onClick={() => void loadOlder()}
-                  >
-                    Load earlier messages
-                  </Button>
+          <NativeTranscriptCtx value={transcriptContext}>
+            <LegendList
+              ref={timelineRef}
+              data={rows}
+              keyExtractor={(entry) => entry.id}
+              getItemType={transcriptRowType}
+              renderItem={renderEntry}
+              estimatedItemSize={64}
+              recycleItems
+              maintainVisibleContentPosition
+              maintainScrollAtEnd={{ animated: false }}
+              maintainScrollAtEndThreshold={0.1}
+              onItemSizeChanged={submissionFollow.changed}
+              onLayout={submissionFollow.changed}
+              onLoad={submissionFollow.changed}
+              onScroll={submissionFollow.changed}
+              ListHeaderComponent={
+                <div className="mx-auto w-full max-w-(--chat-max-width) px-5 pt-3">
+                  {conversation.cursor ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={paging}
+                      onClick={() => void loadOlder()}
+                    >
+                      {paging ? "Loading earlier messages…" : "Load earlier messages"}
+                    </Button>
+                  ) : null}
                 </div>
-              ) : null
-            }
-            className="min-h-0 flex-1 overflow-auto"
-          />
+              }
+              ListFooterComponent={<div className="h-4" />}
+              className="min-h-0 flex-1 overflow-auto"
+            />
+          </NativeTranscriptCtx>
         </div>
         <div
           ref={setComposerElement}

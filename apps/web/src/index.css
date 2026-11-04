@@ -5,6 +5,16 @@
 /* Window Controls Overlay: active when Electron exposes native titlebar control geometry. */
 @custom-variant wco (&:is(.wco, .wco *));
 
+/* NeoPi session titles and agent output carry Nerd Font private-use glyphs.
+   The symbol face covers only those ranges, so it is fetched on first use
+   and never shadows the UI families for ordinary text. */
+@font-face {
+  font-family: "Symbols Nerd Font Mono";
+  src: url("./terminal/ghostty/fonts/SymbolsNerdFontMono-Regular.woff2") format("woff2");
+  font-display: swap;
+  unicode-range: U+2300-23FF, U+2500-25FF, U+2600-27BF, U+2B58, U+E000-F8FF, U+F0000-FFFFD;
+}
+
 /* On mobile, morph the expanded hero composer into the compact docked
    composer while it moves; the rest of the app remains visually stationary. */
 html[data-mobile-composer-route-transition="true"]::view-transition-old(root),
@@ -154,9 +164,11 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
    default stacks are mirrored in `appearanceFonts.ts`. */
 @theme {
   --font-sans:
-    "Inter var", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    "Inter var", "Inter", "Symbols Nerd Font Mono", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
   --font-mono:
-    ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono",
+    "Symbols Nerd Font Mono", monospace;
 }
 
 @theme inline {

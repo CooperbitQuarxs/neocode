@@ -30,14 +30,12 @@ import { useEnvironments, usePrimaryEnvironment } from "../../state/environments
 import { isOnboardingRelayEnvironment } from "../../onboarding/targetEnvironment.logic";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { useEnvironmentQuery } from "../../state/query";
 import { connectPairing } from "../../connection/onboarding";
 import { getProviderSummary } from "../settings/providerStatus";
 import { getDriverOption } from "../settings/providerDriverMeta";
 import { CloudEnvironmentConnectRows } from "../cloud/CloudEnvironmentConnectList";
 import { NeoPiInstallHelp } from "../neopi/NeoPiInstallHelp";
-import { NativeAuthFlow } from "../neopi/NativeAuthFlow";
-import { neopiModels } from "../neopi/modelsPageState";
+import { NeoProxyConnect } from "../neopi/NeoProxyConnect";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
@@ -49,12 +47,14 @@ import { toastManager } from "../ui/toast";
 import { cn } from "../../lib/utils";
 
 /**
- * First-run connection and NeoPi readiness. Project folders are added explicitly
- * from the workspace after setup; onboarding never scans or imports history.
+ * First-run flow: connect a computer, meet NeoProxy, confirm NeoPi. Project
+ * folders are added explicitly from the workspace after setup; onboarding
+ * never scans or imports history. Every step can be skipped.
  */
 
-type WizardStep = "connection" | "agents";
-const ONBOARDING_STAGES = ["Connect", "NeoPi"] as const;
+type WizardStep = "connection" | "neoproxy" | "agents";
+const ONBOARDING_STAGES = ["Connect", "NeoProxy", "NeoPi"] as const;
+const STEP_ORDER: readonly WizardStep[] = ["connection", "neoproxy", "agents"];
 
 export type WelcomeWizardDestination =
   | { readonly kind: "workspace" }
@@ -102,9 +102,9 @@ export function WelcomeWizard({
   const startSetup = (ids: readonly EnvironmentId[]) => {
     if (ids.length === 0) return;
     setSetupIds(ids);
-    setStep("agents");
+    setStep("neoproxy");
   };
-  const stageIndex = step === "agents" ? 1 : 0;
+  const stageIndex = STEP_ORDER.indexOf(step);
   const finish = useCallback(
     (destination: WelcomeWizardDestination) => {
       if (finishingPromiseRef.current !== null) return finishingPromiseRef.current;
@@ -146,8 +146,15 @@ export function WelcomeWizard({
     [completeOnboarding, onDone],
   );
 
+  const skip = () => void finish({ kind: "workspace" });
   return (
-    <Dialog open disablePointerDismissal onOpenChange={(_, event) => event.cancel()}>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        // Closing the dialog is the same as skipping: the workspace is always reachable.
+        if (!open) skip();
+      }}
+    >
       <WizardPopup
         bottomStickOnMobile={false}
         showCloseButton={false}
@@ -169,7 +176,7 @@ export function WelcomeWizard({
             isStepDisabled={(index) => index >= stageIndex}
             onStepChange={(index) => {
               if (index > stageIndex) return;
-              setStep(index === 0 ? "connection" : "agents");
+              setStep(STEP_ORDER[index] ?? "connection");
             }}
           />
         </WizardHeader>
@@ -200,6 +207,12 @@ export function WelcomeWizard({
                 setSelection(new Set([...selectedIds, environmentId]));
               }}
             />
+          ) : step === "neoproxy" ? (
+            <NeoProxyStep
+              environmentIds={setupIds}
+              onBack={() => setStep("connection")}
+              onContinue={() => setStep("agents")}
+            />
           ) : (
             <AgentsStep
               environmentIds={setupIds}
@@ -213,9 +226,228 @@ export function WelcomeWizard({
               }
             />
           )}
+          <div className="mt-4 flex justify-center">
+            <Button variant="link" size="sm" className="text-muted-foreground" onClick={skip}>
+              Skip setup and open the workspace
+            </Button>
+          </div>
         </WizardPanel>
       </WizardPopup>
     </Dialog>
+  );
+}
+
+// ── Step 2: NeoProxy ─────────────────────────────────────────
+
+type NeoProxyChoice = "have" | "host" | "later";
+
+/** NeoPi on the chosen computer runs the NeoProxy login; the step waits on it. */
+function useNeoPiProviderFor(environmentId: EnvironmentId) {
+  const providers = useAtomValue(serverEnvironment.providersValueAtom(environmentId));
+  return useMemo(() => {
+    const provider = selectOnboardingProvidersByDriver(providers).get("neopi");
+    return { provider, state: getOnboardingProviderState(provider) };
+  }, [providers]);
+}
+
+function NeoProxyStep({
+  environmentIds,
+  onBack,
+  onContinue,
+}: {
+  readonly environmentIds: readonly EnvironmentId[];
+  readonly onBack: () => void;
+  readonly onContinue: () => void;
+}) {
+  const environmentId = environmentIds[0];
+  useEffect(() => {
+    if (!environmentId) onContinue();
+  }, [environmentId, onContinue]);
+  if (!environmentId) return null;
+  return <NeoProxyStepBody environmentId={environmentId} onBack={onBack} onContinue={onContinue} />;
+}
+
+function NeoProxyStepBody({
+  environmentId,
+  onBack,
+  onContinue,
+}: {
+  readonly environmentId: EnvironmentId;
+  readonly onBack: () => void;
+  readonly onContinue: () => void;
+}) {
+  const { provider, state } = useNeoPiProviderFor(environmentId);
+  const [choice, setChoice] = useState<NeoProxyChoice | null>(null);
+  const [connected, setConnected] = useState(false);
+  const neoPiReady = state === "ready" || state === "signIn";
+  const choices: ReadonlyArray<{ id: NeoProxyChoice; title: string; detail: string }> = [
+    {
+      id: "have",
+      title: "Connect to a NeoProxy I already have",
+      detail: "You have the address and a member key from whoever runs it.",
+    },
+    {
+      id: "host",
+      title: "I'll host one myself",
+      detail: "Run it on this computer or a server, then connect from Models.",
+    },
+    {
+      id: "later",
+      title: "Not now",
+      detail: "Use the provider accounts signed in to NeoPi. NeoProxy stays available in Models.",
+    },
+  ];
+  return (
+    <StepShell
+      title="NeoCode and NeoProxy work together"
+      description="NeoProxy is a model switch for a team: provider accounts and keys go in, and everyone gets neoproxy/… models with their own budget. NeoCode talks to it through NeoPi, so you can pick those models instead of local credentials."
+    >
+      <NeoProxyFlowFigure className="mt-5 w-full" />
+      <fieldset className="mt-5 space-y-2">
+        <legend className="sr-only">How will you use NeoProxy?</legend>
+        {choices.map((option) => {
+          const selected = choice === option.id;
+          return (
+            <div
+              key={option.id}
+              className={cn(
+                "rounded-lg border bg-background transition-colors",
+                selected ? "border-foreground/40" : "border-border",
+              )}
+            >
+              <label className="flex cursor-pointer items-start gap-3 px-3 py-3">
+                <input
+                  type="radio"
+                  name="neoproxy-choice"
+                  className="mt-1 accent-foreground"
+                  checked={selected}
+                  onChange={() => setChoice(option.id)}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-foreground">{option.title}</span>
+                  <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                    {option.detail}
+                  </span>
+                </span>
+              </label>
+              {selected && option.id === "have" ? (
+                <div className="border-t border-border px-3 py-3">
+                  {environmentId && provider && neoPiReady ? (
+                    <NeoProxyConnect
+                      environmentId={environmentId}
+                      providerInstanceId={provider.instanceId}
+                      autoFocus
+                      onConnected={() => setConnected(true)}
+                    />
+                  ) : state === "checking" ? (
+                    <p role="status" className="text-xs text-muted-foreground">
+                      Checking NeoPi…
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      NeoPi isn't ready on this computer yet, and the connection runs through it.
+                      Finish the next step, then connect from Models.
+                    </p>
+                  )}
+                </div>
+              ) : null}
+              {selected && option.id === "host" ? (
+                <div className="space-y-2 border-t border-border px-3 py-3">
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    NeoProxy is a single Go binary with its own web console. Build it, run it, and
+                    open the console to add provider accounts and invite people.
+                  </p>
+                  <CommandBlock command="git clone https://github.com/PsychedelicShayna/neoproxy && cd neoproxy && CGO_ENABLED=1 go build -o neoproxy ./cmd/server" />
+                  <CommandBlock command="./neoproxy" />
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    The console answers at{" "}
+                    <code className="font-mono">http://127.0.0.1:8317/neo/</code>. Once it runs,
+                    connect from Models with the address and a member key you create there.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </fieldset>
+      <div className="mt-6 flex items-center justify-between gap-3">
+        <Button variant="ghost" size="sm" onClick={onBack}>
+          Back
+        </Button>
+        <Button onClick={onContinue} disabled={choice === null && !connected}>
+          {choice === "have" && !connected ? "Continue without connecting" : "Continue"}
+          <ArrowRightIcon className="size-3.5" />
+        </Button>
+      </div>
+    </StepShell>
+  );
+}
+
+/** Providers feed the switch; the switch serves `neoproxy/` models to people. */
+function NeoProxyFlowFigure({ className }: { readonly className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 600 96"
+      className={className}
+      role="img"
+      aria-label="Provider accounts flow into NeoProxy, which serves neoproxy models to people"
+    >
+      <defs>
+        <linearGradient id="neoproxy-ribbon" x1="0" x2="1">
+          <stop offset="0" stopColor="#5ad8e6" />
+          <stop offset="1" stopColor="#f068c8" />
+        </linearGradient>
+      </defs>
+      <g fontSize="11" fontFamily="var(--font-sans)" fill="currentColor">
+        <text x="0" y="20" opacity="0.7">
+          Anthropic
+        </text>
+        <text x="0" y="50" opacity="0.7">
+          Codex
+        </text>
+        <text x="0" y="80" opacity="0.7">
+          xAI
+        </text>
+      </g>
+      <g fill="none" stroke="url(#neoproxy-ribbon)" strokeLinecap="round" opacity="0.9">
+        <path d="M70 16 C 140 16, 150 48, 215 48" strokeWidth="3" />
+        <path d="M70 46 C 140 46, 150 48, 215 48" strokeWidth="5" />
+        <path d="M70 76 C 140 76, 150 48, 215 48" strokeWidth="2" />
+      </g>
+      <rect
+        x="215"
+        y="30"
+        width="118"
+        height="36"
+        rx="8"
+        fill="#f068c8"
+        fillOpacity="0.14"
+        stroke="#f068c8"
+        strokeOpacity="0.55"
+      />
+      <text x="274" y="52" textAnchor="middle" fontSize="12" fontWeight="600" fill="currentColor">
+        NeoProxy
+      </text>
+      <g fill="none" stroke="#5ad8e6" strokeLinecap="round" opacity="0.85">
+        <path d="M333 48 C 390 48, 400 16, 455 16" strokeWidth="4" />
+        <path d="M333 48 C 390 48, 400 48, 455 48" strokeWidth="2.5" />
+        <path d="M333 48 C 390 48, 400 80, 455 80" strokeWidth="2" />
+      </g>
+      <g fontSize="11" fontFamily="var(--font-mono)" fill="currentColor">
+        <text x="462" y="20">
+          <tspan opacity="0.6">neoproxy/</tspan>
+          <tspan fill="#f068c8">heavy</tspan>
+        </text>
+        <text x="462" y="52">
+          <tspan opacity="0.6">neoproxy/</tspan>
+          <tspan fill="#f068c8">default</tspan>
+        </text>
+        <text x="462" y="84">
+          <tspan opacity="0.6">neoproxy/</tspan>
+          <tspan fill="#f068c8">small</tspan>
+        </text>
+      </g>
+    </svg>
   );
 }
 
@@ -684,14 +916,7 @@ function AgentCard({
           )}
         </div>
       </div>
-      {provider && (providerState === "ready" || providerState === "signIn") ? (
-        <NeoProxyOnboardingConnection
-          key={provider.instanceId}
-          environmentId={environmentId}
-          provider={provider}
-          onOpenSettings={() => onOpenSettings(provider.instanceId)}
-        />
-      ) : providerState !== "ready" && providerState !== "checking" ? (
+      {providerState !== "ready" && providerState !== "checking" ? (
         <>
           {providerState === "install" ? (
             <NeoPiInstallHelp environmentLabel={environmentLabel} />
@@ -701,174 +926,6 @@ function AgentCard({
           </Button>
         </>
       ) : null}
-    </div>
-  );
-}
-
-function NeoProxyOnboardingConnection({
-  environmentId,
-  provider,
-  onOpenSettings,
-}: {
-  environmentId: EnvironmentId;
-  provider: ServerProvider;
-  onOpenSettings: () => void;
-}) {
-  const target = useMemo(
-    () => ({ providerInstanceId: provider.instanceId }),
-    [provider.instanceId],
-  );
-  const catalog = useEnvironmentQuery(neopiModels.changes({ environmentId, input: target }));
-  const startAuth = useAtomCommand(neopiModels.startAuth, { reportFailure: false });
-  const cancelAuth = useAtomCommand(neopiModels.cancelAuth, { reportFailure: false });
-  const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
-    reportFailure: false,
-  });
-  const [flowId, setFlowId] = useState<string | null>(null);
-  const [starting, setStarting] = useState(false);
-  const [connectedByFlow, setConnectedByFlow] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const mounted = useRef(false);
-  const startingRef = useRef(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const regionRef = useRef<HTMLDivElement>(null);
-  const restoreFocus = useRef(false);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-  useEffect(() => {
-    if (flowId !== null || !restoreFocus.current) return;
-    restoreFocus.current = false;
-    if (triggerRef.current) triggerRef.current.focus();
-    else regionRef.current?.focus();
-  }, [flowId]);
-  const configuration = catalog.isSuccess && !catalog.isPending ? catalog.data : null;
-  const neoProxy = configuration?.providers.find((entry) => entry.id === "neoproxy");
-  const connected = connectedByFlow || neoProxy?.authenticated === true;
-  const needsConnection =
-    provider.auth.status === "unauthenticated" ||
-    (configuration !== null && !configuration.models.some((model) => model.available));
-  const canConnect = neoProxy?.loginProviders.some((method) => method.available) === true;
-  const connectedEmpty =
-    neoProxy?.authenticated === true &&
-    !neoProxy.disabled &&
-    configuration !== null &&
-    !configuration.models.some((model) => model.provider === "neoproxy" && model.available);
-  const login = async () => {
-    if (startingRef.current || flowId !== null) return;
-    startingRef.current = true;
-    setStarting(true);
-    setError(null);
-    const result = await startAuth({
-      environmentId,
-      input: { target, providerId: "neoproxy" },
-    });
-    startingRef.current = false;
-    if (!mounted.current) {
-      if (result._tag === "Success") void cancelAuth({ environmentId, input: result.value });
-      return;
-    }
-    setStarting(false);
-    if (result._tag === "Failure") setError(String(squashAtomCommandFailure(result)));
-    else setFlowId(result.value.flowId);
-  };
-  if (configuration && !needsConnection && !connected && !flowId && !error) return null;
-  return (
-    <div ref={regionRef} tabIndex={-1} className="space-y-3">
-      {flowId ? (
-        <NativeAuthFlow
-          key={flowId}
-          variant="card"
-          environmentId={environmentId}
-          flowId={flowId}
-          providerId="neoproxy"
-          title="Connecting to NeoProxy"
-          finish={(status, message) => {
-            restoreFocus.current = true;
-            setFlowId(null);
-            if (status === "complete") {
-              setConnectedByFlow(true);
-              catalog.refresh();
-              void refreshProviders({ environmentId, input: {} });
-            } else if (status === "failed") {
-              setError(
-                message ??
-                  "Couldn't connect to NeoProxy. Check the address and your member key, then try again.",
-              );
-            }
-          }}
-        />
-      ) : (
-        <>
-          {neoProxy?.disabled ? (
-            <p role="status" className="text-xs text-muted-foreground">
-              NeoProxy is disabled in NeoPi. Open its settings to enable it.
-            </p>
-          ) : connected ? (
-            <p role="status" className="flex items-center gap-1.5 text-xs text-success-foreground">
-              <CheckIcon className="size-3.5" />
-              Connected
-            </p>
-          ) : configuration ? (
-            <p className="text-xs text-muted-foreground">
-              Enter your server address and member key. Your administrator gives you both.
-            </p>
-          ) : catalog.isPending ? (
-            <p role="status" className="text-xs text-muted-foreground">
-              Checking available providers…
-            </p>
-          ) : null}
-          {connectedEmpty ? (
-            <p className="text-xs text-muted-foreground">
-              No NeoProxy models are available in this configuration. Check the connection, model
-              discovery and selected scope in NeoPi, then refresh. If NeoPi's connection flow
-              explicitly reports that this member has no granted models, ask your administrator to
-              grant access.
-            </p>
-          ) : null}
-          {!neoProxy?.disabled && neoProxy?.discovery?.error ? (
-            <p className="text-xs text-muted-foreground">
-              Last model discovery report: {neoProxy.discovery.error}
-            </p>
-          ) : null}
-          {error || catalog.error ? (
-            <p role="alert" className="text-xs text-destructive">
-              {error ?? catalog.error}
-            </p>
-          ) : null}
-          {configuration && needsConnection && !canConnect && !connected ? (
-            <p className="text-xs text-muted-foreground">
-              NeoProxy connection is not available in this NeoPi runtime. Update NeoPi or open its
-              settings.
-            </p>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            {!connected && canConnect ? (
-              <Button ref={triggerRef} size="sm" disabled={starting} onClick={() => void login()}>
-                {starting ? "Connecting…" : "Connect to NeoProxy"}
-              </Button>
-            ) : null}
-            {connectedEmpty || catalog.error ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  catalog.refresh();
-                  void refreshProviders({ environmentId, input: {} });
-                }}
-              >
-                Refresh
-              </Button>
-            ) : null}
-            <Button variant="outline" size="sm" onClick={onOpenSettings}>
-              Open NeoPi settings
-            </Button>
-          </div>
-        </>
-      )}
     </div>
   );
 }

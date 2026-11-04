@@ -1,10 +1,18 @@
 import { LegendList } from "@legendapp/list/react";
-import type { NeoPiJournalEntry, ScopedThreadRef } from "@t3tools/contracts";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import type { ScopedThreadRef } from "@t3tools/contracts";
+import { projectTranscript, type TranscriptRow } from "@t3tools/client-runtime/neopi-transcript";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../ui/button";
-import { cn } from "../../lib/utils";
-import { NeoPiJournalContent } from "./NeoPiJournalContent";
-import { journalEntryCategory, journalEntryLabel } from "@t3tools/client-runtime/neopi-journal";
+import { ExpandedImageDialog } from "../chat/ExpandedImageDialog";
+import type { ExpandedImagePreview } from "../chat/ExpandedImagePreview";
+import {
+  NativeTranscriptCtx,
+  NativeTranscriptRowView,
+  transcriptRowClassName,
+  transcriptRowType,
+  useTranscriptOpenRows,
+  type NativeTranscriptContext,
+} from "./NativeTranscript";
 import { useNativeDraftIdentity } from "./neopiNativeDraft";
 import { useNeoPiConversation } from "./useNeoPiConversation";
 import { nativeTreeSessionKey, useNativeTreeField } from "./neopiTreeState";
@@ -27,6 +35,8 @@ export function NeoPiConversation({
   const connected = useRef(false);
   connected.current = connection?.status === "connected";
   useEffect(() => {
+    // The provider's running native session is the only source of its live
+    // messages. A new or replaced owner means the observer must reattach.
     if (
       ownerStatus &&
       ownerStatus !== "starting" &&
@@ -40,92 +50,104 @@ export function NeoPiConversation({
     nativeTreeSessionKey(threadRef.environmentId, conversation.identity),
     "resumeResult",
   );
-  const pendingEntries = useMemo(
+  const [debug, setDebug] = useState(false);
+  const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleGroup = useCallback((groupId: string) => {
+    setExpandedGroups((previous) => {
+      const next = new Set(previous);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  }, []);
+  const rows = useMemo(
     () =>
-      conversation.pending.map(
-        ({ messageId, message }) =>
-          ({
-            id: `live:${messageId}`,
-            parentId: conversation.identity?.leafId ?? null,
-            type: "message",
-            timestamp: "",
-            message,
-          }) satisfies NeoPiJournalEntry,
+      projectTranscript(
+        {
+          entries: conversation.entries,
+          pending: conversation.pending,
+          leafId: conversation.identity?.leafId ?? null,
+        },
+        { debug, expandedGroups },
       ),
-    [conversation.pending, conversation.identity?.leafId],
+    [
+      conversation.entries,
+      conversation.pending,
+      conversation.identity?.leafId,
+      debug,
+      expandedGroups,
+    ],
   );
-  const renderEntry = useCallback(
-    (entry: NeoPiJournalEntry, durable: boolean) => {
-      const category = journalEntryCategory(entry);
-      return (
-        <article
-          className={cn(
-            "mx-auto w-full max-w-(--chat-max-width) border-b px-5 py-5",
-            category === "system" && "border-l-2 border-l-primary/40 bg-muted/20",
-            category === "tool" && "bg-muted/10",
-          )}
-          data-native-entry-id={durable ? entry.id : undefined}
-        >
-          <header className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span className="font-medium text-foreground">{journalEntryLabel(entry)}</span>
-            {entry.timestamp ? <time dateTime={entry.timestamp}>{entry.timestamp}</time> : null}
-            {!durable ? <span>Live native message · awaiting persistence</span> : null}
-          </header>
-          <NeoPiJournalContent entry={entry} threadRef={threadRef} cwd={cwd} />
-        </article>
-      );
-    },
-    [cwd, threadRef.environmentId, threadRef.threadId],
+  const openRows = useTranscriptOpenRows();
+  const transcriptContext = useMemo<NativeTranscriptContext>(
+    () => ({
+      environmentId: threadRef.environmentId,
+      nativeRef: undefined,
+      threadRef,
+      cwd,
+      debug,
+      onToggleGroup: toggleGroup,
+      onImageExpand: setExpandedImage,
+      openRows,
+    }),
+    [threadRef, cwd, debug, toggleGroup, openRows],
   );
   const renderRow = useCallback(
-    ({ item }: { item: NeoPiJournalEntry }) => renderEntry(item, true),
-    [renderEntry],
+    ({ item }: { item: TranscriptRow }) => (
+      <div
+        className={transcriptRowClassName(item)}
+        data-native-entry-id={item.kind === "command" ? undefined : item.entry.id}
+      >
+        <NativeTranscriptRowView key={item.id} row={item} />
+      </div>
+    ),
+    [],
   );
   const attached = connection?.status === "connected";
+  const olderAvailable =
+    conversation.identity !== null &&
+    (conversation.cursor !== undefined || conversation.cursorLeaf !== conversation.identity.leafId);
   const status = loading
-    ? "Connecting to native conversation"
+    ? "Connecting"
     : connection?.ownership === "stopped"
-      ? "Stopped native session · read-only"
+      ? "Stopped session · read-only"
       : !attached
         ? connection?.status === "disconnected" || connection?.status === "gap"
           ? "Reconnecting"
           : "Native conversation unavailable"
         : connection?.ownership === "gui"
-          ? "Attached to NeoPi"
+          ? busy
+            ? "Working"
+            : "Ready"
           : connection?.ownership === "terminal"
-            ? "Detached from input · following terminal"
+            ? "Following the terminal"
             : "Native owner unknown";
   return (
     <section className="flex min-h-0 flex-1 flex-col" aria-label="Native conversation">
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-4 py-2 text-xs">
-        <div role="status" className="min-w-0">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-4 py-1.5 text-xs">
+        <div role="status" className="min-w-0 text-muted-foreground">
           <p>{status}</p>
-          {connection?.reason ? <p className="text-muted-foreground">{connection.reason}</p> : null}
-          {conversation.needsSnapshot ? (
-            <p className="text-muted-foreground">
-              Rebuilding the native branch. Live drafts are not replayed.
-            </p>
-          ) : null}
-          {busy ? (
-            <p className="text-muted-foreground">
-              {conversation.pending.length
-                ? "Native turn in progress."
-                : "Native turn in progress. Waiting for the next complete native message update."}
-            </p>
-          ) : null}
+          {connection?.reason ? <p>{connection.reason}</p> : null}
+          {conversation.needsSnapshot ? <p>Rebuilding the native branch.</p> : null}
           {pendingResume?.resumeToken ? (
-            <p className="text-muted-foreground">
-              A saved ask answer is waiting for review in Session tree. It has not resumed the
-              agent.
-            </p>
+            <p>A saved ask answer is waiting for review in the session tree.</p>
           ) : null}
         </div>
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={onOpenTree}>
+        <div className="flex gap-1">
+          <Button size="xs" variant="ghost" onClick={onOpenTree}>
             Session tree
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => refresh()}>
-            Reconnect / refresh
+          <Button
+            size="xs"
+            variant="ghost"
+            aria-pressed={debug}
+            onClick={() => setDebug((value) => !value)}
+          >
+            Debug
+          </Button>
+          <Button size="xs" variant="ghost" onClick={() => refresh()}>
+            Refresh
           </Button>
         </div>
       </header>
@@ -134,49 +156,54 @@ export function NeoPiConversation({
           {error}
         </p>
       ) : null}
-      {conversation.identity &&
-      (conversation.cursor || conversation.cursorLeaf !== conversation.identity.leafId) ? (
-        <div className="shrink-0 border-b px-4 py-2">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={paging || conversation.needsSnapshot}
-            onClick={() => void loadOlder()}
-          >
-            {paging ? "Reading older entries…" : "Load older native entries"}
-          </Button>
-        </div>
-      ) : null}
-      {conversation.entries.length || pendingEntries.length ? (
-        <LegendList
-          data={conversation.entries}
-          keyExtractor={(entry) => entry.id}
-          renderItem={renderRow}
-          estimatedItemSize={180}
-          recycleItems
-          maintainVisibleContentPosition
-          maintainScrollAtEnd={{ animated: false }}
-          maintainScrollAtEndThreshold={0.1}
-          ListFooterComponent={
-            <>
-              {pendingEntries.map((entry) => (
-                <div key={entry.id}>{renderEntry(entry, false)}</div>
-              ))}
-              <div style={{ height: composerInset }} />
-            </>
-          }
-          className="min-h-0 flex-1 overflow-auto"
-          aria-label="Canonical native branch entries"
-        />
+      {rows.length || olderAvailable ? (
+        <NativeTranscriptCtx value={transcriptContext}>
+          <LegendList
+            data={rows}
+            keyExtractor={(row) => row.id}
+            getItemType={transcriptRowType}
+            renderItem={renderRow}
+            estimatedItemSize={64}
+            recycleItems
+            maintainVisibleContentPosition
+            maintainScrollAtEnd={{ animated: false }}
+            maintainScrollAtEndThreshold={0.1}
+            ListHeaderComponent={
+              <div className="mx-auto w-full max-w-(--chat-max-width) px-5 pt-3">
+                {olderAvailable ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={paging || conversation.needsSnapshot}
+                    onClick={() => void loadOlder()}
+                  >
+                    {paging ? "Loading earlier messages…" : "Load earlier messages"}
+                  </Button>
+                ) : null}
+              </div>
+            }
+            ListEmptyComponent={
+              <p className="mx-auto w-full max-w-(--chat-max-width) px-5 py-6 text-sm text-muted-foreground">
+                Nothing to show on this page yet.
+              </p>
+            }
+            ListFooterComponent={<div style={{ height: composerInset + 16 }} />}
+            className="min-h-0 flex-1 overflow-auto"
+            aria-label="Native conversation"
+          />
+        </NativeTranscriptCtx>
       ) : (
         <div className="px-5 py-8 text-sm text-muted-foreground">
           {loading
-            ? "Reading native history…"
+            ? "Reading history…"
             : attached
-              ? "This native branch has no entries."
-              : "Native history is not available. No SQL conversation is substituted."}
+              ? "Nothing here yet. Say something below."
+              : "History is not available while the session is disconnected."}
         </div>
       )}
+      {expandedImage ? (
+        <ExpandedImageDialog preview={expandedImage} onClose={() => setExpandedImage(null)} />
+      ) : null}
     </section>
   );
 }
