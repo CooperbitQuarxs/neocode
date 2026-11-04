@@ -328,6 +328,17 @@ Recorded cost includes all journal branches, completed tasks and restored adviso
 spend, but excludes unfinished child runs. Missing counters stay unavailable,
 and disconnected observations are not shown as current.
 
+A slim status bar under the composer shows the project and branch, model and
+effort, context, cache hit rate, output speed, cost, how long the agent has
+worked, and the number of running subagents and background tasks. Narrow
+windows drop the lower-priority items first. The subagent count flashes green
+when a subagent starts, red when one finishes or is stopped, and yellow when
+one fails; click it to open **Agents**. Click the task count to open
+**Background tasks**, which lists NeoPi's background jobs with their output and
+a **Cancel** button for running ones. That panel needs a NeoPi release that
+supports background jobs; with an older one the count shows "—" and the panel
+says so.
+
 Open **NeoPi session configuration** in the header to inspect native ownership,
 current permissions and role configuration. **Next owned turn** changes the
 permission preference sent before your next turn, not the current native policy.
