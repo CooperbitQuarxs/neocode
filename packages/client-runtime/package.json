@@ -23,6 +23,10 @@
       "types": "./src/neopiJournal.ts",
       "default": "./src/neopiJournal.ts"
     },
+    "./neopi-session-tree": {
+      "types": "./src/neopiSessionTree.ts",
+      "default": "./src/neopiSessionTree.ts"
+    },
     "./neopi-transcript": {
       "types": "./src/neopiTranscript.ts",
       "default": "./src/neopiTranscript.ts"
