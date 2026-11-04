@@ -174,7 +174,11 @@ export const makeNativeModelsAuth = Effect.fn("makeNativeModelsAuth")(function* 
     );
   const cancelAuth = (input: { flowId: string }) =>
     Effect.flatMap(requireFlow(input.flowId), (flow) => flow.cancel);
-  const startAuth = (input: { target: NeoPiModelsTarget; providerId: string }) =>
+  const startAuth = (input: {
+    target: NeoPiModelsTarget;
+    providerId: string;
+    serverUrl?: string;
+  }) =>
     Effect.uninterruptibleMask((restore) =>
       Effect.gen(function* () {
         const scope = yield* Scope.make();
@@ -225,10 +229,24 @@ export const makeNativeModelsAuth = Effect.fn("makeNativeModelsAuth")(function* 
         );
         const flow: AuthFlow = { connection: native, state, scope, cancel, watchers: 0 };
         const ui = yield* Stream.toPull(native.ui).pipe(Effect.provideService(Scope.Scope, scope));
+        // A server address supplied up front answers the provider's own address
+        // prompt once, so the person never types it twice.
+        let pendingServerUrl = input.serverUrl?.trim() || null;
         // toPull is lazy; start consuming before login can emit its first prompt.
         yield* Stream.fromPull(Effect.succeed(ui)).pipe(
           Stream.runForEach((frame) => {
             if (frame.loginId !== flowId) return Effect.void;
+            if (
+              pendingServerUrl !== null &&
+              frame.method === "input" &&
+              typeof frame.title === "string" &&
+              /\b(url|address)\b/i.test(frame.title) &&
+              typeof frame.id === "string"
+            ) {
+              const value = pendingServerUrl;
+              pendingServerUrl = null;
+              return native.respondUi({ id: frame.id, value }).pipe(Effect.ignore);
+            }
             return SubscriptionRef.update(state, (current) => {
               if (current.status !== "running") return current;
               if (frame.method === "open_url" && typeof frame.url === "string")
