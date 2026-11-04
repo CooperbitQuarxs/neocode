@@ -755,9 +755,12 @@ export const NativeTranscriptRowView = memo(function NativeTranscriptRowView({
   }
 });
 
-/** Vertical rhythm: conversation rows breathe, work rows sit tight. */
-export function transcriptRowClassName(_row: TranscriptRow): string {
-  return "mx-auto w-full max-w-(--chat-max-width) px-5";
+/** Rows under an opened work toggle sit inset behind a faint rail, like T3's expanded group. */
+export function transcriptRowClassName(row: TranscriptRow): string {
+  const base = "mx-auto w-full max-w-(--chat-max-width) px-5";
+  return "grouped" in row && row.grouped
+    ? `${base} [&>*]:ms-3 [&>*]:border-s [&>*]:border-border/50 [&>*]:ps-2`
+    : base;
 }
 
 export function transcriptRowType(row: TranscriptRow): string {
