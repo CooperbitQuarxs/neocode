@@ -746,6 +746,8 @@ export interface ChatComposerHandle {
   toggleModelPicker: () => void;
   openControl: (command: KeybindingCommand) => void;
   isModelPickerOpen: () => boolean;
+  /** Whether the slash/mention menu is showing; Escape closes it before anything else. */
+  isMenuOpen: () => boolean;
   compactContext: () => void;
   readSnapshot: () => {
     value: string;
@@ -5130,6 +5132,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       },
       compactContext: compactThreadContext,
       isModelPickerOpen: () => nativeSession?.modelPickerOpen ?? isComposerModelPickerOpen,
+      isMenuOpen: () => composerMenuOpenRef.current,
       insertDictation: (text, anchor) => {
         const prompt = promptRef.current;
         const cursor = dictationCursor(anchor, prompt, readComposerSnapshot().expandedCursor);

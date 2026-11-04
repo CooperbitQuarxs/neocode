@@ -70,7 +70,21 @@ import { closePreviewSession } from "../preview/closePreviewSession";
 import { subscribePreviewAction } from "../preview/previewActionBus";
 import { ThreadPreviewMiniPlayer } from "../preview/ThreadPreviewMiniPlayer";
 import { usePreviewSession } from "../preview/usePreviewSession";
+import { NativeBackgroundTasksPanel } from "./NativeBackgroundTasksPanel";
 import { NativeSessionTerminal, type NativeSessionTerminalHandle } from "./NativeSessionTerminal";
+import { isNativeSessionCommand, type NativeSessionCommand } from "./nativeSessionShortcuts";
+
+/** Escape belongs to these while one is open; it must not also interrupt the turn. */
+const ESCAPE_OWNING_OVERLAYS = [
+  '[data-slot="dialog-popup"]',
+  '[data-slot="alert-dialog-popup"]',
+  '[data-slot="menu-popup"]',
+  '[data-slot="select-popup"]',
+  '[data-slot="combobox-popup"]',
+  '[data-slot="autocomplete-popup"]',
+  "[data-composer-stash-drawer]",
+].join(",");
+import { NativeSessionTreePanel } from "./NativeSessionTreePanel";
 
 const PreviewPanel = lazy(() =>
   import("../preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
@@ -93,8 +107,12 @@ export function NativeSessionWorkspacePanels({
   onAddTerminalContext,
   onSendAnnotation,
   onOpenTree,
+  request,
+  execute,
+  onTreeNavigated,
   onOpenModels,
   onInterrupt,
+  onNativeCommand,
   busy,
   onToggleDictation,
   dictationActive,
@@ -113,8 +131,14 @@ export function NativeSessionWorkspacePanels({
     image: ComposerImageAttachment | null,
   ) => void;
   onOpenTree: () => void;
+  /** Plain native reads and session-changing commands for the tree surface. */
+  request: (command: Record<string, unknown> & { type: string }) => Promise<unknown>;
+  execute: (command: Record<string, unknown> & { type: string }) => Promise<unknown>;
+  onTreeNavigated: () => void;
   onOpenModels: () => void;
   onInterrupt: () => void;
+  /** Runs a keybinding command that only the native session implements. */
+  onNativeCommand: (command: NativeSessionCommand) => void;
   busy: boolean;
   /** Absent when this client cannot use the microphone NeoPi records from. */
   onToggleDictation: (() => void) | undefined;
@@ -335,6 +359,9 @@ export function NativeSessionWorkspacePanels({
           isWeb: !isElectron,
           isDesktop: isElectron,
           nativeSession: true,
+          composerFocus:
+            event.target instanceof HTMLElement &&
+            event.target.closest("[data-composer-rich-text]") !== null,
         },
       });
       let action: (() => void) | null = null;
@@ -403,9 +430,14 @@ export function NativeSessionWorkspacePanels({
           if (
             busy &&
             !dictationActive &&
-            !document.querySelector('[data-slot="dialog-popup"],[data-slot="menu-popup"]')
+            !event.isComposing &&
+            !composerRef.current?.isMenuOpen() &&
+            !document.querySelector(ESCAPE_OWNING_OVERLAYS)
           )
             action = onInterrupt;
+          break;
+        default:
+          if (isNativeSessionCommand(command)) action = () => onNativeCommand(command);
           break;
       }
       if (!action) return;
@@ -427,6 +459,7 @@ export function NativeSessionWorkspacePanels({
     closeSurfaces,
     gitStatus.data?.isRepo,
     onOpenModels,
+    onNativeCommand,
     onInterrupt,
     busy,
     onToggleDictation,
@@ -485,6 +518,9 @@ export function NativeSessionWorkspacePanels({
       deviceAvailable
       liveAgentCount={agentModel.liveCount}
       nativeHistory={{ onOpen: onOpenTree }}
+      nativeBackgroundTasks={{
+        onOpen: () => useRightPanelStore.getState().open(target, "background-tasks"),
+      }}
     >
       <Suspense fallback={null}>
         {activeSurface?.kind === "preview" ? (
@@ -506,10 +542,16 @@ export function NativeSessionWorkspacePanels({
           />
         ) : null}
         {activeSurface?.kind === "agents" ? <NativeAgentsPanel viewKey={key} /> : null}
+        {activeSurface?.kind === "background-tasks" ? (
+          <NativeBackgroundTasksPanel target={target} />
+        ) : null}
         {activeSurface?.kind === "native-history" ? (
-          <Button variant="ghost" onClick={onOpenTree}>
-            Session tree
-          </Button>
+          <NativeSessionTreePanel
+            target={target}
+            request={request}
+            execute={execute}
+            onNavigated={onTreeNavigated}
+          />
         ) : null}
         {panel.surfaces.map((surface) =>
           surface.kind === "terminal" && cwd ? (

@@ -512,6 +512,30 @@ function expandedWorkGroupRow(
   };
 }
 
+/**
+ * Every disclosure that hides one turn's tool output: the group a run of its
+ * activity can open, and each tool call's own detail. A group is named after
+ * its first entry, so every entry of the turn is listed as a candidate; an id
+ * that starts no group is inert.
+ */
+export function turnToolDisclosureKeys(
+  timelineEntries: ReadonlyArray<TimelineEntry>,
+  turnId: TurnId,
+): { readonly groupIds: string[]; readonly workEntryIds: string[] } {
+  const groupIds: string[] = [];
+  const workEntryIds: string[] = [];
+  for (const entry of timelineEntries) {
+    if (entry.kind === "proposed-plan" || timelineEntryTurnId(entry) !== turnId) continue;
+    if (entry.kind === "work") {
+      groupIds.push(workGroupId(entry.id, entry.entry));
+      workEntryIds.push(entry.id);
+    } else {
+      groupIds.push(`activity-group:${entry.id}`);
+    }
+  }
+  return { groupIds, workEntryIds };
+}
+
 export function resolveAssistantMessageCopyState({
   text,
   showCopyButton,

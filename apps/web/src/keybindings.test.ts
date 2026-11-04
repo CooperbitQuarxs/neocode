@@ -1511,3 +1511,117 @@ describe("Usage shortcuts", () => {
     );
   });
 });
+
+describe("native session defaults", () => {
+  const native = {
+    nativeSession: true,
+    composerFocus: true,
+    editableFocus: true,
+    terminalFocus: false,
+  };
+  const resolve = (
+    input: Partial<ShortcutEventLike>,
+    context: Record<string, boolean>,
+    platform = "Linux",
+  ) =>
+    resolveShortcutCommand(event(input), DEFAULT_RESOLVED_KEYBINDINGS, {
+      platform,
+      context,
+    });
+
+  it.each([
+    [{ key: "Tab", shiftKey: true }, "composer.thinking.cycle"],
+    [{ key: "p", ctrlKey: true }, "composer.role.cycleForward"],
+    [{ key: "P", ctrlKey: true, shiftKey: true }, "composer.role.cycleBackward"],
+    [{ key: "t", ctrlKey: true }, "transcript.thinking.toggle"],
+    [{ key: "e", altKey: true }, "transcript.tools.toggleExpand"],
+    [{ key: "Escape" }, "thread.stop"],
+  ] as const)("resolves %j in a native session", (input, command) => {
+    assert.strictEqual(resolve(input, native), command);
+  });
+
+  it("outranks the file picker and pin on Linux and Windows only inside a native session", () => {
+    for (const platform of ["Linux", "Win32"]) {
+      assert.strictEqual(
+        resolve({ key: "p", ctrlKey: true }, native, platform),
+        "composer.role.cycleForward",
+      );
+      assert.strictEqual(
+        resolve({ key: "p", ctrlKey: true }, { terminalFocus: false }, platform),
+        "filePicker.toggle",
+      );
+      assert.strictEqual(
+        resolve({ key: "P", ctrlKey: true, shiftKey: true }, native, platform),
+        "composer.role.cycleBackward",
+      );
+      assert.strictEqual(
+        resolve({ key: "P", ctrlKey: true, shiftKey: true }, { terminalFocus: false }, platform),
+        "thread.pin",
+      );
+    }
+  });
+
+  it("leaves Command+P and Command+Shift+P to the generic commands on macOS", () => {
+    assert.strictEqual(
+      resolve({ key: "p", metaKey: true }, native, "MacIntel"),
+      "filePicker.toggle",
+    );
+    assert.strictEqual(
+      resolve({ key: "P", metaKey: true, shiftKey: true }, native, "MacIntel"),
+      "thread.pin",
+    );
+  });
+
+  it("keeps Shift+Tab for focus navigation outside the composer", () => {
+    assert.isNull(resolve({ key: "Tab", shiftKey: true }, { ...native, composerFocus: false }));
+    assert.isNull(resolve({ key: "Tab", shiftKey: true }, { terminalFocus: false }));
+  });
+
+  it("stays out of terminals", () => {
+    const terminal = { ...native, terminalFocus: true };
+    for (const input of [
+      { key: "Tab", shiftKey: true },
+      { key: "p", ctrlKey: true },
+      { key: "t", ctrlKey: true },
+      { key: "e", altKey: true },
+      { key: "Escape" },
+    ]) {
+      assert.isNull(resolve(input, terminal));
+    }
+  });
+
+  it("lets Escape close the model picker, previews and unrelated text fields first", () => {
+    assert.isNull(resolve({ key: "Escape" }, { ...native, modelPickerOpen: true }));
+    assert.isNull(resolve({ key: "Escape" }, { ...native, previewFocus: true }));
+    assert.isNull(resolve({ key: "Escape" }, { ...native, composerFocus: false }));
+    assert.strictEqual(
+      resolve({ key: "Escape" }, { ...native, composerFocus: false, editableFocus: false }),
+      "thread.stop",
+    );
+  });
+
+  it("does not interrupt outside a native session", () => {
+    assert.isNull(resolve({ key: "Escape" }, { terminalFocus: false }));
+  });
+
+  it("lets a custom binding replace a native default", () => {
+    const merged = mergeWithDefaultKeybindings(
+      compile([
+        { shortcut: modShortcut("k", { modKey: false, altKey: true }), command: "thread.stop" },
+      ]),
+    );
+    assert.isNull(
+      resolveShortcutCommand(event({ key: "Escape" }), merged, {
+        platform: "Linux",
+        context: native,
+      }),
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "k", altKey: true }), merged, {
+        platform: "Linux",
+        context: native,
+      }),
+      "thread.stop",
+    );
+  });
+});

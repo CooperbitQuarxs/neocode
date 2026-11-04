@@ -628,7 +628,9 @@ export const makeNeoPiNativeSessionsWith = Effect.fn("NeoPiNativeSessions.makeWi
         const canonical = yield* dependencies.canonicalize(result.sessionFile);
         return canonical === result.sessionFile ? result : { ...result, sessionFile: canonical };
       }
-      return result;
+      // Commands such as abort succeed without data; undefined cannot cross the
+      // JSON wire and would turn that success into a client-side failure.
+      return result ?? null;
     }).pipe(Effect.mapError(nativeError));
   const request = (input: NeoPiNativeSessionsRequestInput) => requestNative(input);
   const watch = (input: {
