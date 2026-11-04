@@ -55,6 +55,10 @@ const fixture = (attachment: "owned" | "terminal" = "owned") =>
       aborts: 0,
       acceptedPrompts: 0,
       modelRuleRequests: 0,
+      capabilities: [] as string[],
+      commands: [] as Record<string, unknown>[],
+      prompts: [] as string[],
+      slashes: [] as Record<string, unknown>[],
       profileValid: true,
       blockSnapshot: false,
       startupDialog: false,
@@ -130,6 +134,7 @@ const fixture = (attachment: "owned" | "terminal" = "owned") =>
               "session_journal",
               "session_journal_events",
               "models_configuration",
+              ...native.capabilities,
             ]),
             exit,
             request: (command) =>
@@ -160,8 +165,14 @@ const fixture = (attachment: "owned" | "terminal" = "owned") =>
                   }
                   case "prompt":
                     native.acceptedPrompts++;
+                    native.prompts.push("message" in command ? String(command.message) : "");
                     native.streaming = true;
                     return { userEntryId: "native-admission" };
+                  case "get_available_commands":
+                    return { commands: native.commands };
+                  case "slash":
+                    native.slashes.push({ ...command });
+                    return { delivery: "started" };
                   case "dictation_start":
                     yield* publish({
                       type: "dictation_state",
@@ -686,6 +697,67 @@ describe("canonical native session lifecycle", () => {
       assert.equal(native.disposals, 0);
       assert.equal(native.aborts, 0);
       assert.equal(native.connections, 0);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect(
+    "types TUI commands into a terminal's editor and keeps other text on the prompt path",
+    () =>
+      Effect.gen(function* () {
+        const { native, service } = yield* fixture("terminal");
+        native.capabilities.push("command_catalog");
+        native.commands = [
+          { name: "personality", availability: "tui", input: { hint: "<name>" } },
+          { name: "usage", aliases: ["u"], availability: "headless" },
+        ];
+        yield* service.open({ ...originalRef });
+        const send = (message: string, streamingBehavior?: "steer") =>
+          service.request({
+            ref: originalRef,
+            command: {
+              type: "prompt",
+              message,
+              ...(streamingBehavior ? { streamingBehavior } : {}),
+            },
+          });
+        yield* send("/personality Angel", "steer");
+        yield* send("/u");
+        yield* send("/tmp/notes.md is broken");
+        yield* send("/unheard-of thing");
+        assert.deepEqual(native.slashes, [
+          { type: "slash", text: "/personality Angel", if: { generation: native.generation } },
+        ]);
+        assert.deepEqual(native.prompts, ["/u", "/tmp/notes.md is broken", "/unheard-of thing"]);
+      }).pipe(Effect.scoped),
+  );
+
+  it.effect("sends unlisted commands to the pane when NeoPi lists only headless ones", () =>
+    Effect.gen(function* () {
+      const { native, service } = yield* fixture("terminal");
+      native.commands = [{ name: "usage" }];
+      yield* service.open({ ...originalRef });
+      for (const message of ["/personality Angel", "/usage"])
+        yield* service.request({ ref: originalRef, command: { type: "prompt", message } });
+      assert.deepEqual(
+        native.slashes.map((command) => command.text),
+        ["/personality Angel"],
+      );
+      assert.deepEqual(native.prompts, ["/usage"]);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("leaves owned-session slash text for NeoPi to parse", () =>
+    Effect.gen(function* () {
+      const { native, service } = yield* fixture();
+      native.capabilities.push("command_catalog");
+      native.commands = [{ name: "personality", availability: "tui" }];
+      yield* service.open({ ...originalRef });
+      yield* service.request({
+        ref: originalRef,
+        command: { type: "prompt", message: "/personality Angel" },
+      });
+      assert.deepEqual(native.prompts, ["/personality Angel"]);
+      assert.deepEqual(native.slashes, []);
     }).pipe(Effect.scoped),
   );
 

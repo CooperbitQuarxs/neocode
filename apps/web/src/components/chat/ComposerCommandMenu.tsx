@@ -1,3 +1,4 @@
+import type { NativeCommandCompletion } from "@t3tools/client-runtime/neopi-native-sessions";
 import {
   formatProviderSkillDisplayName,
   resolveProviderSkillSourceKind,
@@ -49,6 +50,17 @@ export type ComposerCommandItem =
       type: "provider-slash-command";
       provider: ProviderDriverKind;
       command: ServerProviderSlashCommand;
+      label: string;
+      description: string;
+      /** The argument hint the provider reports, shown beside the name. */
+      hint?: string;
+      /** The provider runs this command only in its terminal UI, not in this session. */
+      needsTerminal?: boolean;
+    }
+  | {
+      id: string;
+      type: "command-argument";
+      completion: NativeCommandCompletion;
       label: string;
       description: string;
     }
@@ -197,9 +209,17 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
             props.item.label
           )}
         </span>
+        {props.item.type === "provider-slash-command" && props.item.hint ? (
+          <span className="shrink-0 font-mono text-secondary-label text-xs">{props.item.hint}</span>
+        ) : null}
         <span className="min-w-0 max-w-[48ch] flex-1 truncate text-left text-secondary-label text-xs">
           {props.item.description}
         </span>
+        {props.item.type === "provider-slash-command" && props.item.needsTerminal ? (
+          <Badge className="ms-auto" variant="warning">
+            Terminal only
+          </Badge>
+        ) : null}
         {skillSourceKind ? (
           <SkillSourceBadge
             kind={skillSourceKind}

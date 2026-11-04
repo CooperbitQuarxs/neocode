@@ -6,7 +6,11 @@ import {
 } from "@t3tools/contracts";
 import {
   emptyNativeSessionFeed,
+  nativeCommandCompletions,
+  nativeCommandNeedsTerminal,
   nativeSessionKey,
+  nativeSlashArgument,
+  nativeSlashCommands,
   nativeTranscriptEntries,
   nativeTranscriptRows,
   reduceNativeSessionFeed,
@@ -1162,5 +1166,74 @@ describe("canonical native client projection", () => {
       response: { running: [], recent: [], runningCount: 0 },
     });
     expect(feed.jobs.entries).toEqual([]);
+  });
+});
+
+describe("native slash commands", () => {
+  it("offers NeoPi's own list with hints, aliases and terminal-only marks", () => {
+    const commands = nativeSlashCommands({
+      commands: [
+        {
+          name: "personality",
+          description: "Switch personality",
+          input: { hint: "<name>" },
+          source: "builtin",
+          availability: "tui",
+        },
+        { name: "usage", aliases: ["u"], availability: "headless", source: "skill" },
+        { name: " " },
+        "garbage",
+      ],
+    });
+    expect(commands).toEqual([
+      {
+        name: "personality",
+        description: "Switch personality",
+        input: { hint: "<name>" },
+        source: "builtin",
+        availability: "tui",
+      },
+      { name: "usage", aliases: ["u"] },
+    ]);
+    expect(nativeCommandNeedsTerminal(commands[0]!, "owned")).toBe(true);
+    expect(nativeCommandNeedsTerminal(commands[0]!, "terminal")).toBe(false);
+    expect(nativeCommandNeedsTerminal(commands[1]!, "owned")).toBe(false);
+  });
+
+  it("finds the argument of a command at the start of the draft", () => {
+    expect(nativeSlashArgument("/personality An")).toEqual({
+      command: "personality",
+      prefix: "An",
+      start: 13,
+    });
+    expect(nativeSlashArgument("/personality ")?.prefix).toBe("");
+    expect(nativeSlashArgument("/personality An", 5)).toBeNull();
+    expect(nativeSlashArgument("/personality")).toBeNull();
+    expect(nativeSlashArgument("/tmp/x y")).toBeNull();
+    expect(nativeSlashArgument("say /personality An")).toBeNull();
+    expect(nativeSlashArgument("/personality An\nmore")).toBeNull();
+  });
+
+  it("drops the completion the argument already spells", () => {
+    expect(
+      nativeCommandCompletions(
+        {
+          items: [
+            { value: "Angel", label: "Angel" },
+            { value: "Angela", label: "Angela", description: "Warm", submitsCommand: true },
+            { label: "no value" },
+          ],
+        },
+        "Angel",
+      ),
+    ).toEqual([{ value: "Angela", label: "Angela", description: "Warm", submitsCommand: true }]);
+  });
+
+  it("counts command list announcements so readers re-request the list", () => {
+    const feed = reduceNativeSessionFeed(initial(), {
+      type: "event",
+      frame: { type: "available_commands_update", commands: [] },
+    });
+    expect(feed.commandsRevision).toBe(initial().commandsRevision + 1);
   });
 });

@@ -12,6 +12,7 @@ import {
   collapseExpandedComposerCursor,
   composerStateAtPromptEnd,
   composerSubmissionIntentForEnter,
+  detectComposerSlashArgument,
   detectComposerTrigger,
   expandCollapsedComposerCursor,
   formatAssistantCitationForComposer,
@@ -206,6 +207,20 @@ describe("detectComposerTrigger", () => {
     const trigger = detectComposerTrigger(text, text.length);
 
     expect(trigger).toBeNull();
+  });
+
+  it("reads a leading command's argument text separately from the text triggers", () => {
+    const text = "/personality An";
+    expect(detectComposerSlashArgument(text, text.length)).toEqual({
+      kind: "slash-argument",
+      command: "personality",
+      query: "An",
+      rangeStart: 13,
+      rangeEnd: text.length,
+    });
+    expect(detectComposerSlashArgument("/personality ", 13)?.query).toBe("");
+    expect(detectComposerSlashArgument("/tmp/x y", 8)).toBeNull();
+    expect(detectComposerSlashArgument("say /personality An", 19)).toBeNull();
   });
 
   it("detects non-model slash commands while typing", () => {

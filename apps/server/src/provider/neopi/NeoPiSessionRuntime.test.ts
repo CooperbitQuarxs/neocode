@@ -512,6 +512,27 @@ it.live("refuses every owner mutation through an attached runtime boundary", () 
   ).pipe(Effect.provide(NodeServices.layer)),
 );
 
+it.live("types TUI commands into the attached terminal's editor as a local turn", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { runtime, pipe } = yield* attachFixture();
+      yield* runtime.start;
+      const frames = yield* capture(runtime);
+      // Without command_catalog an unlisted command may be a TUI builtin.
+      yield* runtime.startTurn({ ...turn("attached-tui"), text: "/personality Angel" });
+      const [outcome] = yield* awaitOutcomes(frames, 1);
+      NodeAssert.equal(outcome?.state, "completed");
+      NodeAssert.deepEqual(
+        pipe.commands.filter((cmd) => cmd.type === "slash").map((cmd) => cmd.text),
+        ["/personality Angel"],
+      );
+      NodeAssert.equal(pipe.commands.filter((cmd) => cmd.type === "prompt").length, 0);
+      NodeAssert.equal(yield* SubscriptionRef.get(runtime.state), "ready");
+      yield* runtime.stop;
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
 it.live("answers correlated login confirmations through an attached runtime boundary", () =>
   Effect.scoped(
     Effect.gen(function* () {

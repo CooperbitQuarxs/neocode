@@ -21,6 +21,13 @@ sent to it unchanged. Use the model button or `Alt+P` for NeoCode's graphical
 switcher. If no enabled NeoPi runtime is available, the composer keeps your draft;
 open **Settings → NeoCore** to enable or configure one.
 
+In a session NeoCode runs itself, the menu marks commands that need NeoPi's
+terminal interface **Terminal only**; sending one shows NeoPi's explanation
+instead of reaching the model. In a session attached to a terminal NeoPi, those
+commands run in that terminal as if typed there. After a command name and a
+space, the menu offers NeoPi's completions for its argument: `Tab` takes the
+first, and `Enter` sends what you typed unless you highlight a completion first.
+
 When NeoPi fails to start a turn in a saved conversation, web and desktop return
 the unsent prompt and its attachments to an empty composer. If you've already
 started another draft there, it stays unchanged: send or clear it before using

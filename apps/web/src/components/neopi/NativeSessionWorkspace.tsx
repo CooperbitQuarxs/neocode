@@ -1,9 +1,13 @@
 import { BracesIcon, GitForkIcon, UnplugIcon } from "lucide-react";
 import type { LegendListRef } from "@legendapp/list/react";
 import {
+  NATIVE_COMMAND_COMPLETIONS_CAPABILITY,
+  nativeCommandCompletions,
   nativeRecord,
   nativeSessionKey,
+  nativeSlashCommands,
   type NativeSessionTarget,
+  type NativeSlashCommand,
 } from "@t3tools/client-runtime/neopi-native-sessions";
 import {
   projectTranscript,
@@ -264,7 +268,7 @@ export function NativeSessionView({
   const [paging, setPaging] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [state, setState] = useState<Record<string, unknown>>({});
-  const [commands, setCommands] = useState<readonly Record<string, unknown>[]>([]);
+  const [commands, setCommands] = useState<readonly NativeSlashCommand[]>([]);
   const [dismissed, setDismissed] = useState(() => answeredDialogs.get(key) ?? new Set<string>());
   useEffect(() => {
     if (session) setState(session.state);
@@ -301,13 +305,13 @@ export function NativeSessionView({
       setPaging(false);
     }
   };
+  // NeoPi owns the command list; an announcement of a changed list re-reads it.
   useEffect(() => {
     if (!feed.connected) return;
     let active = true;
     void request({ type: "get_available_commands" })
       .then((value) => {
-        const items = nativeRecord(value).commands;
-        if (active && Array.isArray(items)) setCommands(items.map(nativeRecord));
+        if (active) setCommands(nativeSlashCommands(value));
       })
       .catch((cause) => {
         if (active) setLocalError(String(cause));
@@ -315,7 +319,17 @@ export function NativeSessionView({
     return () => {
       active = false;
     };
-  }, [feed.connected, request]);
+  }, [feed.connected, feed.commandsRevision, request]);
+  const completesArguments =
+    session?.capabilities.includes(NATIVE_COMMAND_COMPLETIONS_CAPABILITY) === true;
+  const completeCommandArgument = useCallback(
+    async (command: string, prefix: string) =>
+      nativeCommandCompletions(
+        await request({ type: "get_command_completions", command, prefix }),
+        prefix,
+      ),
+    [request],
+  );
   useEffect(() => {
     if (!feed.editor || consumedEditors.get(key) === feed.editor.id) return;
     consumedEditors.set(key, feed.editor.id);
@@ -556,22 +570,6 @@ export function NativeSessionView({
     ]
       .filter((value) => typeof value === "string")
       .join(" · ") || null;
-  const nativeCommands = useMemo(
-    () =>
-      commands.flatMap((command) =>
-        typeof command.name === "string"
-          ? [
-              {
-                name: command.name,
-                ...(typeof command.description === "string"
-                  ? { description: command.description }
-                  : {}),
-              },
-            ]
-          : [],
-      ),
-    [commands],
-  );
   const selectModel = useCallback(
     (choice: NativeModelChoice) => {
       setModels(false);
@@ -795,7 +793,9 @@ export function NativeSessionView({
                     onSelect={selectModel}
                   />
                 ),
-                commands: nativeCommands,
+                commands,
+                attachment: session?.attachment,
+                ...(completesArguments ? { completeCommandArgument } : {}),
                 traits,
                 onSendQueuedNow: sendNextQueuedNow,
                 promptHistory,
