@@ -114,6 +114,25 @@ export const NeoPiModelsConfiguration = Schema.Struct({
         }),
       ),
       envVars: Schema.Array(Schema.String),
+      discovery: Schema.NullOr(
+        Schema.Struct({
+          provider: Schema.String,
+          status: Schema.Literals([
+            "idle",
+            "ok",
+            "empty",
+            "cached",
+            "unavailable",
+            "unauthenticated",
+          ]),
+          optional: Schema.Boolean,
+          stale: Schema.Boolean,
+          fetchedAt: Schema.optional(Schema.Number),
+          source: Schema.optional(Schema.Literals(["bundled", "cache", "models.dev", "provider"])),
+          models: Schema.Array(Schema.String),
+          error: Schema.optional(Schema.String),
+        }),
+      ),
     }),
   ),
   models: Schema.Array(NeoPiNativeModel),
@@ -235,11 +254,18 @@ export const NeoPiModelsAuthStart = Schema.Struct({
   providerId: Schema.String,
 });
 export const NeoPiModelsAuthRef = Schema.Struct({ flowId: Schema.String });
-export const NeoPiModelsAuthRespond = Schema.Struct({
-  flowId: Schema.String,
-  requestId: Schema.String,
-  value: Schema.String,
-});
+export const NeoPiModelsAuthRespond = Schema.Union([
+  Schema.Struct({
+    flowId: Schema.String,
+    requestId: Schema.String,
+    value: Schema.String,
+  }),
+  Schema.Struct({
+    flowId: Schema.String,
+    requestId: Schema.String,
+    confirmed: Schema.Boolean,
+  }),
+]);
 export const NeoPiModelsAuthState = Schema.Struct({
   flowId: Schema.String,
   status: Schema.Literals(["running", "complete", "cancelled", "failed"]),
@@ -248,12 +274,21 @@ export const NeoPiModelsAuthState = Schema.Struct({
   instructions: Schema.NullOr(Schema.String),
   userCode: Schema.NullOr(Schema.String),
   prompt: Schema.NullOr(
-    Schema.Struct({
-      id: Schema.String,
-      title: Schema.String,
-      placeholder: Schema.NullOr(Schema.String),
-      secret: Schema.Boolean,
-    }),
+    Schema.Union([
+      Schema.Struct({
+        kind: Schema.Literal("input"),
+        id: Schema.String,
+        title: Schema.String,
+        placeholder: Schema.NullOr(Schema.String),
+        secret: Schema.Boolean,
+      }),
+      Schema.Struct({
+        kind: Schema.Literal("confirm"),
+        id: Schema.String,
+        title: Schema.String,
+        message: Schema.String,
+      }),
+    ]),
   ),
 });
 export type NeoPiModelsAuthState = typeof NeoPiModelsAuthState.Type;
