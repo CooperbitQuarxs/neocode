@@ -34,6 +34,7 @@ import { NativeSessionTree } from "./NativeSessionTree";
 import { NativeTimelineView, nativeTimelineKey } from "./NativeTimelineView";
 import { nativeQueuedMessages, parseNativeQueuedMessageId } from "./nativeTimeline";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useEnvironmentQuery } from "../../state/query";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useAtomValue } from "@effect/atom-react";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
@@ -142,6 +143,14 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   const draftStore = useComposerDraftStore;
   const panelOpen = useRightPanelStore(
     (value) => selectThreadRightPanelState(value.byThreadKey, target).isOpen,
+  );
+  // The sidebar's own entry, so the header and the session list always agree on the title.
+  const listed = useEnvironmentQuery(
+    nativeSessionAtoms.list({ environmentId: target.environmentId, input: {} }),
+  ).data?.sessions.find(
+    (entry) =>
+      entry.ref.sessionFile === target.ref.sessionFile &&
+      entry.ref.providerInstanceId === target.ref.providerInstanceId,
   );
   const settings = useEnvironmentSettings(target.environmentId);
   const { resolvedTheme } = useTheme();
@@ -420,9 +429,12 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
             className={cn("size-2 shrink-0 rounded-full", status.dot)}
           />
           <h2 className="min-w-0 truncate text-sm font-medium">
-            {typeof state.sessionName === "string" && state.sessionName.trim()
-              ? state.sessionName
-              : (promptHistory[0]?.text.split("\n")[0]?.trim() ?? "") || "New session"}
+            {listed?.title ??
+              (typeof state.sessionName === "string" && state.sessionName.trim()
+                ? state.sessionName
+                : listed?.firstMessage ||
+                  promptHistory[0]?.text.split("\n")[0]?.trim() ||
+                  "New session")}
           </h2>
           {session?.cwd ? (
             <span
