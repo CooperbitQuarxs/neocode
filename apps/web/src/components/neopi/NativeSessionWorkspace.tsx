@@ -1,7 +1,6 @@
 import { BracesIcon, GitForkIcon, UnplugIcon } from "lucide-react";
 import type { LegendListRef } from "@legendapp/list/react";
 import {
-  nativeCatalogModels,
   nativeRecord,
   nativeSessionKey,
   type NativeSessionTarget,
@@ -32,7 +31,18 @@ import { NativeSessionTabBar } from "./NativeSessionTabBar";
 import { useCreateNativeSession } from "./NativeSessionSidebar";
 import { NativeSessionTree } from "./NativeSessionTree";
 import { NativeTimelineView, nativeTimelineKey } from "./NativeTimelineView";
-import { nativeQueuedMessages, parseNativeQueuedMessageId } from "./nativeTimeline";
+import {
+  nativeQueuedMessages,
+  nextPromotableNativeQueuedMessageId,
+  parseNativeQueuedMessageId,
+} from "./nativeTimeline";
+import {
+  nativeTraitsCommands,
+  nativeTraitsDescriptors,
+  nativeTraitsModels,
+  nativeTraitsStateFromSession,
+  parseNativeThinkingLevels,
+} from "./nativeTraits";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { createPortal } from "react-dom";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
@@ -41,20 +51,25 @@ import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/at
 import {
   composerDraftHasUserContent,
   useComposerDraftStore,
-  useComposerThreadDraft,
   type ComposerImageAttachment,
   type ComposerFileAttachment,
 } from "../../composerDraftStore";
 import { useComposerHandleContext } from "../../composerHandleContext";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { useTheme } from "../../hooks/useTheme";
-import { primaryServerKeybindingsAtom, serverEnvironment } from "../../state/server";
+import {
+  EMPTY_SERVER_PROVIDERS,
+  primaryServerKeybindingsAtom,
+  serverEnvironment,
+} from "../../state/server";
 import { selectThreadRightPanelState, useRightPanelStore } from "../../rightPanelStore";
 import type { TerminalContextDraft } from "../../lib/terminalContext";
 import { ChatComposer, type ChatComposerHandle } from "../chat/ChatComposer";
 import { ExpandedImageDialog } from "../chat/ExpandedImageDialog";
 import type { ExpandedImagePreview } from "../chat/ExpandedImagePreview";
 import { createPageScrollController } from "../chat/pageScrollController";
+import type { NativeModelChoice } from "../chat/neopiModelSwitcher";
+import { NativeSessionModelPicker } from "./NativeSessionModelPicker";
 import { NativeSessionWorkspacePanels } from "./NativeSessionWorkspacePanels";
 import { consumeNativeDraft, prepareNativePrompt } from "./neopiNativeComposer";
 import type { ComposerSubmissionIntent } from "../../composer-logic";
@@ -151,7 +166,6 @@ export function NativeSessionView({
   const { feed, session, conversation, request, loading, error } = useNativeSession(target);
   const close = useAtomCommand(nativeSessionAtoms.close, { reportFailure: false });
   const key = nativeSessionKey(target);
-  const draft = useComposerThreadDraft(target);
   const draftStore = useComposerDraftStore;
   const panelOpen = useRightPanelStore(
     (value) => selectThreadRightPanelState(value.byThreadKey, target).isOpen,
@@ -165,7 +179,13 @@ export function NativeSessionView({
   const terminalOpen = useTerminalUiStateStore(
     (value) => selectThreadTerminalUiState(value.terminalUiStateByThreadKey, target).terminalOpen,
   );
-  const promptRef = useRef(draft.prompt);
+  // ChatComposer keeps this ref in sync with its own draft subscription. Read the
+  // stored prompt once here: subscribing would re-render the whole workspace
+  // (transcript, panels) on every keystroke.
+  const [initialPrompt] = useState(
+    () => draftStore.getState().getComposerDraft(target)?.prompt ?? "",
+  );
+  const promptRef = useRef(initialPrompt);
   const imagesRef = useRef<ComposerImageAttachment[]>([]);
   const filesRef = useRef<ComposerFileAttachment[]>([]);
   const terminalContextsRef = useRef<TerminalContextDraft[]>([]);
@@ -352,6 +372,13 @@ export function NativeSessionView({
     },
     [request],
   );
+  // Enter on an empty composer sends the oldest queued follow-up now.
+  const sendNextQueuedNow = useCallback(() => {
+    const id = nextPromotableNativeQueuedMessageId(queuedMessages);
+    if (id === null) return false;
+    steerQueued(id);
+    return true;
+  }, [queuedMessages, steerQueued]);
   const removeQueued = useCallback(
     (id: string) => {
       const queued = parseNativeQueuedMessageId(id);
@@ -391,6 +418,73 @@ export function NativeSessionView({
     [conversation.entries],
   );
   const model = nativeRecord(state.model);
+  const modelId = typeof model.id === "string" ? model.id : null;
+  const thinkingLevelsKey = `${String(model.provider)}/${String(modelId)}`;
+  const [thinkingLevels, setThinkingLevels] = useState<{
+    readonly key: string;
+    readonly levels: readonly string[];
+  } | null>(null);
+  // The levels belong to the model; ask NeoPi again whenever the model changes.
+  useEffect(() => {
+    if (!feed.connected || modelId === null) return;
+    let active = true;
+    void request({ type: "get_available_thinking_levels" })
+      .then((value) => {
+        if (active)
+          setThinkingLevels({ key: thinkingLevelsKey, levels: parseNativeThinkingLevels(value) });
+      })
+      .catch((cause) => {
+        if (active) setLocalError(String(cause));
+      });
+    return () => {
+      active = false;
+    };
+  }, [feed.connected, modelId, thinkingLevelsKey, request]);
+  const nativeThinkingLevel = typeof state.thinkingLevel === "string" ? state.thinkingLevel : null;
+  const nativeFastModeEnabled = state.fastModeEnabled === true;
+  const changeTraits = useCallback(
+    async (next: Parameters<typeof nativeTraitsCommands>[1]) => {
+      try {
+        for (const command of nativeTraitsCommands(
+          { thinkingLevel: nativeThinkingLevel, fastModeEnabled: nativeFastModeEnabled },
+          next,
+        ))
+          await execute(command);
+      } catch (cause) {
+        setLocalError(cause instanceof Error ? cause.message : String(cause));
+      }
+    },
+    [execute, nativeThinkingLevel, nativeFastModeEnabled],
+  );
+  const traits = useMemo(() => {
+    if (modelId === null) return null;
+    const descriptors = nativeTraitsDescriptors(
+      nativeTraitsStateFromSession(
+        state,
+        thinkingLevels?.key === thinkingLevelsKey ? thinkingLevels.levels : [],
+      ),
+    );
+    return descriptors.length === 0
+      ? null
+      : {
+          model: modelId,
+          models: nativeTraitsModels(modelId, descriptors),
+          onModelOptionsChange: (next: Parameters<typeof nativeTraitsCommands>[1]) =>
+            void changeTraits(next),
+        };
+  }, [modelId, state, thinkingLevels, thinkingLevelsKey, changeTraits]);
+  const modelLabel = String(model.name ?? model.id ?? "Choose native model");
+  const displayState =
+    [
+      // The effort selector already shows the level once NeoPi has listed levels.
+      traits ? null : state.thinkingLevel,
+      // Chat mode is NeoPi's no-tools conversation mode; only an active one is news.
+      typeof state.chatMode === "string" && state.chatMode !== "off"
+        ? `Chat ${state.chatMode}`
+        : null,
+    ]
+      .filter((value) => typeof value === "string")
+      .join(" · ") || null;
   const nativeCommands = useMemo(
     () =>
       commands.flatMap((command) =>
@@ -406,6 +500,17 @@ export function NativeSessionView({
           : [],
       ),
     [commands],
+  );
+  const selectModel = useCallback(
+    (choice: NativeModelChoice) => {
+      setModels(false);
+      void execute(
+        choice.kind === "role"
+          ? { type: "set_role", role: choice.role }
+          : { type: "set_model", provider: choice.provider, modelId: choice.modelId },
+      ).catch((cause) => setLocalError(String(cause)));
+    },
+    [execute],
   );
   const interrupt = useCallback(() => {
     void execute({ type: "abort" }).catch((cause) => setLocalError(String(cause)));
@@ -547,18 +652,29 @@ export function NativeSessionView({
                 useRightPanelStore.getState().openAttachment(target, attachment)
               }
               nativeSession={{
-                modelLabel: String(model.name ?? model.id ?? "Choose native model"),
-                displayState:
-                  [
-                    state.thinkingLevel,
-                    // Chat mode is NeoPi's no-tools conversation mode; only an active one is news.
-                    typeof state.chatMode === "string" && state.chatMode !== "off"
-                      ? `Chat ${state.chatMode}`
-                      : null,
-                  ]
-                    .filter((value) => typeof value === "string")
-                    .join(" · ") || null,
+                modelControl: (
+                  <NativeSessionModelPicker
+                    target={target}
+                    providers={serverConfig?.providers ?? EMPTY_SERVER_PROVIDERS}
+                    settings={settings}
+                    keybindings={keybindings}
+                    modelLabel={modelLabel}
+                    modelSelector={
+                      typeof model.provider === "string" && typeof model.id === "string"
+                        ? `${model.provider}/${model.id}`
+                        : ""
+                    }
+                    displayState={displayState}
+                    open={models}
+                    onOpenChange={setModels}
+                    disabled={sending}
+                    terminalOpen={terminalOpen}
+                    onSelect={selectModel}
+                  />
+                ),
                 commands: nativeCommands,
+                traits,
+                onSendQueuedNow: sendNextQueuedNow,
                 promptHistory,
                 modelPickerOpen: models,
                 onOpenModelPicker: () => setModels(true),
@@ -582,13 +698,6 @@ export function NativeSessionView({
       {expandedImage ? (
         <ExpandedImageDialog preview={expandedImage} onClose={() => setExpandedImage(null)} />
       ) : null}
-      {models ? (
-        <NativeSessionModelDialog
-          request={execute}
-          onClose={() => setModels(false)}
-          onReturnFocus={focusComposer}
-        />
-      ) : null}
       {tree ? (
         <NativeSessionTree
           target={target}
@@ -610,134 +719,6 @@ export function NativeSessionView({
         />
       ) : null}
     </>
-  );
-}
-
-export function NativeSessionModelDialog({
-  request,
-  onClose,
-  onReturnFocus,
-}: {
-  request: Request;
-  onClose: () => void;
-  onReturnFocus?: () => void;
-}) {
-  const [catalog, setCatalog] = useState<ReturnType<typeof nativeCatalogModels>>([]);
-  const [roles, setRoles] = useState<readonly Record<string, unknown>[]>([]);
-  const [query, setQuery] = useState("");
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let active = true;
-    void Promise.all([request({ type: "get_available_models" }), request({ type: "get_roles" })])
-      .then(([models, result]) => {
-        if (!active) return;
-        setCatalog(nativeCatalogModels(models));
-        const items = nativeRecord(result).roles;
-        if (Array.isArray(items)) setRoles(items.map(nativeRecord));
-      })
-      .catch((cause) => {
-        if (active) setError(String(cause));
-      });
-    return () => {
-      active = false;
-    };
-  }, [request]);
-  const select = async (command: Record<string, unknown> & { type: string }) => {
-    setPending(true);
-    try {
-      await request(command);
-      onClose();
-    } catch (cause) {
-      setError(String(cause));
-    } finally {
-      setPending(false);
-    }
-  };
-  return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <DialogPopup
-        finalFocus={
-          onReturnFocus
-            ? () => {
-                onReturnFocus();
-                return false;
-              }
-            : undefined
-        }
-      >
-        <DialogHeader>
-          <DialogTitle>Session model</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3 px-6 pb-4">
-          <Input
-            aria-label="Search native models and roles"
-            placeholder="Search models and roles"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          {error ? (
-            <p role="alert" className="text-xs text-destructive">
-              {error}
-            </p>
-          ) : null}
-          <div className="max-h-80 overflow-auto">
-            {roles
-              .filter(
-                (role) =>
-                  role.hidden !== true &&
-                  `${role.name} ${role.id}`.toLowerCase().includes(query.toLowerCase()),
-              )
-              .map((role) => (
-                <div key={String(role.id)}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={pending}
-                    onClick={() => void select({ type: "set_role", role: role.id })}
-                  >
-                    {String(role.alias ?? role.id)}
-                  </Button>
-                </div>
-              ))}
-            {catalog
-              .filter((model) =>
-                `${model.name} ${model.provider}/${model.id}`
-                  .toLowerCase()
-                  .includes(query.toLowerCase()),
-              )
-              .map((model) => (
-                <div key={`${model.provider}/${model.id}`}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={pending}
-                    onClick={() =>
-                      void select({
-                        type: "set_model",
-                        provider: model.provider,
-                        modelId: model.id,
-                      })
-                    }
-                  >
-                    {model.name} · {model.provider}
-                  </Button>
-                </div>
-              ))}
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-        </DialogFooter>
-      </DialogPopup>
-    </Dialog>
   );
 }
 
