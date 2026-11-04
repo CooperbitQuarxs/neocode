@@ -56,7 +56,9 @@ import { useKnownTerminalSessions } from "~/state/terminalSessions";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { vcsEnvironment } from "~/state/vcs";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "~/terminalUiStateStore";
-import { AgentsPanel } from "../AgentsPanel";
+import { NativeAgentOverlay } from "./agents/NativeAgentOverlay";
+import { NativeAgentsPanel } from "./agents/NativeAgentsPanel";
+import { selectAgentView, useAgentViewStore } from "./agents/agentViewStore";
 import type { ChatComposerHandle } from "../chat/ChatComposer";
 import { makeWorkspaceFileDropHandlers } from "../chat/workspaceFileDrop";
 import { RightPanelTabs } from "../RightPanelTabs";
@@ -121,6 +123,14 @@ export function NativeSessionWorkspacePanels({
   children: ReactNode;
 }) {
   const key = workspaceKey(target);
+  const agentViewMode = useAgentViewStore((store) => selectAgentView(key)(store).mode);
+  const agentViewActive = agentViewMode !== "session";
+  const agentViewWasActive = useRef(false);
+  useEffect(() => {
+    // The session view was inert behind the hub or an agent; hand the keyboard back to the prompt.
+    if (agentViewWasActive.current && !agentViewActive) composerRef.current?.focusAtEnd();
+    agentViewWasActive.current = agentViewActive;
+  }, [agentViewActive, composerRef]);
   const resourceId = workspaceResourceId(target);
   // Remains subscribed even when the browser has moved to its floating surface.
   usePreviewSession(target);
@@ -322,6 +332,7 @@ export function NativeSessionWorkspacePanels({
             Boolean(event.target.closest("input,textarea,select,[contenteditable=true]")),
           isWeb: !isElectron,
           isDesktop: isElectron,
+          nativeSession: true,
         },
       });
       let action: (() => void) | null = null;
@@ -379,6 +390,12 @@ export function NativeSessionWorkspacePanels({
           break;
         case "composer.dictation.toggle":
           action = onToggleDictation ?? null;
+          break;
+        case "agents.panel.toggle":
+          action = () => useRightPanelStore.getState().toggle(target, "agents");
+          break;
+        case "agents.hub.toggle":
+          action = () => useAgentViewStore.getState().dispatch(key, { type: "toggleHub" });
           break;
         case "thread.stop":
           if (
@@ -486,9 +503,7 @@ export function NativeSessionWorkspacePanels({
             workspaceMutationId={workspaceMutationId}
           />
         ) : null}
-        {activeSurface?.kind === "agents" ? (
-          <AgentsPanel model={agentModel} environmentId={target.environmentId} />
-        ) : null}
+        {activeSurface?.kind === "agents" ? <NativeAgentsPanel viewKey={key} /> : null}
         {activeSurface?.kind === "native-history" ? (
           <Button variant="ghost" onClick={onOpenTree}>
             Session tree
@@ -627,7 +642,10 @@ export function NativeSessionWorkspacePanels({
           {...dropHandlers}
           data-workspace-file-drag-active={dragActive || undefined}
         >
-          {children}
+          <div className="flex min-h-0 flex-1 flex-col" inert={agentViewActive}>
+            {children}
+          </div>
+          <NativeAgentOverlay target={target} viewKey={key} cwd={cwd} />
           {miniPlayer ? (
             <ThreadPreviewMiniPlayer
               threadRef={target}

@@ -76,6 +76,7 @@ import { createPageScrollController } from "../chat/pageScrollController";
 import type { NativeModelChoice } from "../chat/neopiModelSwitcher";
 import { NativeSessionModelPicker } from "./NativeSessionModelPicker";
 import { NativeSessionWorkspacePanels } from "./NativeSessionWorkspacePanels";
+import { AgentHubSourceProvider, useNativeAgentHubSource } from "./agents/useNativeAgentHubSource";
 import { consumeNativeDraft, prepareNativePrompt } from "./neopiNativeComposer";
 import type { ComposerSubmissionIntent } from "../../composer-logic";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../../terminalUiStateStore";
@@ -171,6 +172,7 @@ export function NativeSessionView({
   const { feed, session, conversation, request, loading, error } = useNativeSession(target);
   const close = useAtomCommand(nativeSessionAtoms.close, { reportFailure: false });
   const key = nativeSessionKey(target);
+  const agentHub = useNativeAgentHubSource({ target, feed, request });
   const draftStore = useComposerDraftStore;
   const panelOpen = useRightPanelStore(
     (value) => selectThreadRightPanelState(value.byThreadKey, target).isOpen,
@@ -533,7 +535,7 @@ export function NativeSessionView({
     (item) => typeof item.id === "string" && !dismissed.has(item.id),
   );
   return (
-    <>
+    <AgentHubSourceProvider source={agentHub}>
       {actionsSlot
         ? createPortal(
             // Leaves room for the fixed terminal and panel toggles at the titlebar edge.
@@ -735,7 +737,7 @@ export function NativeSessionView({
           }}
         />
       ) : null}
-    </>
+    </AgentHubSourceProvider>
   );
 }
 
