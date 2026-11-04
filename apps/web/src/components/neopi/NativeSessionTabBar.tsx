@@ -64,6 +64,9 @@ const selectSessionName = (result: FeedResult): string => {
   return typeof name === "string" ? name.trim() : "";
 };
 
+const selectSessionId = (result: FeedResult): string =>
+  AsyncResult.isSuccess(result) ? (result.value.session?.sessionId ?? "") : "";
+
 function NativeSessionTab({
   tab,
   active,
@@ -73,19 +76,31 @@ function NativeSessionTab({
   readonly active: boolean;
   readonly watched: boolean;
 }) {
-  const listed = useEnvironmentQuery(
+  const listedSessions = useEnvironmentQuery(
     nativeSessionAtoms.list({ environmentId: tab.environmentId, input: {} }),
-  ).data?.sessions.find(
-    (entry) =>
-      entry.ref.sessionFile === tab.ref.sessionFile &&
-      entry.ref.providerInstanceId === tab.ref.providerInstanceId,
-  );
+  ).data?.sessions;
   const feed: Atom.Atom<FeedResult> = watched
     ? nativeSessionAtoms.watch({ environmentId: tab.environmentId, input: { ref: tab.ref } })
     : UNWATCHED;
   const watchedStatus = useAtomValue(feed, selectStatus);
   const status = TAB_STATUS[watched ? watchedStatus : "idle"];
   const sessionName = useAtomValue(feed, selectSessionName);
+  const sessionId = useAtomValue(feed, selectSessionId);
+  // A moved session (`/wt`) keeps its id while its file changes, and the list
+  // can still hold the previous file's row, so the id finds its title too.
+  const listed =
+    listedSessions?.find(
+      (entry) =>
+        entry.ref.sessionFile === tab.ref.sessionFile &&
+        entry.ref.providerInstanceId === tab.ref.providerInstanceId,
+    ) ??
+    (sessionId
+      ? listedSessions?.find(
+          (entry) =>
+            entry.sessionId === sessionId &&
+            entry.ref.providerInstanceId === tab.ref.providerInstanceId,
+        )
+      : undefined);
   const title =
     listed?.title || sessionName || listed?.firstMessage.split("\n")[0]?.trim() || "New session";
   const close = () => closeNativeSession(tab);

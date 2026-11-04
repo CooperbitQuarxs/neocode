@@ -725,6 +725,8 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
 
 export interface ChatComposerHandle {
   focusAtEnd: () => void;
+  /** Close transient drawers (stash, tasks) so a view covering the composer is not left with them open. */
+  dismissMenus: () => void;
   focusAt: (cursor: number) => void;
   addDroppedFiles: (files: File[]) => void;
   addDroppedFolders: (folders: File[]) => void;
@@ -744,6 +746,8 @@ export interface ChatComposerHandle {
   toggleModelPicker: () => void;
   openControl: (command: KeybindingCommand) => void;
   isModelPickerOpen: () => boolean;
+  /** Whether the slash/mention menu is showing; Escape closes it before anything else. */
+  isMenuOpen: () => boolean;
   compactContext: () => void;
   readSnapshot: () => {
     value: string;
@@ -4449,6 +4453,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           terminalFocus: getTerminalFocusOwner() !== null,
           terminalOpen,
           modelPickerOpen: isComposerModelPickerOpen,
+          // A native session's workspace claims Ctrl+S for its agents panel.
+          nativeSession: routeKind === "native",
         },
       });
       if (command !== "composer.stash") return;
@@ -4480,6 +4486,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     stashCurrentPrompt,
     isRevertingCheckpoint,
     terminalOpen,
+    routeKind,
   ]);
 
   // ------------------------------------------------------------------
@@ -5125,6 +5132,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       },
       compactContext: compactThreadContext,
       isModelPickerOpen: () => nativeSession?.modelPickerOpen ?? isComposerModelPickerOpen,
+      isMenuOpen: () => composerMenuOpenRef.current,
       insertDictation: (text, anchor) => {
         const prompt = promptRef.current;
         const cursor = dictationCursor(anchor, prompt, readComposerSnapshot().expandedCursor);
@@ -5223,6 +5231,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         providerInputRejectedRef.current = validationMessage !== null;
         setProviderInputSubmissionError(validationMessage);
         return validationMessage === null;
+      },
+      dismissMenus: () => {
+        setIsStashMenuOpen(false);
+        setIsTasksDrawerOpen(false);
       },
     }),
     [
@@ -5440,6 +5452,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         terminalFocus: false,
                         terminalOpen,
                         modelPickerOpen: false,
+                        nativeSession: routeKind === "native",
                       },
                     })}
                     onRestore={restoreStashEntry}

@@ -21,6 +21,21 @@ import {
   snapshotNativeSubagents,
   type NativeSubagent,
 } from "./neopiNativeSubagents.ts";
+import {
+  EMPTY_NATIVE_JOBS,
+  reduceNativeJobs,
+  snapshotNativeJobs,
+  type NativeJobs,
+} from "./neopiNativeJobs.ts";
+import {
+  EMPTY_NATIVE_ACTIVITY,
+  closeNativeActivity,
+  observeNativeActivity,
+  openNativeActivity,
+  type NativeActivity,
+} from "./neopiNativeStatus.ts";
+
+const nowMs = () => DateTime.toEpochMillis(DateTime.nowUnsafe());
 
 export type NativeSession = EnvironmentRpcSuccess<typeof WS_METHODS.neopiNativeSessionsOpen>;
 export type NativeSessionList = EnvironmentRpcSuccess<typeof WS_METHODS.neopiNativeSessionsList>;
@@ -46,7 +61,19 @@ export type NativeSessionUpdate =
       epoch: number;
       agents: readonly unknown[];
     }
-  | { type: "reconciliation"; operation: "state" | "branch" | "subagents"; error: string | null };
+  | {
+      type: "jobs";
+      sessionId: string;
+      ref: NeoPiNativeSessionRef;
+      /** Feed jobs revision when the read began. */
+      revision: number;
+      response: unknown;
+    }
+  | {
+      type: "reconciliation";
+      operation: "state" | "branch" | "subagents" | "jobs";
+      error: string | null;
+    };
 export interface NativeSessionTarget {
   readonly environmentId: EnvironmentId;
   readonly ref: NeoPiNativeSessionRef;
@@ -91,6 +118,11 @@ export interface NativeDictation {
   readonly error: string | null;
 }
 const DICTATION_PHASES: ReadonlySet<unknown> = new Set(["starting", "recording", "transcribing"]);
+const SETTLED_CHILD_EVENTS: ReadonlySet<unknown> = new Set([
+  "message_end",
+  "tool_execution_end",
+  "agent_end",
+]);
 /**
  * NeoPi runs one capture at a time and always opens it with a state frame, so a
  * new capture id replaces the old one there. Any other frame for a different id,
@@ -135,11 +167,22 @@ export interface NativeSessionFeed {
   readonly agents: readonly NativeSubagent[];
   readonly agentsRevision: number;
   readonly agentsEpoch: number;
+  /** Settled-step counter per child (`subagent_event` at the `events` level); a re-read trigger, not content. */
+  readonly agentTicks: Readonly<Record<string, number>>;
+  /** Background jobs; maintained only for a NeoPi that advertises `background_jobs`. */
+  readonly jobs: NativeJobs;
+  /** Accumulated agent working time for this session while this client watched it. */
+  readonly activity: NativeActivity;
   readonly editor: { readonly id: string; readonly text: string } | null;
   readonly dictation: NativeDictation | null;
+  /**
+   * NeoPi relocated this same session to another file (`/wt`, `/move`). The
+   * observation of the old ref ends here; the web layer repoints to this ref.
+   */
+  readonly movedTo: NeoPiNativeSessionRef | null;
   readonly error: string | null;
   readonly reconciliationError: {
-    readonly operation: "state" | "branch" | "subagents";
+    readonly operation: "state" | "branch" | "subagents" | "jobs";
     readonly message: string;
   } | null;
 }
@@ -155,8 +198,12 @@ export const emptyNativeSessionFeed = (): NativeSessionFeed => ({
   agents: [],
   agentsRevision: 0,
   agentsEpoch: 0,
+  agentTicks: {},
+  jobs: EMPTY_NATIVE_JOBS,
+  activity: EMPTY_NATIVE_ACTIVITY,
   editor: null,
   dictation: null,
+  movedTo: null,
   error: null,
   reconciliationError: null,
 });
@@ -232,6 +279,17 @@ export function reduceNativeSessionFeed(
       agentsRevision: feed.agentsRevision + 1,
     };
   }
+  if (event.type === "jobs") {
+    if (
+      !feed.connected ||
+      feed.session?.sessionId !== event.sessionId ||
+      feed.session.ref.sessionFile !== event.ref.sessionFile ||
+      feed.session.ref.providerInstanceId !== event.ref.providerInstanceId
+    )
+      return feed;
+    const jobs = snapshotNativeJobs(feed.jobs, event.response, event.revision);
+    return jobs === feed.jobs ? feed : { ...feed, jobs };
+  }
   if (event.type === "state")
     return feed.session &&
       (typeof event.state.sessionFile !== "string" ||
@@ -242,6 +300,7 @@ export function reduceNativeSessionFeed(
           ...feed,
           session: { ...feed.session, state: event.state },
           queue: nativePromptQueue(event.state.queuedMessages) ?? feed.queue,
+          activity: observeNativeActivity(feed.activity, event.state, feed.busy, nowMs()),
         }
       : feed;
   if (event.type === "answered")
@@ -291,6 +350,7 @@ export function reduceNativeSessionFeed(
       ),
       agentsRevision: feed.agentsRevision + 1,
       agentsEpoch: feed.agentsEpoch + 1,
+      activity: closeNativeActivity(feed.activity, nowMs()),
       ...(event.type === "closed"
         ? {
             busy: false,
@@ -333,7 +393,15 @@ export function reduceNativeSessionFeed(
         : [],
       agentsRevision: feed.agentsRevision + 1,
       agentsEpoch: feed.agentsEpoch + 1,
+      jobs: sameFile ? feed.jobs : EMPTY_NATIVE_JOBS,
+      activity: observeNativeActivity(
+        sameFile ? closeNativeActivity(feed.activity, nowMs()) : EMPTY_NATIVE_ACTIVITY,
+        event.session.state,
+        event.session.state.isStreaming === true,
+        nowMs(),
+      ),
       connected: true,
+      movedTo: null,
       busy: event.session.state.isStreaming === true,
       queue: nativePromptQueue(event.session.state.queuedMessages) ?? EMPTY_NATIVE_QUEUE,
       error: null,
@@ -347,6 +415,20 @@ export function reduceNativeSessionFeed(
     feed.session &&
     frame.sessionFile !== feed.session.ref.sessionFile
   ) {
+    if (frame.reason === "identity" && frame.sessionId === feed.session.sessionId) {
+      // The same session moved to a new file: the transcript, queue and dialogs
+      // still belong to it, so follow the move instead of treating it as a new owner.
+      const ref = { ...feed.session.ref, sessionFile: frame.sessionFile };
+      const identity = feed.conversation.identity;
+      return {
+        ...feed,
+        session: { ...feed.session, ref },
+        conversation: identity
+          ? { ...feed.conversation, identity: { ...identity, sessionFile: frame.sessionFile } }
+          : feed.conversation,
+        movedTo: ref,
+      };
+    }
     // This cache and its command target belong to the old file. Do not relabel
     // its transcript or silently follow a terminal owner's file switch.
     return {
@@ -357,6 +439,8 @@ export function reduceNativeSessionFeed(
       dialogs: [],
       editor: null,
       agents: [],
+      jobs: EMPTY_NATIVE_JOBS,
+      activity: EMPTY_NATIVE_ACTIVITY,
       agentsRevision: feed.agentsRevision + 1,
       agentsEpoch: feed.agentsEpoch + 1,
       error:
@@ -381,6 +465,27 @@ export function reduceNativeSessionFeed(
     );
     if (agents !== next.agents) next = { ...next, agents, agentsRevision: next.agentsRevision + 1 };
   }
+  if (frame.type === "subagent_event") {
+    const payload = nativeRecord(frame.payload);
+    const id = payload.id;
+    // Streaming deltas would repaint the whole workspace; only settled steps are worth a re-read.
+    if (typeof id === "string" && SETTLED_CHILD_EVENTS.has(nativeRecord(payload.event).type))
+      next = { ...next, agentTicks: { ...next.agentTicks, [id]: (next.agentTicks[id] ?? 0) + 1 } };
+  }
+  if (frame.type === "job_lifecycle") {
+    const jobs = reduceNativeJobs(next.jobs, frame);
+    if (jobs !== next.jobs) next = { ...next, jobs };
+  }
+  if (frame.type === "agent_start" || frame.type === "agent_end") {
+    const at = nowMs();
+    next = {
+      ...next,
+      activity:
+        frame.type === "agent_start"
+          ? openNativeActivity(next.activity, at)
+          : closeNativeActivity(next.activity, at),
+    };
+  }
   if (
     frame.type === "journal_state" &&
     typeof frame.sessionId === "string" &&
@@ -399,6 +504,8 @@ export function reduceNativeSessionFeed(
             commandOutputs: [],
             agents: [],
             agentsRevision: next.agentsRevision + 1,
+            jobs: EMPTY_NATIVE_JOBS,
+            activity: EMPTY_NATIVE_ACTIVITY,
             agentsEpoch: next.agentsEpoch + 1,
           }
         : {}),
