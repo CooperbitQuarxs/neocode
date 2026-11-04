@@ -115,6 +115,12 @@ function AgentRow({
       </span>
       <span className="col-start-2 row-start-1 flex min-w-0 items-baseline gap-2">
         <span className="min-w-0 truncate text-sm font-medium">{agent.title}</span>
+        <span
+          className="shrink-0 font-mono text-3xs text-muted-foreground/70"
+          title={`${agent.identity.label} · ${agent.identity.pronouns}`}
+        >
+          {agent.identity.label}
+        </span>
         {role ? (
           <span className="max-w-28 shrink-0 truncate rounded-sm border border-border/60 px-1 font-mono text-3xs text-muted-foreground">
             {role}

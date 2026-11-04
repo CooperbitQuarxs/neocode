@@ -280,6 +280,9 @@ export function NativeAgentView({
               <span className="flex min-w-0 items-center gap-2">
                 <AgentStatusDot status={agent.status} />
                 <span className="min-w-0 truncate text-sm font-medium">{agent.title}</span>
+                <span className="shrink-0 font-mono text-3xs text-muted-foreground/70">
+                  {agent.identity.label} · {agent.identity.pronouns}
+                </span>
                 {agent.role ? (
                   <span className="shrink-0 rounded-sm border border-border/60 px-1 font-mono text-3xs text-muted-foreground">
                     {agent.role}
@@ -318,6 +321,7 @@ export function NativeAgentView({
               <NativeTimelineView
                 rows={rows}
                 busy={agent.live}
+                assistantName={agent.identity.label}
                 environmentId={target.environmentId}
                 timelineKey={nativeTimelineKey(
                   target.environmentId,

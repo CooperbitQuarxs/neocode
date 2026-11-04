@@ -10,6 +10,7 @@ import {
   transcriptUserText,
   type CommandRow,
 } from "@t3tools/client-runtime/neopi-transcript";
+import { agentIdentity, nativeSessionIdentityKey } from "@t3tools/shared/agentNames";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
@@ -187,6 +188,12 @@ export function NativeSessionView({
   const { feed, session, conversation, request, loading, error } = useNativeSession(target);
   const close = useAtomCommand(nativeSessionAtoms.close, { reportFailure: false });
   const key = nativeSessionKey(target);
+  const assistantName = agentIdentity(
+    nativeSessionIdentityKey({
+      sessionId: session?.sessionId,
+      sessionFile: target.ref.sessionFile,
+    }),
+  ).label;
   const agentHub = useNativeAgentHubSource({ target, feed, request });
   const draftStore = useComposerDraftStore;
   const panelOpen = useRightPanelStore(
@@ -696,6 +703,7 @@ export function NativeSessionView({
           <NativeTimelineView
             rows={rows}
             busy={feed.busy}
+            assistantName={assistantName}
             environmentId={target.environmentId}
             timelineKey={nativeTimelineKey(target.environmentId, target.ref.sessionFile)}
             cwd={session?.cwd}

@@ -25,6 +25,14 @@ in a new thread's model picker to add or remove them. A regular click returns to
 single model. Choose a base branch and send. Each selection starts a separate thread
 and worktree while you stay in the new thread composer. This requires a Git project.
 
+## Session names
+
+Every NeoPi session has a name and a designation, such as **Azura K-47**, so you can
+refer to it without its title. The name comes with pronouns (she/her or he/him).
+It appears under the title in the session's tab, in its sidebar row, and on the
+assistant's messages; hover the tab to see the pronouns. A session keeps its name
+across reloads and devices, and its subagents have names of their own.
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.
