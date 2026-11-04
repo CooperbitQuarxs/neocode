@@ -2,10 +2,10 @@ import type { NeoPiJournalEntry } from "@t3tools/contracts";
 import { journalRecord } from "./neopiJournal.ts";
 
 /**
- * Projection of a native NeoPi journal branch into transcript rows the UI can
- * draw as a conversation: user bubbles, assistant prose, collapsed thought,
- * one row per tool call joined with its result, and quiet system notes.
- *
+ * Projection of a native NeoPi journal branch into transcript rows: user
+ * prompts, assistant prose, thought, one row per tool call joined with its
+ * result, and quiet system notes. The web client maps these rows onto the
+ * stock T3 timeline rather than drawing them itself.
  * Native records stay attached to every row (`entry`) so a debug affordance
  * can reveal the canonical JSON without the projection losing anything.
  */
@@ -28,8 +28,6 @@ interface RowBase {
   readonly timestamp: string;
   /** A live (not yet persisted) message from the current turn. */
   readonly live: boolean;
-  /** Sits under an opened "Worked through N steps" toggle. */
-  readonly grouped?: boolean;
 }
 
 export interface UserRow extends RowBase {
@@ -86,21 +84,6 @@ export interface ToolRow extends RowBase {
   readonly label: string;
   /** The one argument worth showing beside the label: a command, a path, a query. */
   readonly detail: string | null;
-  readonly groupId: string;
-}
-
-export interface WorkToggleRow {
-  readonly kind: "work-toggle";
-  readonly id: string;
-  readonly groupId: string;
-  readonly count: number;
-  readonly failed: number;
-  readonly expanded: boolean;
-  readonly entry: NeoPiJournalEntry;
-  readonly timestamp: string;
-  readonly live: boolean;
-  /** Labels of the first few hidden steps, for the collapsed summary. */
-  readonly preview: ReadonlyArray<string>;
 }
 
 export interface NoteRow extends RowBase {
@@ -131,7 +114,6 @@ export type TranscriptRow =
   | AssistantRow
   | ThinkingRow
   | ToolRow
-  | WorkToggleRow
   | NoteRow
   | DividerRow
   | RecordRow
@@ -149,15 +131,9 @@ export interface TranscriptSource {
 export interface TranscriptOptions {
   /** Show bookkeeping entries (model changes, usage, digests) as records. */
   readonly debug: boolean;
-  /** Tool groups the user opened; a group above the fold size stays collapsed otherwise. */
-  readonly expandedGroups: ReadonlySet<string>;
-  /** Work rows (tools and thought) beyond this count in one finished run collapse behind a toggle. */
-  readonly foldSize?: number;
   /** Local command outputs keyed by the entry id they follow (`null` = before everything). */
   readonly commandOutputs?: ReadonlyMap<string | null, ReadonlyArray<CommandRow>>;
 }
-
-const FOLD_SIZE = 2;
 
 export function blockText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -216,11 +192,6 @@ function stripNoticeTags(text: string): string {
   return text
     .replace(/<\/?(system-notice|system-reminder|context-window-rollover|task-result[^>]*)>/g, "")
     .trim();
-}
-
-/** Rows that sit between tool calls without starting a new conversational beat. */
-export function isWorkFiller(row: TranscriptRow): row is ThinkingRow | NoteRow {
-  return row.kind === "thinking" || (row.kind === "note" && row.tone === "system");
 }
 
 const TOOL_DETAIL_KEYS: Record<string, ReadonlyArray<string>> = {
@@ -417,26 +388,15 @@ export function projectTranscript(
   source: TranscriptSource,
   options: TranscriptOptions,
 ): readonly TranscriptRow[] {
-  const foldSize = options.foldSize ?? FOLD_SIZE;
   const rows: TranscriptRow[] = [];
   const pendingTools = new Map<string, number>();
-  let currentGroup: string | null = null;
 
   const appendOutputs = (anchor: string | null) => {
     for (const output of options.commandOutputs?.get(anchor) ?? []) rows.push(output);
-    if (options.commandOutputs?.get(anchor)?.length) currentGroup = null;
   };
 
   const push = (row: TranscriptRow) => {
     rows.push(row);
-    if (row.kind !== "tool" && !isWorkFiller(row)) currentGroup = null;
-  };
-
-  // A group is named after its first work row, so loading older history
-  // above it leaves the id, and the reader's expanded state, untouched.
-  const openGroup = (rowId: string) => {
-    if (!currentGroup) currentGroup = `group:${rowId}`;
-    return currentGroup;
   };
 
   const errorNote = (
@@ -484,7 +444,6 @@ export function projectTranscript(
         }
         if (block.type === "thinking" && typeof block.thinking === "string") {
           if (block.thinking.trim().length === 0) return;
-          openGroup(id);
           rows.push({
             ...base,
             kind: "thinking",
@@ -501,7 +460,6 @@ export function projectTranscript(
         const call = toolCallFromBlock(block);
         if (call) {
           const detail = toolDetail(call.name, call.arguments);
-          const groupId = openGroup(id);
           rows.push({
             ...base,
             kind: "tool",
@@ -510,7 +468,6 @@ export function projectTranscript(
             result: null,
             label: toolLabel(call, detail),
             detail,
-            groupId,
           });
           if (call.id) pendingTools.set(call.id, rows.length - 1);
           return;
@@ -562,7 +519,6 @@ export function projectTranscript(
         arguments: {},
       };
       const id = `${entry.id}:result`;
-      const groupId = openGroup(id);
       rows.push({
         ...base,
         kind: "tool",
@@ -571,7 +527,6 @@ export function projectTranscript(
         result,
         label: toolLabel(call, null),
         detail: null,
-        groupId,
       });
       return;
     }
@@ -595,7 +550,6 @@ export function projectTranscript(
         exitCode !== null && exitCode !== 0 ? `\nexit ${exitCode}` : "",
       ].join("");
       const id = `${entry.id}:execution`;
-      const groupId = openGroup(id);
       rows.push({
         ...base,
         kind: "tool",
@@ -604,7 +558,6 @@ export function projectTranscript(
         result: { entry, text: output, images: [], isError: failed, details: message.details },
         label: `You ran ${name}`,
         detail: firstLine(command, 160) || null,
-        groupId,
       });
       return;
     }
@@ -698,95 +651,7 @@ export function projectTranscript(
     appendOutputs(`live:${messageId}`);
   }
 
-  return foldToolRuns(rows, foldSize, options.expandedGroups);
-}
-
-/**
- * Long runs of tool work collapse behind one toggle so the conversation keeps
- * its rhythm; the run still in progress at the very end stays open.
- */
-function foldToolRuns(
-  rows: readonly TranscriptRow[],
-  foldSize: number,
-  expandedGroups: ReadonlySet<string>,
-): readonly TranscriptRow[] {
-  const out: TranscriptRow[] = [];
-  let index = 0;
-  while (index < rows.length) {
-    const row = rows[index]!;
-    if (row.kind !== "tool" && !isWorkFiller(row)) {
-      out.push(row);
-      index++;
-      continue;
-    }
-    const groupId =
-      row.kind === "tool" ? row.groupId : (findGroupId(rows, index) ?? `group:${row.id}`);
-    let end = index + 1;
-    while (end < rows.length) {
-      const candidate = rows[end]!;
-      if (candidate.kind === "tool" && candidate.groupId === groupId) end++;
-      else if (isWorkFiller(candidate) && findGroupId(rows, end) === groupId) end++;
-      else break;
-    }
-    const run = mergeThoughts(rows.slice(index, end));
-    const toolRows = run.filter((item): item is ToolRow => item.kind === "tool");
-    const trailing = end === rows.length;
-    const inProgress = trailing && toolRows.some((item) => item.result === null);
-    const foldable = !inProgress && run.length > foldSize;
-    const opened = expandedGroups.has(groupId);
-    const first = run[0] as ToolRow | ThinkingRow | NoteRow;
-    const toggle = (expanded: boolean): WorkToggleRow => ({
-      kind: "work-toggle",
-      id: `${groupId}:toggle`,
-      groupId,
-      count: run.length,
-      failed: toolRows.filter((item) => item.result?.isError).length,
-      expanded,
-      entry: first.entry,
-      timestamp: first.timestamp,
-      live: first.live,
-      preview: toolRows.slice(0, 3).map((item) => item.label),
-    });
-    if (!foldable) out.push(...run);
-    else if (opened) out.push(toggle(true), ...run.map((item) => ({ ...item, grouped: true })));
-    else out.push(toggle(false));
-    index = end;
-  }
-  return out;
-}
-
-/** Back-to-back thinking blocks read as one thought; the texts join with a rule between. */
-function mergeThoughts(run: readonly TranscriptRow[]): TranscriptRow[] {
-  const out: TranscriptRow[] = [];
-  for (const row of run) {
-    const last = out.at(-1);
-    if (row.kind === "thinking" && last?.kind === "thinking") {
-      out[out.length - 1] = {
-        ...last,
-        text: `${last.text}\n\n---\n\n${row.text}`,
-        summary: last.summary && row.summary,
-        live: row.live,
-      };
-      continue;
-    }
-    out.push(row);
-  }
-  return out;
-}
-
-/** A thinking row belongs to the tool group that surrounds it. */
-function findGroupId(rows: readonly TranscriptRow[], index: number): string | null {
-  for (let cursor = index + 1; cursor < rows.length; cursor++) {
-    const row = rows[cursor]!;
-    if (row.kind === "tool") return row.groupId;
-    if (!isWorkFiller(row)) break;
-  }
-  for (let cursor = index - 1; cursor >= 0; cursor--) {
-    const row = rows[cursor]!;
-    if (row.kind === "tool") return row.groupId;
-    if (!isWorkFiller(row)) break;
-  }
-  return null;
+  return rows;
 }
 
 export function transcriptUserText(entries: ReadonlyArray<NeoPiJournalEntry>) {

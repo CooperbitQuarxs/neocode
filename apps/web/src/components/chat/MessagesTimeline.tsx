@@ -2583,7 +2583,10 @@ function ActivityGroupTimelineRow({
       ? liveWorkEntryLabel(liveWork, ctx.workspaceRoot, true)
       : "Thinking"
     : work.length > 0
-      ? summarizeToolGroup(work)
+      ? // One call with a stated intent says more than "Ran 1 command".
+        work.length === 1 && work[0]!.intent
+        ? work[0]!.intent
+        : summarizeToolGroup(work)
       : `Thought${thoughtCount > 1 ? ` (×${thoughtCount})` : ""}`;
   const details: ReactNode[] = [];
   if (row.expanded) {
