@@ -76,17 +76,24 @@ device until you sign back into the same account.
 
 ## Switch models
 
-On web and desktop, click the current model or press `Alt+P` to open the native model switcher.
-Choose a NeoPi inference provider or Roles, or filter by provider, model ID or
-display name. The list shows the native catalog's intelligence, context and
-per-million-token prices. Catalog throughput is an estimate. A question mark
-means the native source has not supplied that fact, including measured TTFT.
-Missing metrics do not make a model unavailable; you can still select it.
-Saved selections that are no longer available stay visible.
+On web and desktop, click the current model or press `Alt+P` to open the model
+picker. It opens as a popover anchored to the button, with the cursor already in
+the search box, and nothing else on screen is blocked: click outside or press
+Escape to close it.
 
-Use the arrow keys and Enter to select, or click a model. Escape dismisses the
-switcher without changing the draft. This is the quick session switcher, separate
-from the Models management page.
+The left rail lists **Roles** first, then **Favorites**, then NeoPi's inference
+providers; the right side lists that entry's models. Typing searches every
+provider and role with NeoPi's own ranking. Each row shows what NeoPi reported
+for the model, such as context window, per-million-token prices and
+intelligence; hover a row for the full set. A question mark or a missing fact
+means the native source has not supplied it. Missing metrics do not make a model
+unavailable; you can still select it. Saved selections that are no longer
+available stay visible.
+
+Star a model to add it to Favorites. Use the arrow keys and Enter to select, or
+click a model; Left and Right move between the rail and the list. Choosing a role
+or model applies it to the session and returns focus to the prompt. This is the
+quick session switcher, separate from the Models management page.
 
 ## Custom models
 

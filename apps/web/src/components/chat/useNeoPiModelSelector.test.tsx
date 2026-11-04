@@ -9,7 +9,7 @@ import {
   type NeoPiModelSelectorResult,
 } from "@t3tools/contracts";
 import { deriveProviderInstanceEntries } from "../../providerInstances";
-import { useNeoPiModelSelector } from "./useNeoPiModelSelector";
+import { NATIVE_QUERY_DEBOUNCE_MS, useNeoPiModelSelector } from "./useNeoPiModelSelector";
 import type { NativeSelectorContext } from "./neopiModelSwitcher";
 
 const mocks = vi.hoisted(() => ({ read: vi.fn() }));
@@ -80,6 +80,7 @@ afterEach(async () => {
     renderer?.unmount();
   });
   renderer = undefined;
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -87,6 +88,7 @@ describe("native selector query lifetime", () => {
   it("discards an older query that completes after the current ranked result", async () => {
     const first = deferred();
     const second = deferred();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     mocks.read.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
     const context = {
       environmentId: EnvironmentId.make("remote"),
@@ -97,6 +99,12 @@ describe("native selector query lifetime", () => {
     });
     await act(async () => {
       renderer!.update(createElement(Probe, { context, query: "second" }));
+    });
+    // Typing waits for the debounce, and meanwhile the settled "first" answer is not offered.
+    expect(latest?.pending).toBe(true);
+    expect(mocks.read.mock.calls.map((call) => call[0].input.query)).toEqual(["first"]);
+    await act(async () => {
+      vi.advanceTimersByTime(NATIVE_QUERY_DEBOUNCE_MS);
     });
     expect(latest?.pending).toBe(true);
     await act(async () => {
