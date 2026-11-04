@@ -472,9 +472,7 @@ import {
   PlayIcon,
   ShieldIcon,
   XIcon,
-  ChevronDownIcon,
 } from "lucide-react";
-import { NeoPiIcon } from "../Icons";
 import { proposedPlanTitle } from "../../proposedPlan";
 import { hasProviderSetup } from "./ProviderStatusBanner";
 import {
@@ -964,10 +962,10 @@ export type NativeChatComposerProps = Pick<
   composerDraftTarget: NativeSessionTarget;
   routeThreadRef: NativeSessionTarget;
   nativeSession: {
-    modelLabel: string;
-    displayState: string | null;
     commands: readonly ServerProviderSlashCommand[];
     promptHistory: readonly ComposerPromptHistoryMessage[];
+    /** The shared model picker, built by the workspace that owns the session. */
+    modelControl: ReactNode;
     modelPickerOpen: boolean;
     onOpenModelPicker: () => void;
     onOpenSessionTree: () => void;
@@ -4181,21 +4179,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     .slice(restingBlockDefs.length - restingHiddenBlockCount)
     .map((def) => def.id);
   const composerControls = nativeSession ? (
-    <ComposerControl
-      type="button"
-      onClick={nativeSession.onOpenModelPicker}
-      data-composer-shortcut="composer.model"
-      disabled={isSendBusy}
-      className="min-w-0"
-      aria-label={`Model: ${nativeSession.modelLabel}${nativeSession.displayState ? `, ${nativeSession.displayState}` : ""}`}
-    >
-      <NeoPiIcon aria-hidden className="size-4 shrink-0" />
-      <span className="truncate">{nativeSession.modelLabel}</span>
-      {nativeSession.displayState ? (
-        <span className="truncate text-muted-foreground">{nativeSession.displayState}</span>
-      ) : null}
-      <ComposerControlIcon icon={ChevronDownIcon} size="xs" className="opacity-60" />
-    </ComposerControl>
+    nativeSession.modelControl
   ) : runtimeReadOnlyReason || showProviderUnavailable ? (
     <ComposerControl
       type="button"
