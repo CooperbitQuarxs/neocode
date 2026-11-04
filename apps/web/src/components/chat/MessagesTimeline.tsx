@@ -303,6 +303,8 @@ interface TimelineRowSharedState {
   onSteerQueuedMessage: (id: string) => void;
   steerQueuedMessageShortcutLabel: string | null;
   onRemoveQueuedMessage: (id: string) => void;
+  /** Author name shown on the first assistant bubble of each turn. */
+  assistantName: string;
 }
 
 interface TimelineRowActivityState {
@@ -481,6 +483,8 @@ interface MessagesTimelineProps {
   onRemoveQueuedMessage?: (id: string) => void;
   /** Each new value toggles every tool call of the latest turn open or closed. */
   toggleToolOutputSerial?: number;
+  /** Name shown above the assistant's first bubble of a turn; defaults to the app name. */
+  assistantName?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -538,6 +542,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   steerQueuedMessageShortcutLabel = null,
   onRemoveQueuedMessage = NOOP_QUEUED_MESSAGE_ACTION,
   toggleToolOutputSerial = 0,
+  assistantName = APP_BASE_NAME,
 }: MessagesTimelineProps) {
   const handledToolOutputSerialRef = useRef(toggleToolOutputSerial);
   const [toolBulk, setToolBulk] = useState<ToolBulkDisclosure>({
@@ -1172,6 +1177,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onSteerQueuedMessage,
       steerQueuedMessageShortcutLabel,
       onRemoveQueuedMessage,
+      assistantName,
     }),
     [
       readyCitationRequest,
@@ -1209,6 +1215,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onSteerQueuedMessage,
       steerQueuedMessageShortcutLabel,
       onRemoveQueuedMessage,
+      assistantName,
     ],
   );
   const backgroundWorktreeSetup =
@@ -1677,34 +1684,52 @@ function TimelineMinimapNavigationButton({
 type TimelineWorkEntry = Extract<MessagesTimelineRow, { kind: "work" }>["groupedEntries"][number];
 type TimelineRow = MessagesTimelineRow;
 
-const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: TimelineRow }) {
-  const isExpandedToolGroup = row.kind === "work" && row.isExpandedToolGroup;
-  const isExpandedToolGroupHeader =
-    (row.kind === "work-toggle" && row.expanded) || (row.kind === "work-live" && row.expanded);
+/** Rows that are the harness's own work, not someone's speech. They sit grey between the bubbles. */
+function isHarnessRow(row: TimelineRow): boolean {
+  switch (row.kind) {
+    case "work":
+    case "work-live":
+    case "work-toggle":
+    case "activity-group":
+    case "turn-fold":
+    case "context-compaction":
+    case "working":
+    case "thinking":
+    case "assistant-meta":
+      return true;
+    case "message":
+      return row.message.role === "reasoning";
+    default:
+      return false;
+  }
+}
 
+/**
+ * Bubbles breathe; harness rows pack tight so a run of them reads as one quiet
+ * stretch between two bubbles. An open tool group keeps its header glued to
+ * its list.
+ */
+function timelineRowSpacingClass(row: TimelineRow): string {
+  if (row.kind === "work" && row.isExpandedToolGroup) return "pt-0 pb-1";
+  if ((row.kind === "work-toggle" || row.kind === "work-live") && row.expanded) {
+    return "pt-1 pb-0";
+  }
+  return isHarnessRow(row) || row.kind === "worktree-setup" ? "py-1" : "py-3";
+}
+
+/**
+ * Harness rows are centred, so their hover-only timestamp is pinned to the end
+ * instead of joining the row's flow and nudging the centred label.
+ */
+const HARNESS_TIMESTAMP_CLASS =
+  "end-0 group-hover/timeline-row:absolute group-focus-within/timeline-row:absolute";
+
+const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: TimelineRow }) {
   return (
     <div
       className={cn(
-        // Commentary (non-terminal assistant) rows carry no metadata row, so
-        // they sit closer to the work that follows them.
-        isExpandedToolGroup
-          ? "pb-1"
-          : isExpandedToolGroupHeader
-            ? "pb-0"
-            : row.kind === "turn-fold" || row.kind === "working"
-              ? "pb-1.5"
-              : (row.kind === "message" &&
-                    row.message.role === "assistant" &&
-                    !row.showAssistantMeta) ||
-                  (row.kind === "message" && row.message.role === "reasoning") ||
-                  row.kind === "work" ||
-                  row.kind === "work-live" ||
-                  row.kind === "work-toggle" ||
-                  row.kind === "activity-group" ||
-                  row.kind === "thinking" ||
-                  row.kind === "worktree-setup"
-                ? "pb-2"
-                : "pb-4",
+        timelineRowSpacingClass(row),
+        isHarnessRow(row) ? "chat-harness" : null,
         (row.kind === "message" && row.message.role === "assistant") ||
           row.kind === "assistant-meta"
           ? "group/assistant"
@@ -1795,7 +1820,7 @@ function QueuedMessageTimelineRow({
         ? "Sends after the next tool call or when the turn ends"
         : "Sends after the messages above it";
   return (
-    <div className="flex flex-col items-end" data-queued-message-id={queuedMessage.id}>
+    <div className="flex flex-col items-end pe-2.5" data-queued-message-id={queuedMessage.id}>
       <div className="max-w-[80%] rounded-2xl border border-dashed border-border p-3 text-message-foreground/80">
         {text.length > 0 ? (
           <UserMessageBody text={text} skills={ctx.skills} markdownCwd={ctx.markdownCwd} />
@@ -1884,7 +1909,7 @@ function ContextCompactionTimelineRow({
     <div
       role="separator"
       aria-label={row.label}
-      className="mx-auto flex w-full max-w-(--chat-max-width) items-center gap-3 py-1 text-muted-foreground text-xs"
+      className="mx-auto flex w-full max-w-(--chat-max-width) items-center gap-3 py-1 text-secondary-label text-xs"
     >
       <span className="h-px flex-1 bg-border/70" />
       <span className="flex shrink-0 items-center gap-1.5">
@@ -2106,8 +2131,8 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   );
 
   return (
-    <div className="group flex flex-col items-end gap-1">
-      <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
+    <div className="group flex flex-col items-end gap-1 pe-2.5">
+      <div data-bubble="user" className="chat-bubble max-w-[80%] rounded-2xl p-3">
         <MessageAuthorHeading>You</MessageAuthorHeading>
         {(regularImages.length > 0 || userVideos.length > 0) && (
           <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">
@@ -2355,21 +2380,23 @@ function TurnFoldTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "turn-
   const Icon = row.expanded ? ChevronDownIcon : ChevronRightIcon;
 
   return (
-    <div className="group/timeline-row relative flex items-center gap-1 border-b border-border/60 pb-2 pe-0.5 pt-1">
+    <div className="group/timeline-row relative flex items-center gap-3 pe-0.5">
+      <span aria-hidden className="h-px flex-1 bg-border/60" />
       <button
         type="button"
         aria-expanded={row.expanded}
         data-scroll-anchor-ignore
         onClick={() => ctx.onToggleTurnFold(row.turnId)}
-        className="flex cursor-pointer select-none items-center gap-1 rounded-md px-1 text-sm leading-relaxed text-muted-foreground tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+        className="flex shrink-0 cursor-pointer select-none items-center gap-1 rounded-md px-1 text-xs leading-relaxed text-secondary-label tabular-nums transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       >
         <span>{row.label}</span>
         <Icon className="size-3.5" />
       </button>
+      <span aria-hidden className="h-px flex-1 bg-border/60" />
       <TimelineRowTimestamp
         createdAt={row.createdAt}
         timestampFormat={ctx.timestampFormat}
-        className="ms-auto"
+        className={cn(HARNESS_TIMESTAMP_CLASS, "bg-background")}
       />
     </div>
   );
@@ -2380,9 +2407,20 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
   const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
 
   return (
-    <>
-      <div className="relative min-w-0 px-1 py-0.5">
-        <MessageAuthorHeading>{APP_BASE_NAME}</MessageAuthorHeading>
+    <div className="relative min-w-0 ps-2.5">
+      <MessageAuthorHeading>{ctx.assistantName}</MessageAuthorHeading>
+      {row.showAssistantIdentity ? (
+        <p
+          aria-hidden
+          className="mb-1 ps-3.5 text-muted-foreground text-xs font-medium leading-none select-none"
+        >
+          {ctx.assistantName}
+        </p>
+      ) : null}
+      <div
+        data-bubble="assistant"
+        className="chat-bubble min-w-0 w-fit max-w-[85%] rounded-2xl px-3.5 py-2.5"
+      >
         <AssistantCitationSource
           messageId={row.message.id}
           {...(ctx.threadRef ? { threadRef: ctx.threadRef } : {})}
@@ -2403,22 +2441,24 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
             onImageExpand={ctx.onImageExpand}
           />
         </AssistantCitationSource>
+      </div>
+      <div className="mt-2 empty:hidden">
         <AssistantChangedFilesSection
           turnSummary={row.assistantTurnDiffSummary}
           routeThreadKey={ctx.routeThreadKey}
           resolvedTheme={ctx.resolvedTheme}
           onOpenTurnDiff={ctx.onOpenTurnDiff}
         />
-        {row.showAssistantMeta ? (
-          <AssistantMessageMeta
-            className="mt-1.5"
-            message={row.message}
-            showCopyButton={row.showAssistantCopyButton}
-            copyStreaming={row.assistantCopyStreaming}
-          />
-        ) : null}
       </div>
-    </>
+      {row.showAssistantMeta ? (
+        <AssistantMessageMeta
+          className="mt-1 ps-3.5"
+          message={row.message}
+          showCopyButton={row.showAssistantCopyButton}
+          copyStreaming={row.assistantCopyStreaming}
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -2428,7 +2468,7 @@ function AssistantMetaTimelineRow({
   row: Extract<TimelineRow, { kind: "assistant-meta" }>;
 }) {
   return (
-    <div className="px-1">
+    <div className="ps-6">
       <AssistantMessageMeta
         className="mt-0.5"
         message={row.message}
@@ -2544,8 +2584,8 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
     "Working..."
   );
   return (
-    <div className="border-b border-border/60 pb-2 pt-1">
-      <div className="flex h-6 min-w-0 items-baseline gap-2 px-1 text-sm leading-relaxed text-muted-foreground tabular-nums">
+    <div className="pt-1">
+      <div className="flex h-6 min-w-0 items-baseline justify-center gap-2 px-1 text-xs leading-relaxed text-secondary-label tabular-nums">
         <span
           ref={shimmer ? observeVisibleAnimation : undefined}
           className="relative shrink-0 overflow-hidden whitespace-nowrap"
@@ -2684,7 +2724,7 @@ function ActivityGroupTimelineRow({
     <div>
       <button
         type="button"
-        className="group/live-work flex min-h-6 w-full max-w-full cursor-pointer items-center rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+        className="group/live-work flex min-h-6 w-full max-w-full cursor-pointer items-center justify-center rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
         aria-label={failed ? `${label}, tool call failed` : undefined}
         aria-expanded={row.expanded}
         onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
@@ -2707,7 +2747,7 @@ function ThinkingTimelineRow() {
   const { isCompacting, isPreparingWorktree } = use(TimelineRowActivityCtx);
   // Reserve the activity row during setup so the handoff keeps the same height.
   return (
-    <div className="min-h-7">
+    <div className="flex min-h-7 justify-center">
       {isPreparingWorktree || isCompacting ? null : (
         <LiveActivityRow label="Thinking" iconName="brain" active shimmer />
       )}
@@ -2784,14 +2824,14 @@ function ReasoningTraceBlock({
           type="button"
           aria-expanded={expanded}
           onClick={() => ctx.onToggleReasoning(first.id, !expanded, anchorKey)}
-          className="flex min-h-6 cursor-pointer select-none items-center gap-1.5 rounded-md ps-0.5 pe-2 text-start text-sm leading-relaxed transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+          className="flex min-h-6 cursor-pointer select-none items-center gap-1.5 self-center rounded-md ps-0.5 pe-2 text-start text-xs leading-relaxed transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
         >
           <span className="flex size-6 shrink-0 items-center justify-center text-icon-muted">
             <BrainIcon aria-hidden className="block size-4 shrink-0 stroke-2 opacity-70" />
           </span>
           <span
             ref={streaming ? observeVisibleAnimation : undefined}
-            className="relative min-w-0 flex-1 truncate text-secondary-label"
+            className="relative min-w-0 truncate text-secondary-label"
           >
             {headerText}
             {streaming ? <ActivityShimmerOverlay>{headerText}</ActivityShimmerOverlay> : null}
@@ -2857,13 +2897,13 @@ const ReasoningTimelineRow = memo(function ReasoningTimelineRow({
         type="button"
         aria-expanded={expanded}
         onClick={toggle}
-        className="flex cursor-pointer select-none items-center gap-1.5 rounded-md px-0.5 py-0.5 text-start transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+        className="flex cursor-pointer select-none items-center gap-1.5 self-center rounded-md px-0.5 py-0.5 text-start transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       >
         <span className="flex size-6 shrink-0 items-center justify-center text-icon-muted">
           <BrainIcon aria-hidden className="block size-4 shrink-0 stroke-2 opacity-70" />
         </span>
-        <span className="flex min-w-0 flex-1 items-center gap-1.5">
-          <span className="relative min-w-0 flex-1 truncate text-secondary-label text-sm leading-relaxed">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="relative min-w-0 truncate text-secondary-label text-xs leading-relaxed">
             Thought
           </span>
           <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden>
@@ -3180,7 +3220,7 @@ function LiveActivityRow({
   return (
     <div
       ref={animated ? observeVisibleAnimation : undefined}
-      className="relative min-h-6 w-fit max-w-full min-w-0 overflow-hidden rounded-md text-sm leading-relaxed"
+      className="relative min-h-6 w-fit max-w-full min-w-0 overflow-hidden rounded-md text-xs leading-relaxed"
     >
       <LiveActivityContent
         label={label}
@@ -3269,7 +3309,7 @@ function LiveWorkEntryTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "
   return (
     <button
       type="button"
-      className="group/live-work flex min-h-6 w-full max-w-full cursor-pointer items-center rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+      className="group/live-work flex min-h-6 w-full max-w-full cursor-pointer items-center justify-center rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       aria-label={failed ? `${label}, tool call failed` : undefined}
       aria-expanded={row.expanded}
       onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
@@ -3349,7 +3389,7 @@ function WorkGroupToggleTimelineRow({
   return (
     <button
       type="button"
-      className="group/tool-group group/timeline-row relative flex min-h-6 w-full cursor-pointer items-center gap-1.5 rounded-md px-0.5 py-0.5 text-left text-sm leading-relaxed transition-colors duration-150 hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+      className="group/tool-group group/timeline-row relative flex min-h-6 w-full cursor-pointer items-center justify-center gap-1.5 rounded-md px-0.5 py-0.5 text-left text-xs leading-relaxed transition-colors duration-150 hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       aria-label={row.hasFailure ? `${row.summary}, tool call failed` : undefined}
       aria-expanded={row.expanded}
       onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
@@ -3364,8 +3404,12 @@ function WorkGroupToggleTimelineRow({
           muted
         />
       </span>
-      <span className="min-w-0 flex-1 truncate text-secondary-label">{row.summary}</span>
-      <TimelineRowTimestamp createdAt={row.createdAt} timestampFormat={ctx.timestampFormat} />
+      <span className="min-w-0 truncate text-secondary-label">{row.summary}</span>
+      <TimelineRowTimestamp
+        createdAt={row.createdAt}
+        timestampFormat={ctx.timestampFormat}
+        className={HARNESS_TIMESTAMP_CLASS}
+      />
     </button>
   );
 }
@@ -4460,7 +4504,7 @@ function buildToolCallExpandedBody(
 }
 
 const toolCallExpandedBodyClassName =
-  "max-h-64 cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-secondary-label text-(length:--font-size-code,var(--text-2xs)) leading-relaxed select-text";
+  "max-h-64 cursor-text overflow-auto whitespace-pre-wrap break-words font-mono text-muted-foreground text-(length:--font-size-code,var(--text-2xs)) leading-relaxed select-text";
 
 function workEntryIconName(workEntry: TimelineWorkEntry): WorkEntryIconName {
   if (
@@ -4553,7 +4597,7 @@ const AgentSpawnRow = memo(function AgentSpawnRow(props: {
         type="button"
         aria-expanded={expanded}
         onClick={toggleExpanded}
-        className="flex cursor-pointer select-none rounded-md text-left transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+        className="flex cursor-pointer select-none justify-center rounded-md text-left transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       >
         <LiveActivityRow
           label={workflowName ? `${lead} · ${workflowName}` : lead}
@@ -4755,6 +4799,8 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
     setExpandedState(next);
   };
   const iconConfig = workToneIcon(workEntry.tone);
+  // A standalone row is a centred line between bubbles; rows inside an open group form a left-aligned list.
+  const centered = !isExpandedToolGroupEntry;
   const showWarningIndicator = workEntry.sourceActivityKind === "runtime.warning";
   const showFailedIndicator = workEntryDisplayIndicatesToolFailure(workEntry);
   const showDestructiveRowStyle =
@@ -4816,9 +4862,7 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
     ? "font-medium text-warning"
     : showDestructiveRowStyle
       ? "font-medium text-destructive"
-      : workLogEntryIsToolLike(workEntry)
-        ? "text-secondary-label"
-        : "text-foreground/80";
+      : "text-secondary-label";
   const accessiblePreview = [previewText, answerPreview].filter(Boolean).join(": ");
   const accessibleDisplayText = showFailedIndicator
     ? `${accessiblePreview}, tool call failed`
@@ -4850,7 +4894,12 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
       )}
       {...rowToggleProps}
     >
-      <div className="flex select-none items-center gap-1.5 transition-[opacity,translate] duration-200">
+      <div
+        className={cn(
+          "flex select-none items-center gap-1.5 transition-[opacity,translate] duration-200",
+          centered && "justify-center",
+        )}
+      >
         <span
           className={iconWrapperClass}
           role={showFailedIndicator ? "img" : undefined}
@@ -4863,9 +4912,11 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
             muted
           />
         </span>
-        <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          <div className="min-w-0 flex-1 overflow-hidden">
-            <p className="flex min-w-0 w-full items-baseline gap-1.5 text-sm leading-relaxed">
+        <div
+          className={cn("flex min-w-0 items-center gap-1.5", centered ? "max-w-full" : "flex-1")}
+        >
+          <div className={cn("min-w-0 overflow-hidden", !centered && "flex-1")}>
+            <p className="flex min-w-0 w-full items-baseline gap-1.5 text-xs leading-relaxed">
               <span
                 className={cn(
                   answerPreview ? "shrink-0" : "min-w-0 flex-1",
@@ -4898,11 +4949,15 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
           !toolIconAcceptsTint(entryIconName, entryToolIcon) ? (
             <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
           ) : null}
-          <TimelineRowTimestamp createdAt={workEntry.createdAt} timestampFormat={timestampFormat} />
+          <TimelineRowTimestamp
+            createdAt={workEntry.createdAt}
+            timestampFormat={timestampFormat}
+            {...(centered ? { className: HARNESS_TIMESTAMP_CLASS } : {})}
+          />
           <span
             className={cn(
               "flex size-4 shrink-0 items-center justify-center",
-              !canExpand && "invisible",
+              !canExpand && (centered ? "hidden" : "invisible"),
             )}
             aria-hidden
           >

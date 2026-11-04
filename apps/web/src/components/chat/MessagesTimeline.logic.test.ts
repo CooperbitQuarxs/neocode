@@ -3249,6 +3249,50 @@ describe("deriveMessagesTimelineRows", () => {
     expect(assistantRows.map((row) => row.showAssistantMeta)).toEqual([false, true]);
   });
 
+  it("names the assistant once per turn, on its first bubble after the user's message", () => {
+    const message = (id: string, role: "user" | "assistant", at: number) => ({
+      id: `${id}-entry`,
+      kind: "message" as const,
+      createdAt: `2026-01-01T00:00:${String(at).padStart(2, "0")}Z`,
+      message: {
+        id: id as never,
+        role,
+        text: id,
+        turnId: "turn-1" as never,
+        createdAt: `2026-01-01T00:00:${String(at).padStart(2, "0")}Z`,
+        updatedAt: `2026-01-01T00:00:${String(at).padStart(2, "0")}Z`,
+        streaming: false,
+      },
+    });
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        message("assistant-earlier", "assistant", 1),
+        message("assistant-earlier-2", "assistant", 2),
+        message("user-1", "user", 3),
+        message("assistant-first", "assistant", 4),
+        message("assistant-second", "assistant", 5),
+      ],
+      expandedTurnIds: new Set(["turn-1" as never]),
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    });
+
+    expect(
+      rows.flatMap((row) =>
+        row.kind === "message" && row.message.role === "assistant"
+          ? [[row.message.id, row.showAssistantIdentity]]
+          : [],
+      ),
+    ).toEqual([
+      ["assistant-earlier", true],
+      ["assistant-earlier-2", false],
+      ["assistant-first", true],
+      ["assistant-second", false],
+    ]);
+  });
+
   it("withholds assistant metadata while the active turn is still in progress", () => {
     const rows = deriveMessagesTimelineRows({
       timelineEntries: [
