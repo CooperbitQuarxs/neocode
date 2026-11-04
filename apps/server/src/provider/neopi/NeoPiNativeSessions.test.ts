@@ -161,6 +161,20 @@ const fixture = (attachment: "owned" | "terminal" = "owned") =>
                     native.acceptedPrompts++;
                     native.streaming = true;
                     return { userEntryId: "native-admission" };
+                  case "dictation_start":
+                    yield* publish({
+                      type: "dictation_state",
+                      captureId: "captureId" in command ? String(command.captureId) : "",
+                      state: "recording",
+                    });
+                    return undefined;
+                  case "dictation_stop":
+                    yield* publish({
+                      type: "dictation_end",
+                      captureId: "capture-1",
+                      text: "hello",
+                    });
+                    return { text: "hello" };
                   case "abort":
                     native.aborts++;
                     native.streaming = false;
@@ -605,6 +619,43 @@ describe("canonical native session lifecycle", () => {
         assert.equal(native.running, true);
         assert.equal(native.disposals, 0);
       }).pipe(Effect.scoped),
+  );
+
+  it.effect("passes dictation commands to the native owner and forwards its frames", () =>
+    Effect.gen(function* () {
+      const { service } = yield* fixture();
+      yield* service.open({ ...originalRef });
+      const watching = yield* Deferred.make<void>();
+      const observer = yield* service.watch({ ref: originalRef }).pipe(
+        Stream.tap((event) =>
+          event.type === "snapshot" ? Deferred.succeed(watching, undefined) : Effect.void,
+        ),
+        Stream.filter(
+          (event) => event.type === "event" && event.frame.type.startsWith("dictation_"),
+        ),
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      yield* Deferred.await(watching);
+      yield* service.request({
+        ref: originalRef,
+        command: { type: "dictation_start", captureId: "capture-1" },
+      });
+      assert.deepEqual(
+        yield* service.request({ ref: originalRef, command: { type: "dictation_stop" } }),
+        { text: "hello" },
+      );
+      assert.deepEqual(
+        Array.from(yield* Fiber.join(observer), (event) =>
+          event.type === "event" ? event.frame : null,
+        ),
+        [
+          { type: "dictation_state", captureId: "capture-1", state: "recording" },
+          { type: "dictation_end", captureId: "capture-1", text: "hello" },
+        ],
+      );
+    }).pipe(Effect.scoped),
   );
 
   it.effect("detaches terminal control without aborting or disposing the external owner", () =>
