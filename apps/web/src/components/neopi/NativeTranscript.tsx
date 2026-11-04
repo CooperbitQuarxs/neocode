@@ -45,6 +45,7 @@ import {
   useMemo,
   useState,
   type KeyboardEvent,
+  type MouseEvent,
   type ReactNode,
 } from "react";
 import ChatMarkdown from "../ChatMarkdown";
@@ -520,7 +521,10 @@ const ToolRowView = memo(function ToolRowView({ row }: { row: ToolRow }) {
       toggle();
     }
   };
-  const showDetail = row.detail !== null && row.detail !== row.label && row.call.intent !== null;
+  // Only a click that ends a real text selection is withheld from the toggle.
+  const onLabelClick = (event: MouseEvent<HTMLElement>) => {
+    if (open && (window.getSelection()?.toString().length ?? 0) > 0) event.stopPropagation();
+  };
   return (
     <div
       role="button"
@@ -549,20 +553,13 @@ const ToolRowView = memo(function ToolRowView({ row }: { row: ToolRow }) {
         <p className="flex min-w-0 flex-1 items-baseline gap-1.5 text-sm leading-relaxed">
           <span
             className={cn(
-              "min-w-0 text-secondary-label",
+              "min-w-0 flex-1 text-secondary-label",
               open ? "whitespace-pre-wrap break-words select-text" : "truncate",
-              showDetail ? "shrink-0" : "flex-1",
             )}
-            onClick={open ? stopRowToggle : undefined}
-            onPointerDown={open ? stopRowToggle : undefined}
+            onClick={onLabelClick}
           >
             {row.label}
           </span>
-          {showDetail ? (
-            <span className="min-w-0 flex-1 truncate font-mono text-2xs text-muted-foreground">
-              {row.detail}
-            </span>
-          ) : null}
         </p>
         {failed ? <XIcon aria-hidden className="size-3 shrink-0 text-tool-error-icon/70" /> : null}
         {pending ? (
@@ -570,9 +567,6 @@ const ToolRowView = memo(function ToolRowView({ row }: { row: ToolRow }) {
             ·
           </span>
         ) : null}
-        <span className="shrink-0 font-mono text-3xs text-muted-foreground/70">
-          {row.call.name}
-        </span>
         <RowClock timestamp={row.timestamp} />
         <Chevron open={open} />
       </div>
@@ -598,12 +592,12 @@ const ToolRowView = memo(function ToolRowView({ row }: { row: ToolRow }) {
 
 const WorkToggleRowView = memo(function WorkToggleRowView({ row }: { row: WorkToggleRow }) {
   const ctx = use(NativeTranscriptCtx);
-  const label = `${row.count} steps${row.failed ? ` · ${row.failed} failed` : ""}`;
+  const label = `Worked through ${row.count} steps${row.failed ? ` · ${row.failed} failed` : ""}`;
   return (
     <button
       type="button"
       onClick={() => ctx.onToggleGroup(row.groupId)}
-      aria-expanded={false}
+      aria-expanded={row.expanded}
       className="group/row flex w-full cursor-pointer select-none items-center gap-1.5 rounded-md px-0.5 py-0.5 text-start transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
     >
       <span className="flex size-6 shrink-0 items-center justify-center text-icon-muted">
@@ -611,12 +605,14 @@ const WorkToggleRowView = memo(function WorkToggleRowView({ row }: { row: WorkTo
       </span>
       <span className="flex min-w-0 flex-1 items-baseline gap-1.5 text-sm leading-relaxed">
         <span className="shrink-0 text-secondary-label">{label}</span>
-        <span className="min-w-0 flex-1 truncate text-2xs text-muted-foreground">
-          {row.preview.join(" · ")}
-        </span>
+        {!row.expanded ? (
+          <span className="min-w-0 flex-1 truncate text-2xs text-muted-foreground">
+            {row.preview.join(" · ")}
+          </span>
+        ) : null}
       </span>
       <RowClock timestamp={row.timestamp} />
-      <Chevron open={false} />
+      <Chevron open={row.expanded} />
     </button>
   );
 });

@@ -1022,7 +1022,24 @@ export const makeNeoPiNativeSessions = Effect.fn("NeoPiNativeSessions.make")(fun
               )
                 capabilities.add("device");
               const tools = yield* pump.bind(ref, capabilities);
-              yield* client.request({ type: "set_host_tools", tools });
+              const registered = yield* client
+                .request({ type: "set_host_tools", tools })
+                .pipe(Effect.result);
+              if (registered._tag === "Success") return;
+              // NeoPi keeps host-tool names session-global: a second NeoCode
+              // attaching to the same session cannot take them over. Stay
+              // attached without them and say so, rather than failing the attach.
+              if (!/conflicts with an existing tool/i.test(String(registered.failure.message)))
+                return yield* registered.failure;
+              yield* pump.revoke;
+              yield* publish({
+                type: "extension_ui_request",
+                id: "neocode-host-tools",
+                method: "setStatus",
+                statusKey: "hostTools",
+                statusText:
+                  "Browser preview and device tools stay with the NeoCode window that attached first; this window follows the session without them.",
+              } as SessionEventFrame);
             }).pipe(Effect.mapError(nativeError)),
         };
         return { client, hostTools };
