@@ -450,6 +450,14 @@ export function createNativeSessionAtoms<R, E>(
           registry.refresh(list({ environmentId: target.environmentId, input: {} })),
         ),
     }),
+    setSettled: createEnvironmentRpcCommand(runtime, {
+      label: "native-sessions:set-settled",
+      tag: WS_METHODS.neopiNativeSessionsSetSettled,
+      onSuccess: (target, registry) =>
+        Effect.sync(() =>
+          registry.refresh(list({ environmentId: target.environmentId, input: {} })),
+        ),
+    }),
     watch,
     cached: (target: NativeSessionTarget) => cache.get(nativeSessionKey(target)),
   };

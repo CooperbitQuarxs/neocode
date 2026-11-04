@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
+import { AgentLabel } from "./AgentLabel";
 import { agentIdentity, nativeSessionIdentityKey } from "@t3tools/shared/agentNames";
 import type { NativeSessionList } from "@t3tools/client-runtime/neopi-native-sessions";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
@@ -27,6 +28,7 @@ import {
 } from "../ui/sidebar";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
+import { NativeEnvironmentAttentionList } from "./NativeSessionAttentionList";
 
 export function useOpenNativeSession() {
   const open = useAtomCommand(nativeSessionAtoms.open, { reportFailure: false });
@@ -46,6 +48,8 @@ export function useOpenNativeSession() {
     [navigate, open],
   );
 }
+
+export type OpenNativeSession = ReturnType<typeof useOpenNativeSession>;
 
 export function useCreateNativeSession() {
   const configs = useServerConfigs();
@@ -94,6 +98,7 @@ export function useCreateNativeSession() {
 export function NativeSessionSidebar() {
   const { environments } = useEnvironments();
   const create = useCreateNativeSession();
+  const open = useOpenNativeSession();
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -143,11 +148,12 @@ export function NativeSessionSidebar() {
         }
       >
         {environments.map((environment) => (
-          <NativeEnvironmentSessions
+          <NativeEnvironmentAttentionList
             key={environment.environmentId}
             environmentId={environment.environmentId}
             label={environment.label}
             query={query}
+            open={open}
           />
         ))}
         {saved.length ? (
@@ -222,9 +228,7 @@ const NativeSessionRow = memo(function NativeSessionRow({
           {locked ? (
             <LockIcon className="size-3 text-icon-muted" aria-label="In use by another process" />
           ) : null}
-          <span className="text-3xs text-secondary-label" title={identity.pronouns}>
-            {identity.label}
-          </span>
+          <AgentLabel identity={identity} />
           <span className="text-3xs tabular-nums text-secondary-label">
             {formatRelativeTimeLabel(session.modifiedAt)}
           </span>
