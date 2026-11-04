@@ -32,7 +32,18 @@ import { isElectron } from "../../env";
 import { useCreateNativeSession } from "./NativeSessionSidebar";
 import { NativeSessionTree } from "./NativeSessionTree";
 import { NativeTimelineView, nativeTimelineKey } from "./NativeTimelineView";
-import { nativeQueuedMessages, parseNativeQueuedMessageId } from "./nativeTimeline";
+import {
+  nativeQueuedMessages,
+  nextPromotableNativeQueuedMessageId,
+  parseNativeQueuedMessageId,
+} from "./nativeTimeline";
+import {
+  nativeTraitsCommands,
+  nativeTraitsDescriptors,
+  nativeTraitsModels,
+  nativeTraitsStateFromSession,
+  parseNativeThinkingLevels,
+} from "./nativeTraits";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useEnvironmentQuery } from "../../state/query";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
@@ -348,6 +359,13 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
     },
     [request],
   );
+  // Enter on an empty composer sends the oldest queued follow-up now.
+  const sendNextQueuedNow = useCallback(() => {
+    const id = nextPromotableNativeQueuedMessageId(queuedMessages);
+    if (id === null) return false;
+    steerQueued(id);
+    return true;
+  }, [queuedMessages, steerQueued]);
   const removeQueued = useCallback(
     (id: string) => {
       const queued = parseNativeQueuedMessageId(id);
@@ -387,6 +405,61 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
     [conversation.entries],
   );
   const model = nativeRecord(state.model);
+  const modelId = typeof model.id === "string" ? model.id : null;
+  const thinkingLevelsKey = `${String(model.provider)}/${String(modelId)}`;
+  const [thinkingLevels, setThinkingLevels] = useState<{
+    readonly key: string;
+    readonly levels: readonly string[];
+  } | null>(null);
+  // The levels belong to the model; ask NeoPi again whenever the model changes.
+  useEffect(() => {
+    if (!feed.connected || modelId === null) return;
+    let active = true;
+    void request({ type: "get_available_thinking_levels" })
+      .then((value) => {
+        if (active)
+          setThinkingLevels({ key: thinkingLevelsKey, levels: parseNativeThinkingLevels(value) });
+      })
+      .catch((cause) => {
+        if (active) setLocalError(String(cause));
+      });
+    return () => {
+      active = false;
+    };
+  }, [feed.connected, modelId, thinkingLevelsKey, request]);
+  const nativeThinkingLevel = typeof state.thinkingLevel === "string" ? state.thinkingLevel : null;
+  const nativeFastModeEnabled = state.fastModeEnabled === true;
+  const changeTraits = useCallback(
+    async (next: Parameters<typeof nativeTraitsCommands>[1]) => {
+      try {
+        for (const command of nativeTraitsCommands(
+          { thinkingLevel: nativeThinkingLevel, fastModeEnabled: nativeFastModeEnabled },
+          next,
+        ))
+          await execute(command);
+      } catch (cause) {
+        setLocalError(cause instanceof Error ? cause.message : String(cause));
+      }
+    },
+    [execute, nativeThinkingLevel, nativeFastModeEnabled],
+  );
+  const traits = useMemo(() => {
+    if (modelId === null) return null;
+    const descriptors = nativeTraitsDescriptors(
+      nativeTraitsStateFromSession(
+        state,
+        thinkingLevels?.key === thinkingLevelsKey ? thinkingLevels.levels : [],
+      ),
+    );
+    return descriptors.length === 0
+      ? null
+      : {
+          model: modelId,
+          models: nativeTraitsModels(modelId, descriptors),
+          onModelOptionsChange: (next: Parameters<typeof nativeTraitsCommands>[1]) =>
+            void changeTraits(next),
+        };
+  }, [modelId, state, thinkingLevels, thinkingLevelsKey, changeTraits]);
   const nativeCommands = useMemo(
     () =>
       commands.flatMap((command) =>
@@ -575,7 +648,8 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
                 modelLabel: String(model.name ?? model.id ?? "Choose native model"),
                 displayState:
                   [
-                    state.thinkingLevel,
+                    // The effort selector already shows the level once NeoPi has listed levels.
+                    traits ? null : state.thinkingLevel,
                     // Chat mode is NeoPi's no-tools conversation mode; only an active one is news.
                     typeof state.chatMode === "string" && state.chatMode !== "off"
                       ? `Chat ${state.chatMode}`
@@ -584,6 +658,8 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
                     .filter((value) => typeof value === "string")
                     .join(" · ") || null,
                 commands: nativeCommands,
+                traits,
+                onSendQueuedNow: sendNextQueuedNow,
                 promptHistory,
                 modelPickerOpen: models,
                 onOpenModelPicker: () => setModels(true),
