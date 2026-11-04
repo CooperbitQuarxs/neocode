@@ -276,6 +276,16 @@ export function createNativeSessionAtoms<R, E>(
                 cache.get(key) ?? emptyNativeSessionFeed(),
                 (feed) => {
                   cache.set(key, feed);
+                  // The moved session's own observation starts from what is
+                  // already known, so the transcript does not flash empty.
+                  if (feed.movedTo)
+                    cache.set(
+                      nativeSessionKey({
+                        environmentId: supervisor.target.environmentId,
+                        ref: feed.movedTo,
+                      }),
+                      { ...feed, movedTo: null, connected: false },
+                    );
                 },
               );
             }),

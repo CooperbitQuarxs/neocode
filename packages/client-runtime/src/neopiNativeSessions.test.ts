@@ -712,6 +712,42 @@ describe("canonical native client projection", () => {
     expect(feed.error).not.toBeNull();
   });
 
+  it("follows a same-session move to a new file and keeps the transcript", () => {
+    const moved = "/sessions/worktree/moved.jsonl";
+    const feed = reduceNativeSessionFeed(initial(), {
+      type: "event",
+      frame: {
+        type: "journal_state",
+        reason: "identity",
+        sessionId: session.sessionId,
+        sessionFile: moved,
+        leafId: user.id,
+      },
+    });
+    expect(feed.movedTo).toEqual({ ...ref, sessionFile: moved });
+    expect(feed.session?.ref).toEqual({ ...ref, sessionFile: moved });
+    expect(feed.conversation.identity?.sessionFile).toBe(moved);
+    expect(feed.conversation.entries).toEqual([user]);
+    expect(feed.connected).toBe(true);
+    expect(feed.error).toBeNull();
+  });
+
+  it("does not follow a move that carries a different session id", () => {
+    const feed = reduceNativeSessionFeed(initial(), {
+      type: "event",
+      frame: {
+        type: "journal_state",
+        reason: "identity",
+        sessionId: "someone-else",
+        sessionFile: "/sessions/worktree/other.jsonl",
+        leafId: user.id,
+      },
+    });
+    expect(feed.movedTo).toBeNull();
+    expect(feed.session?.ref).toEqual(ref);
+    expect(feed.error).not.toBeNull();
+  });
+
   it("resets the transcript and old dialogs when native replaces identity within the same file", () => {
     let feed = reduceNativeSessionFeed(initial(), {
       type: "event",
