@@ -111,6 +111,8 @@ export const ServerProviderSlashCommand = Schema.Struct({
   source: Schema.optional(
     Schema.Literals(["builtin", "extension", "custom", "mcp_prompt", "file"]),
   ),
+  /** `tui`: NeoPi runs this command only in a terminal session's editor. */
+  availability: Schema.optional(Schema.Literal("tui")),
 });
 export type ServerProviderSlashCommand = typeof ServerProviderSlashCommand.Type;
 
@@ -794,7 +796,6 @@ export const ServerProviderUpdatedPayload = Schema.Struct({
   providers: ServerProviders,
 });
 export type ServerProviderUpdatedPayload = typeof ServerProviderUpdatedPayload.Type;
-
 
 export const ServerSelfUpdateInput = Schema.Struct({
   /** Exact npm version of the `t3` package to install (never a dist-tag, so

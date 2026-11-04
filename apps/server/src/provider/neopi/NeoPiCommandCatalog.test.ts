@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
-import { toNeoPiCommandCatalog } from "./NeoPiCommandCatalog.ts";
+import {
+  neoPiSlashCommandName,
+  neoPiTerminalTextRoute,
+  toNeoPiCommandCatalog,
+} from "./NeoPiCommandCatalog.ts";
 import { NEOPI_CAPABILITIES } from "./NeoPiCompatibility.ts";
 
 describe("NeoPi command catalog", () => {
@@ -56,5 +60,43 @@ describe("NeoPi command catalog", () => {
     expect(
       toNeoPiCommandCatalog(commands, new Set([NEOPI_CAPABILITIES.setChatMode])).slashCommands[0],
     ).toMatchObject({ name: "chat", input: { hint: "chat|erp|raw|off" } });
+  });
+  it("marks commands NeoPi runs only in its terminal UI", () => {
+    expect(
+      toNeoPiCommandCatalog([
+        { name: "personality", source: "builtin", availability: "tui" },
+        { name: "usage", source: "builtin", availability: "headless" },
+      ]).slashCommands,
+    ).toEqual([
+      { name: "personality", source: "builtin", availability: "tui" },
+      { name: "usage", source: "builtin" },
+    ]);
+  });
+});
+
+describe("terminal slash routing", () => {
+  const listed = [
+    { name: "personality", availability: "tui" },
+    { name: "usage", aliases: ["u"], availability: "headless" },
+    { name: "skill:unslop", source: "skill", availability: "headless" },
+  ];
+  it("reads command tokens the way NeoPi's TUI does", () => {
+    expect(neoPiSlashCommandName("/personality Angel")).toBe("personality");
+    expect(neoPiSlashCommandName("/skill:unslop now")).toBe("skill:unslop");
+    expect(neoPiSlashCommandName("/etc/hosts is wrong")).toBeUndefined();
+    expect(neoPiSlashCommandName(" /usage")).toBeUndefined();
+    expect(neoPiSlashCommandName("hello /usage")).toBeUndefined();
+  });
+  it("sends TUI-only commands to the pane and keeps the rest on the prompt path", () => {
+    expect(neoPiTerminalTextRoute("/personality Angel", listed, true)).toBe("tui");
+    expect(neoPiTerminalTextRoute("/u", listed, true)).toBe("rpc");
+    expect(neoPiTerminalTextRoute("/skill:unslop", listed, true)).toBe("rpc");
+    expect(neoPiTerminalTextRoute("/unknown thing", listed, true)).toBe("rpc");
+    expect(neoPiTerminalTextRoute("/tmp/x", listed, true)).toBe("rpc");
+    expect(neoPiTerminalTextRoute("plain prompt", listed, true)).toBe("rpc");
+  });
+  it("lets the pane parse unlisted names when NeoPi lists only headless commands", () => {
+    expect(neoPiTerminalTextRoute("/personality Angel", [{ name: "usage" }], false)).toBe("tui");
+    expect(neoPiTerminalTextRoute("/usage", [{ name: "usage" }], false)).toBe("rpc");
   });
 });

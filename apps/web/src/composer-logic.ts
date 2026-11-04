@@ -1,3 +1,4 @@
+import { nativeSlashArgument } from "@t3tools/client-runtime/neopi-native-sessions";
 import type { ClientSettings } from "@t3tools/contracts/settings";
 import type { AssistantCitation } from "@t3tools/contracts";
 import {
@@ -9,7 +10,12 @@ import {
   type ComposerPromptSegment,
 } from "./composer-editor-mentions";
 
-export type ComposerTriggerKind = "path" | "pull-request" | "slash-command" | "skill";
+export type ComposerTriggerKind =
+  | "path"
+  | "pull-request"
+  | "slash-command"
+  | "slash-argument"
+  | "skill";
 export type ComposerSlashCommand = "model" | "plan" | "default";
 export type ComposerSubmissionIntent = "foreground" | "background" | "alternate";
 
@@ -18,6 +24,8 @@ export interface ComposerTrigger {
   query: string;
   rangeStart: number;
   rangeEnd: number;
+  /** `slash-argument`: the command whose argument text `query` is. */
+  command?: string;
 }
 
 export function formatAssistantCitationForComposer(citation: AssistantCitation, comment = "") {
@@ -256,13 +264,30 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
   if (!token.startsWith("@")) {
     return null;
   }
-
   return {
     kind: "path",
     query: token.slice(1),
     rangeStart: tokenStart,
     rangeEnd: cursor,
   };
+}
+
+/** Argument text of a leading slash command, for composers whose provider completes arguments. */
+export function detectComposerSlashArgument(
+  text: string,
+  cursorInput: number,
+): ComposerTrigger | null {
+  const cursor = clampCursor(text, cursorInput);
+  const argument = nativeSlashArgument(text, cursor);
+  return argument
+    ? {
+        kind: "slash-argument",
+        command: argument.command,
+        query: argument.prefix,
+        rangeStart: argument.start,
+        rangeEnd: cursor,
+      }
+    : null;
 }
 
 /** Caret and trigger after replacing composer text and continuing at the end. */

@@ -3,6 +3,7 @@ import type {
   NeoPiJournalEntry,
   NeoPiJournalPage,
   NeoPiNativeSessionRef,
+  ServerProviderSlashCommand,
   WS_METHODS,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -164,6 +165,8 @@ export interface NativeSessionFeed {
   readonly dialogs: readonly Record<string, unknown>[];
   readonly notices: Readonly<Record<string, string>>;
   readonly commandOutputs: readonly NativeCommandOutput[];
+  /** Bumped when NeoPi announces a changed command list; readers re-request it. */
+  readonly commandsRevision: number;
   readonly agents: readonly NativeSubagent[];
   readonly agentsRevision: number;
   readonly agentsEpoch: number;
@@ -195,6 +198,7 @@ export const emptyNativeSessionFeed = (): NativeSessionFeed => ({
   dialogs: [],
   notices: {},
   commandOutputs: [],
+  commandsRevision: 0,
   agents: [],
   agentsRevision: 0,
   agentsEpoch: 0,
@@ -525,6 +529,8 @@ export function reduceNativeSessionFeed(
         },
       ],
     };
+  if (frame.type === "available_commands_update")
+    next = { ...next, commandsRevision: next.commandsRevision + 1 };
   if (
     (frame.type === "tool_approval_request" || frame.type === "plan_proposal_request") &&
     typeof frame.id === "string"
@@ -664,5 +670,97 @@ export function nativeCatalogModels(value: unknown): readonly NativeCatalogModel
           },
         ]
       : [];
+  });
+}
+
+/** NeoPi serves `get_command_completions` when it advertises this. */
+export const NATIVE_COMMAND_COMPLETIONS_CAPABILITY = "command_completions";
+
+export type NativeSlashCommand = ServerProviderSlashCommand & {
+  readonly aliases?: readonly string[];
+};
+
+const SLASH_COMMAND_SOURCES = new Set(["builtin", "extension", "custom", "mcp_prompt", "file"]);
+const nonEmpty = (value: unknown) =>
+  typeof value === "string" && value.trim() ? value.trim() : undefined;
+
+/** NeoPi's own command list (`get_available_commands`), as the composer menu offers it. */
+export function nativeSlashCommands(value: unknown): readonly NativeSlashCommand[] {
+  const source = nativeRecord(value).commands;
+  if (!Array.isArray(source)) return [];
+  return source.flatMap((item) => {
+    const command = nativeRecord(item);
+    const name = nonEmpty(command.name);
+    if (!name) return [];
+    const description = nonEmpty(command.description);
+    const hint = nonEmpty(nativeRecord(command.input).hint);
+    const aliases = Array.isArray(command.aliases)
+      ? command.aliases.filter((alias): alias is string => typeof alias === "string" && !!alias)
+      : [];
+    return [
+      {
+        name,
+        ...(description ? { description } : {}),
+        ...(hint ? { input: { hint } } : {}),
+        ...(typeof command.source === "string" && SLASH_COMMAND_SOURCES.has(command.source)
+          ? { source: command.source as NonNullable<ServerProviderSlashCommand["source"]> }
+          : {}),
+        ...(command.availability === "tui" ? { availability: "tui" as const } : {}),
+        ...(aliases.length ? { aliases } : {}),
+      },
+    ];
+  });
+}
+
+/** A terminal-only command cannot run in a session NeoCode owns; NeoPi refuses it there. */
+export function nativeCommandNeedsTerminal(
+  command: Pick<ServerProviderSlashCommand, "availability">,
+  attachment: "owned" | "terminal" | undefined,
+): boolean {
+  return command.availability === "tui" && attachment !== "terminal";
+}
+
+/** `/name <argument>` at the start of the draft, with the caret inside the argument text. */
+export function nativeSlashArgument(
+  text: string,
+  cursor = text.length,
+): { readonly command: string; readonly prefix: string; readonly start: number } | null {
+  const match = /^\/([A-Za-z][\w.-]*(?::[\w.-]+)?) /.exec(text);
+  if (!match?.[1] || cursor < match[0].length) return null;
+  const prefix = text.slice(match[0].length, cursor);
+  return prefix.includes("\n") ? null : { command: match[1], prefix, start: match[0].length };
+}
+
+export interface NativeCommandCompletion {
+  /** Replaces the whole argument text. */
+  readonly value: string;
+  readonly label: string;
+  readonly description?: string;
+  readonly hint?: string;
+  /** Choosing it runs the command at once. */
+  readonly submitsCommand: boolean;
+}
+
+/** `get_command_completions` items, without the one the argument already spells. */
+export function nativeCommandCompletions(
+  value: unknown,
+  prefix: string,
+): readonly NativeCommandCompletion[] {
+  const items = nativeRecord(value).items;
+  if (!Array.isArray(items)) return [];
+  return items.flatMap((item) => {
+    const completion = nativeRecord(item);
+    if (typeof completion.value !== "string" || completion.value === prefix) return [];
+    const description = nonEmpty(completion.description);
+    const hint = nonEmpty(completion.hint);
+    return [
+      {
+        value: completion.value,
+        label: nonEmpty(completion.label) ?? completion.value,
+        ...(description ? { description } : {}),
+        ...(hint ? { hint } : {}),
+        submitsCommand: completion.submitsCommand === true,
+      },
+    ];
   });
 }
