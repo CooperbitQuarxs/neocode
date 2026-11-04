@@ -16,6 +16,11 @@ const EFFORT_LABELS: Readonly<Record<string, string>> = {
   max: "Max",
 };
 
+/** NeoPi's level names read as titles; one it adds later stays as it sent it. */
+export function nativeEffortLabel(level: string): string {
+  return EFFORT_LABELS[level] ?? level;
+}
+
 export const NATIVE_EFFORT_OPTION_ID = "effort";
 export const NATIVE_FAST_MODE_OPTION_ID = "fastMode";
 

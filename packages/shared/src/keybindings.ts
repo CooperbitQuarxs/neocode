@@ -86,6 +86,35 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+2", command: "usage.period.week", when: "usagePageOpen" },
   { key: "mod+shift+3", command: "usage.period.month", when: "usagePageOpen" },
   { key: "mod+shift+4", command: "usage.period.quarter", when: "usagePageOpen" },
+  // Native NeoPi sessions mirror NeoPi's TUI chords. `nativeSession` is true only while a native
+  // session workspace has the keyboard. These sit after the generic rules they shadow (mod+p file
+  // picker, mod+shift+p pin) because the last matching rule wins.
+  {
+    key: "shift+tab",
+    command: "composer.thinking.cycle",
+    when: "nativeSession && composerFocus && !terminalFocus",
+  },
+  {
+    key: "ctrl+p",
+    command: "composer.role.cycleForward",
+    when: "nativeSession && !terminalFocus",
+  },
+  {
+    key: "ctrl+shift+p",
+    command: "composer.role.cycleBackward",
+    when: "nativeSession && !terminalFocus",
+  },
+  { key: "ctrl+t", command: "transcript.thinking.toggle", when: "nativeSession && !terminalFocus" },
+  {
+    key: "alt+e",
+    command: "transcript.tools.toggleExpand",
+    when: "nativeSession && !terminalFocus",
+  },
+  {
+    key: "escape",
+    command: "thread.stop",
+    when: "nativeSession && !terminalFocus && !previewFocus && !modelPickerOpen && (composerFocus || !editableFocus)",
+  },
 ];
 
 function normalizeKeyToken(token: string): string {

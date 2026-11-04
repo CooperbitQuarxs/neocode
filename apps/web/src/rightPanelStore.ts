@@ -29,6 +29,7 @@ const RIGHT_PANEL_KINDS = [
   "pull-requests",
   "agents",
   "native-history",
+  "background-tasks",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -86,7 +87,8 @@ export type RightPanelSurface =
   /** The thread's linked pull requests, one singleton tab beside any number of `pull-request` tabs. */
   | { id: "pull-requests"; kind: "pull-requests" }
   | { id: "agents"; kind: "agents" }
-  | { id: "native-history"; kind: "native-history" };
+  | { id: "native-history"; kind: "native-history" }
+  | { id: "background-tasks"; kind: "background-tasks" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v9 removed the "plan" surface kind (plans render inline in the transcript).
@@ -194,6 +196,8 @@ const singletonSurface = (
       return { id: "agents", kind };
     case "native-history":
       return { id: "native-history", kind };
+    case "background-tasks":
+      return { id: "background-tasks", kind };
     case "device":
       return { id: "device", kind };
   }

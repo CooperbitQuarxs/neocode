@@ -658,6 +658,20 @@ describe("canonical native session lifecycle", () => {
     }).pipe(Effect.scoped),
   );
 
+  it.effect("answers data-less native commands with a JSON value", () =>
+    Effect.gen(function* () {
+      const { native, service } = yield* fixture();
+      yield* service.open({ ...originalRef });
+      // NeoPi answers abort without data. The RPC wire only carries JSON, so an
+      // undefined result would fail a request whose native command succeeded.
+      assert.strictEqual(
+        yield* service.request({ ref: originalRef, command: { type: "abort" } }),
+        null,
+      );
+      assert.strictEqual(native.aborts, 1);
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("detaches terminal control without aborting or disposing the external owner", () =>
     Effect.gen(function* () {
       const { native, service } = yield* fixture("terminal");

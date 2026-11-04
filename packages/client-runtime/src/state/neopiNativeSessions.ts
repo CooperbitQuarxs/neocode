@@ -3,11 +3,13 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
+import * as Schedule from "effect/Schedule";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { EnvironmentSupervisor } from "../connection/supervisor.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { request as rpcRequest, subscribe } from "../rpc/client.ts";
+import { NATIVE_JOBS_CAPABILITY } from "../neopiNativeJobs.ts";
 import {
   emptyNativeSessionFeed,
   nativeJournalPage,
@@ -32,6 +34,8 @@ const stateReconciliationEvents = new Set([
   "mode_changed",
   "prompt_result",
 ]);
+/** A terminal-owned session's control connection carries no `job_lifecycle` frames. */
+const JOBS_POLL_INTERVAL = "5 seconds";
 const branchReconciliationEvents = new Set([
   "journal_state",
   "journal_entry",
@@ -57,6 +61,7 @@ export function reconcileNativeSessionFeed<E, R, ReadE, ReadR>(
       const stateReads = yield* Effect.acquireRelease(Queue.sliding<void>(1), Queue.shutdown);
       const branchReads = yield* Effect.acquireRelease(Queue.sliding<void>(1), Queue.shutdown);
       const subagentReads = yield* Effect.acquireRelease(Queue.sliding<void>(1), Queue.shutdown);
+      const jobReads = yield* Effect.acquireRelease(Queue.sliding<void>(1), Queue.shutdown);
       let current = initial;
       let divergentEntry = false;
       const needsBranch = () => {
@@ -71,9 +76,9 @@ export function reconcileNativeSessionFeed<E, R, ReadE, ReadR>(
             conversation.entries.some((entry) => entry.id === conversation.identity?.leafId))
         );
       };
-      const recovered = (operation: "state" | "branch" | "subagents") =>
+      const recovered = (operation: "state" | "branch" | "subagents" | "jobs") =>
         Queue.offer(replies, { type: "reconciliation", operation, error: null });
-      const failed = (operation: "state" | "branch" | "subagents", error: unknown) =>
+      const failed = (operation: "state" | "branch" | "subagents" | "jobs", error: unknown) =>
         Queue.offer(replies, {
           type: "reconciliation",
           operation,
@@ -144,6 +149,25 @@ export function reconcileNativeSessionFeed<E, R, ReadE, ReadR>(
         ),
         Effect.forkScoped,
       );
+      const jobsSupported = () =>
+        current.connected &&
+        current.session?.capabilities.includes(NATIVE_JOBS_CAPABILITY) === true;
+      yield* Stream.fromQueue(jobReads).pipe(
+        Stream.runForEach(() =>
+          Effect.gen(function* () {
+            if (!jobsSupported() || !current.session) return;
+            const { ref, sessionId } = current.session;
+            const revision = current.jobs.revision;
+            const response = yield* read({ type: "get_jobs" });
+            yield* Queue.offer(replies, { type: "jobs", ref, sessionId, revision, response });
+            yield* recovered("jobs");
+          }).pipe(Effect.catch((error) => failed("jobs", error))),
+        ),
+        Effect.forkScoped,
+      );
+      yield* Effect.sync(() => {
+        if (current.session?.attachment === "terminal") Queue.offerUnsafe(jobReads, undefined);
+      }).pipe(Effect.repeat(Schedule.spaced(JOBS_POLL_INTERVAL)), Effect.forkScoped);
       return Stream.merge(source, Stream.fromQueue(replies), { haltStrategy: "left" }).pipe(
         Stream.map((event) => {
           current = reduceNativeSessionFeed(current, event);
@@ -159,7 +183,12 @@ export function reconcileNativeSessionFeed<E, R, ReadE, ReadR>(
               divergentEntry = true;
           }
           onFeed(current);
-          if (event.type === "snapshot") Queue.offerUnsafe(subagentReads, undefined);
+          if (event.type === "snapshot") {
+            Queue.offerUnsafe(subagentReads, undefined);
+            Queue.offerUnsafe(jobReads, undefined);
+          }
+          if (event.type === "event" && event.frame.type === "agent_end")
+            Queue.offerUnsafe(jobReads, undefined);
           if (event.type === "event") {
             if (stateReconciliationEvents.has(event.frame.type))
               Queue.offerUnsafe(stateReads, undefined);
@@ -348,7 +377,20 @@ export function createNativeSessionAtoms<R, E>(
           ref: input.ref,
         });
         const revision = cache.get(key)?.conversation.revision ?? 0;
+        const jobsRevision = cache.get(key)?.jobs.revision ?? 0;
         const value = yield* rpcRequest(WS_METHODS.neopiNativeSessionsRequest, input);
+        if (input.command.type === "get_jobs") {
+          // A panel-initiated read folds into the feed like the reconciler's own.
+          const session = cache.get(key)?.session;
+          if (session)
+            yield* publish(key, {
+              type: "jobs",
+              ref: session.ref,
+              sessionId: session.sessionId,
+              revision: jobsRevision,
+              response: value,
+            });
+        }
         if (input.command.type === "get_state") {
           yield* publish(key, { type: "state", state: nativeRecord(value) });
           yield* publish(key, { type: "reconciliation", operation: "state", error: null });
