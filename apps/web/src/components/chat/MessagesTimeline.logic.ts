@@ -817,9 +817,18 @@ function deriveTurnFolds(input: {
     const isLatestInterruptedTurn =
       input.latestTurn?.turnId === turnId && input.latestTurn.state === "interrupted";
     // A turn cut short by a steer leaves trailing work entries behind its
-    // terminal message — take whichever ended last.
+    // terminal message — take whichever ended last. Compaction and
+    // configuration dividers (model, reasoning, tier changes) are journalled
+    // against the turn they follow but are not work, so they never extend it.
+    const lastActivityEntry =
+      group.entries.findLast(
+        (entry) =>
+          !(entry.kind === "work" && entry.entry.sourceActivityKind === "context-compaction"),
+      ) ?? lastEntry;
     const lastEntryEnd =
-      lastEntry.kind === "message" ? lastEntry.message.updatedAt : lastEntry.createdAt;
+      lastActivityEntry.kind === "message"
+        ? lastActivityEntry.message.updatedAt
+        : lastActivityEntry.createdAt;
     const elapsedMs =
       input.latestTurn?.turnId === turnId &&
       input.latestTurn.startedAt &&
