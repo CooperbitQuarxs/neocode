@@ -319,6 +319,8 @@ summarize** or Shift+Enter carries a branch summary along. Click a chevron, or
 press Left and Right, to fold a branch. The filter offers Default, No tools, User
 only, Labeled and All, and the search box narrows the rows; press `/` in the tree
 to reach it. Up, Down, Page Up, Page Down, Home and End move through rows.
+Going to a message you wrote puts it back in the composer for editing, unless the
+composer already holds a draft; that draft is kept.
 
 The status beside the composer follows the connected native model and effort,
 output throughput, journal-wide cache hit rate, context utilization and recorded
