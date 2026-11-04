@@ -23,6 +23,7 @@ describe("KeybindingsSettings.logic", () => {
       "composer.host",
       "composer.effort",
       "composer.mode",
+      "composer.dictation.toggle",
       "composer.workspace",
       "composer.branch",
       "composer.previousWorktree",

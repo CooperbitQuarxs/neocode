@@ -46,10 +46,12 @@ it.each([
     }),
     command,
   );
-  assert.isNull(resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
-    platform: "Linux",
-    context: { terminalFocus: true },
-  }));
+  assert.isNull(
+    resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
+      platform: "Linux",
+      context: { terminalFocus: true },
+    }),
+  );
 });
 
 function event(overrides: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
@@ -1302,6 +1304,25 @@ describe("composer and pull request shortcuts", () => {
           { platform },
         ),
         command,
+      );
+    });
+  }
+
+  for (const platform of ["MacIntel", "Win32", "Linux"]) {
+    it(`toggles dictation with literal Ctrl+Space on ${platform}, never in a terminal`, () => {
+      const input = event({ key: " ", code: "Space", ctrlKey: true });
+      assert.strictEqual(
+        resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
+          platform,
+          context: { terminalFocus: false },
+        }),
+        "composer.dictation.toggle",
+      );
+      assert.isNull(
+        resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
+          platform,
+          context: { terminalFocus: true },
+        }),
       );
     });
   }
