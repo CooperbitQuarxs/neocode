@@ -17,6 +17,7 @@ import { isElectron } from "../../env";
 import { nativeDictationAvailable } from "./nativeDictation";
 import { useNativeDictation } from "./useNativeDictation";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { toastManager } from "../ui/toast";
 import { ComposerSurface } from "../chat/ComposerSurface";
 import { cn } from "../../lib/utils";
 import {
@@ -76,6 +77,17 @@ import { createPageScrollController } from "../chat/pageScrollController";
 import type { NativeModelChoice } from "../chat/neopiModelSwitcher";
 import { NativeSessionModelPicker } from "./NativeSessionModelPicker";
 import { NativeSessionWorkspacePanels } from "./NativeSessionWorkspacePanels";
+import {
+  NATIVE_CYCLE_ROLE_CAPABILITY,
+  NATIVE_ROLE_CYCLE_UNSUPPORTED,
+  nativeRoleCycleNotice,
+  nativeThinkingCycleNotice,
+  type NativeSessionCommand,
+} from "./nativeSessionShortcuts";
+import {
+  toggleNativeThinkingVisibility,
+  useNativeTranscriptView,
+} from "../../state/nativeTranscriptView";
 import { consumeNativeDraft, prepareNativePrompt } from "./neopiNativeComposer";
 import type { ComposerSubmissionIntent } from "../../composer-logic";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../../terminalUiStateStore";
@@ -532,6 +544,49 @@ export function NativeSessionView({
   const interrupt = useCallback(() => {
     void execute({ type: "abort" }).catch((cause) => setLocalError(String(cause)));
   }, [execute]);
+  const hideThinking = useNativeTranscriptView((state) => state.hideThinking);
+  const [toolOutputSerial, setToolOutputSerial] = useState(0);
+  const canCycleRole = session?.capabilities.includes(NATIVE_CYCLE_ROLE_CAPABILITY) === true;
+  const runNativeCommand = useCallback(
+    (command: NativeSessionCommand) => {
+      const notify = (title: string) =>
+        toastManager.add({ id: `native-shortcut:${command}`, title, timeout: 1500 });
+      const fail = (cause: unknown) =>
+        setLocalError(cause instanceof Error ? cause.message : String(cause));
+      switch (command) {
+        case "composer.thinking.cycle":
+          void execute({ type: "cycle_thinking_level" })
+            .then((result) => notify(nativeThinkingCycleNotice(result)))
+            .catch(fail);
+          return;
+        case "composer.role.cycleForward":
+        case "composer.role.cycleBackward":
+          if (!canCycleRole) {
+            notify(NATIVE_ROLE_CYCLE_UNSUPPORTED);
+            return;
+          }
+          void execute({
+            type: "cycle_role",
+            direction: command === "composer.role.cycleForward" ? "forward" : "backward",
+          })
+            .then((result) => notify(nativeRoleCycleNotice(result)))
+            .catch(fail);
+          return;
+        case "transcript.thinking.toggle":
+          toggleNativeThinkingVisibility();
+          notify(
+            useNativeTranscriptView.getState().hideThinking
+              ? "Reasoning hidden"
+              : "Reasoning shown",
+          );
+          return;
+        case "transcript.tools.toggleExpand":
+          setToolOutputSerial((value) => value + 1);
+          return;
+      }
+    },
+    [execute, canCycleRole],
+  );
   const dialog = feed.dialogs.find(
     (item) => typeof item.id === "string" && !dismissed.has(item.id),
   );
@@ -595,6 +650,7 @@ export function NativeSessionView({
         busy={feed.busy}
         onToggleDictation={dictationAvailable ? dictation.toggle : undefined}
         dictationActive={dictation.phase !== "idle"}
+        onNativeCommand={runNativeCommand}
       >
         {error || localError ? (
           <p role="alert" className="shrink-0 px-5 py-1 text-xs text-destructive">
@@ -613,6 +669,8 @@ export function NativeSessionView({
             followSignal={followSignal}
             onImageExpand={setExpandedImage}
             queuedMessages={queuedMessages}
+            hideThinking={hideThinking}
+            toggleToolOutputSerial={toolOutputSerial}
             onSteerQueuedMessage={steerQueued}
             onRemoveQueuedMessage={removeQueued}
           />

@@ -34,6 +34,35 @@ on macOS and Ctrl on Windows and Linux, including GNOME, KDE Plasma, Niri, and
 Hyprland. If a custom desktop shortcut takes the same keys, choose another binding
 in Settings.
 
+## Native NeoPi sessions
+
+Native sessions use NeoPi's own terminal chords. They run only while a native
+session has the keyboard and never in a terminal. Every one can be rebound in
+**Settings → Keybindings**.
+
+| Default        | Command                         | Does                                                                                                             |
+| -------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `shift+tab`    | `composer.thinking.cycle`       | Cycle the reasoning level; only while the composer has focus, so Shift+Tab still moves focus backwards elsewhere |
+| `ctrl+p`       | `composer.role.cycleForward`    | Switch to the next role in NeoPi's role cycle                                                                    |
+| `ctrl+shift+p` | `composer.role.cycleBackward`   | Switch to the previous role                                                                                      |
+| `ctrl+t`       | `transcript.thinking.toggle`    | Show or hide reasoning blocks in every native session; the choice is saved on this device                        |
+| `alt+e`        | `transcript.tools.toggleExpand` | Open or close every tool call of the latest turn                                                                 |
+| `escape`       | `thread.stop`                   | Interrupt the running turn                                                                                       |
+
+Escape does not interrupt while a menu, dialog, the model picker or dictation owns
+it, or while a terminal or preview has focus. While NeoPi works, `ctrl+enter` in
+the composer queues a follow-up for after the run instead of steering it.
+
+The role cycle follows the order and visibility configured in NeoPi, and needs a
+NeoPi version that advertises `cycle_role`; with an older one the shortcut says so.
+Each cycle shows the new level or role as a short notice. A browser tab reserves
+`ctrl+t` for itself, so that chord only works in the desktop app until you rebind it.
+
+Inside a native session, `ctrl+p` and `ctrl+shift+p` take priority over the file
+picker and pin on Windows and Linux, where `mod` is Ctrl. Command+P and Command+Shift+P
+keep those jobs on macOS. Outside native sessions the file picker and pin keep their
+bindings. See [precedence](#precedence).
+
 ## Copy pull request references
 
 With a PR open in the right panel or on the Pull Requests page, use `mod+shift+c`
@@ -88,10 +117,12 @@ Join modifiers and a key with `+`, such as `mod+shift+d` or `ctrl+l`.
 ## When conditions
 
 Available context keys are `terminalFocus`, `terminalOpen`, `previewFocus`,
-`previewOpen`, `modelPickerOpen`, `usagePageOpen`, `editableFocus`, `isWeb`, and `isDesktop`.
+`previewOpen`, `modelPickerOpen`, `usagePageOpen`, `editableFocus`, `nativeSession`,
+`composerFocus`, `isWeb`, and `isDesktop`.
 `editableFocus` is true while a text field, the composer, or another editor has
-the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the
-desktop app. Unknown keys evaluate to `false`.
+the keyboard. `nativeSession` is true while a native NeoPi session workspace has
+the keyboard, and `composerFocus` while its composer does. `isWeb` is true in a
+browser tab. `isDesktop` is true in the desktop app. Unknown keys evaluate to `false`.
 
 `mod+1` through `mod+9` jump to the first nine threads, and to models while the
 model picker is open. Those defaults use `isDesktop` so they do not steal the
@@ -113,7 +144,8 @@ a shortcut.
 ## Commands with special behavior
 
 `thread.stop` interrupts the running turn in the focused thread. It has no default
-shortcut; assign one in **Settings → Keybindings**.
+shortcut outside native sessions, where Escape is bound to it; assign one in
+**Settings → Keybindings**.
 
 `thread.undo` (`mod+z` by default) reverses the actions shown in the notice at the
 bottom of the sidebar, such as unpin, settle, snooze, or archive. Consecutive

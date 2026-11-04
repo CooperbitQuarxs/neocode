@@ -34,14 +34,22 @@ export function NativeTimelineView(props: {
   readonly queuedMessages?: ReadonlyArray<QueuedComposerMessage>;
   readonly onSteerQueuedMessage?: (id: string) => void;
   readonly onRemoveQueuedMessage?: (id: string) => void;
+  /** Drops NeoPi's reasoning blocks from the view; the journal keeps them. */
+  readonly hideThinking?: boolean;
+  /** Each new value toggles every tool call of the latest turn open or closed. */
+  readonly toggleToolOutputSerial?: number;
 }) {
   const settings = useEnvironmentSettings(props.environmentId);
   const { resolvedTheme } = useTheme();
   const localListRef = useRef<LegendListRef | null>(null);
   const listRef = props.listRef ?? localListRef;
+  const visibleRows = useMemo(
+    () => (props.hideThinking ? props.rows.filter((row) => row.kind !== "thinking") : props.rows),
+    [props.rows, props.hideThinking],
+  );
   const timeline = useMemo(
-    () => projectNativeTimeline(props.rows, props.busy),
-    [props.rows, props.busy],
+    () => projectNativeTimeline(visibleRows, props.busy),
+    [visibleRows, props.busy],
   );
   const [liveFollow, setLiveFollow] = useState(true);
   const onIsAtEndChange = useCallback((atEnd: boolean) => {
@@ -90,6 +98,9 @@ export function NativeTimelineView(props: {
         {...(props.onRemoveQueuedMessage
           ? { onRemoveQueuedMessage: props.onRemoveQueuedMessage }
           : {})}
+        {...(props.toggleToolOutputSerial === undefined
+          ? {}
+          : { toggleToolOutputSerial: props.toggleToolOutputSerial })}
       />
     </div>
   );

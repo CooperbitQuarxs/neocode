@@ -70,6 +70,18 @@ import { ThreadPreviewMiniPlayer } from "../preview/ThreadPreviewMiniPlayer";
 import { usePreviewSession } from "../preview/usePreviewSession";
 import { NativeBackgroundTasksPanel } from "./NativeBackgroundTasksPanel";
 import { NativeSessionTerminal, type NativeSessionTerminalHandle } from "./NativeSessionTerminal";
+import { isNativeSessionCommand, type NativeSessionCommand } from "./nativeSessionShortcuts";
+
+/** Escape belongs to these while one is open; it must not also interrupt the turn. */
+const ESCAPE_OWNING_OVERLAYS = [
+  '[data-slot="dialog-popup"]',
+  '[data-slot="alert-dialog-popup"]',
+  '[data-slot="menu-popup"]',
+  '[data-slot="select-popup"]',
+  '[data-slot="combobox-popup"]',
+  '[data-slot="autocomplete-popup"]',
+  "[data-composer-stash-drawer]",
+].join(",");
 import { NativeSessionTreePanel } from "./NativeSessionTreePanel";
 
 const PreviewPanel = lazy(() =>
@@ -98,6 +110,7 @@ export function NativeSessionWorkspacePanels({
   onTreeNavigated,
   onOpenModels,
   onInterrupt,
+  onNativeCommand,
   busy,
   onToggleDictation,
   dictationActive,
@@ -122,6 +135,8 @@ export function NativeSessionWorkspacePanels({
   onTreeNavigated: () => void;
   onOpenModels: () => void;
   onInterrupt: () => void;
+  /** Runs a keybinding command that only the native session implements. */
+  onNativeCommand: (command: NativeSessionCommand) => void;
   busy: boolean;
   /** Absent when this client cannot use the microphone NeoPi records from. */
   onToggleDictation: (() => void) | undefined;
@@ -331,6 +346,10 @@ export function NativeSessionWorkspacePanels({
             Boolean(event.target.closest("input,textarea,select,[contenteditable=true]")),
           isWeb: !isElectron,
           isDesktop: isElectron,
+          nativeSession: true,
+          composerFocus:
+            event.target instanceof HTMLElement &&
+            event.target.closest("[data-composer-rich-text]") !== null,
         },
       });
       let action: (() => void) | null = null;
@@ -393,9 +412,14 @@ export function NativeSessionWorkspacePanels({
           if (
             busy &&
             !dictationActive &&
-            !document.querySelector('[data-slot="dialog-popup"],[data-slot="menu-popup"]')
+            !event.isComposing &&
+            !composerRef.current?.isMenuOpen() &&
+            !document.querySelector(ESCAPE_OWNING_OVERLAYS)
           )
             action = onInterrupt;
+          break;
+        default:
+          if (isNativeSessionCommand(command)) action = () => onNativeCommand(command);
           break;
       }
       if (!action) return;
@@ -417,6 +441,7 @@ export function NativeSessionWorkspacePanels({
     closeSurfaces,
     gitStatus.data?.isRepo,
     onOpenModels,
+    onNativeCommand,
     onInterrupt,
     busy,
     onToggleDictation,
