@@ -512,6 +512,48 @@ it.live("refuses every owner mutation through an attached runtime boundary", () 
   ).pipe(Effect.provide(NodeServices.layer)),
 );
 
+it.live("answers correlated login confirmations through an attached runtime boundary", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { runtime, pipe } = yield* attachFixture();
+      const prompted = yield* Deferred.make<void>();
+      yield* Stream.runForEach(runtime.frames, (frame) =>
+        frame.type === "extension_ui_request" && frame.id === "trust-certificate"
+          ? Deferred.succeed(prompted, undefined)
+          : Effect.void,
+      ).pipe(Effect.forkScoped);
+      yield* runtime.start;
+      yield* pipe.emit({
+        type: "extension_ui_request",
+        id: "trust-certificate",
+        method: "confirm",
+        loginId: "login-1",
+        title: "Verify this server",
+        message: "Certificate fingerprint",
+      });
+      yield* Deferred.await(prompted);
+      yield* runtime.respondUi({ id: "trust-certificate", confirmed: true });
+      const forwarded = () =>
+        pipe.commands.some(
+          (cmd) =>
+            cmd.type === "extension_ui_response" &&
+            cmd.id === "trust-certificate" &&
+            cmd.confirmed === true,
+        );
+      for (let attempt = 0; attempt < 200 && !forwarded(); attempt++)
+        yield* Effect.sleep("5 millis");
+      NodeAssert.ok(forwarded(), "The login confirmation did not reach the owner");
+      const answered = yield* Effect.flip(
+        runtime.respondUi({ id: "trust-certificate", confirmed: false }),
+      );
+      NodeAssert.match(answered.message, /attached.*owned by another process/);
+      const ownerError = yield* Effect.flip(runtime.respondUi({ id: "owner-ui", confirmed: true }));
+      NodeAssert.match(ownerError.message, /attached.*owned by another process/);
+      yield* runtime.stop;
+    }),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
+
 it.live("names the lease holder when no control endpoint exists and never spawns a pipe", () =>
   Effect.scoped(
     Effect.gen(function* () {

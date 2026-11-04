@@ -742,7 +742,8 @@ export const makeNeoPiSessionRuntime = Effect.fn("NeoPiSessionRuntime.make")(fun
               yield* Stream.runForEach(transport.uiRequests, (frame) =>
                 Effect.gen(function* () {
                   if (typeof frame.loginId === "string") {
-                    if (frame.method === "input") modelsAuthUi.add(frame.id);
+                    if (frame.method === "input" || frame.method === "confirm")
+                      modelsAuthUi.add(frame.id);
                     if (frame.method === "cancel" && typeof frame.targetId === "string")
                       modelsAuthUi.delete(frame.targetId);
                     yield* emit(frame);
