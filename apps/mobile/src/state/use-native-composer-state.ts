@@ -233,8 +233,10 @@ export function useNativeComposerState({
         uploadedComposerContext(snapshot.context, snapshot.attachments, attachments),
         false,
       ).text;
+      // While NeoPi runs, a prompt steers in at the next tool boundary rather
+      // than waiting invisibly for the whole run.
       await request(
-        { type: "prompt", message, ...(busyRef.current ? { streamingBehavior: "followUp" } : {}) },
+        { type: "prompt", message, ...(busyRef.current ? { streamingBehavior: "steer" } : {}) },
         attachments,
       );
       clearComposerDraftContent(key, { acceptedSnapshot: snapshot });

@@ -61,6 +61,12 @@ export interface WorkLogEntry {
   /** Stable provider identity across in-progress and completed lifecycle updates. */
   toolCallId?: string;
   label: string;
+  /**
+   * The provider's own sentence for what the call is doing ("Checking the
+   * build"). When present it is the row label, and the command moves into the
+   * expanded body.
+   */
+  intent?: string;
   detail?: string;
   viewedImagePath?: string;
   command?: string;

@@ -63,11 +63,31 @@ interface NativeCommandOutput {
   readonly afterEntryId: string | null;
   readonly afterMessageId: string | null;
 }
+/** NeoPi's authoritative prompt queue (`queuedMessages` / `queue_update`). */
+export interface NativePromptQueue {
+  readonly steering: readonly string[];
+  readonly followUp: readonly string[];
+  /** Leading `steering` entries already sent into the streaming response. */
+  readonly liveSteered: number;
+}
+const EMPTY_NATIVE_QUEUE: NativePromptQueue = { steering: [], followUp: [], liveSteered: 0 };
+function nativePromptQueue(value: unknown): NativePromptQueue | null {
+  const record = nativeRecord(value);
+  const texts = (items: unknown) =>
+    Array.isArray(items) ? items.filter((item): item is string => typeof item === "string") : [];
+  if (!Array.isArray(record.steering) && !Array.isArray(record.followUp)) return null;
+  return {
+    steering: texts(record.steering),
+    followUp: texts(record.followUp),
+    liveSteered: typeof record.liveSteered === "number" ? record.liveSteered : 0,
+  };
+}
 export interface NativeSessionFeed {
   readonly session: NativeSession | null;
   readonly conversation: NativeConversation;
   readonly connected: boolean;
   readonly busy: boolean;
+  readonly queue: NativePromptQueue;
   readonly dialogs: readonly Record<string, unknown>[];
   readonly notices: Readonly<Record<string, string>>;
   readonly commandOutputs: readonly NativeCommandOutput[];
@@ -86,6 +106,7 @@ export const emptyNativeSessionFeed = (): NativeSessionFeed => ({
   conversation: emptyNativeConversation(),
   connected: false,
   busy: false,
+  queue: EMPTY_NATIVE_QUEUE,
   dialogs: [],
   notices: {},
   commandOutputs: [],
@@ -174,7 +195,11 @@ export function reduceNativeSessionFeed(
         event.state.sessionFile === feed.session.ref.sessionFile) &&
       (typeof event.state.sessionId !== "string" ||
         event.state.sessionId === feed.session.sessionId)
-      ? { ...feed, session: { ...feed.session, state: event.state } }
+      ? {
+          ...feed,
+          session: { ...feed.session, state: event.state },
+          queue: nativePromptQueue(event.state.queuedMessages) ?? feed.queue,
+        }
       : feed;
   if (event.type === "answered")
     return { ...feed, dialogs: feed.dialogs.filter((dialog) => dialog.id !== event.id) };
@@ -223,7 +248,9 @@ export function reduceNativeSessionFeed(
       ),
       agentsRevision: feed.agentsRevision + 1,
       agentsEpoch: feed.agentsEpoch + 1,
-      ...(event.type === "closed" ? { busy: false, error: event.reason } : {}),
+      ...(event.type === "closed"
+        ? { busy: false, queue: EMPTY_NATIVE_QUEUE, error: event.reason }
+        : {}),
     };
   if (event.type === "snapshot") {
     const page = nativeJournalPage(event.journal);
@@ -256,6 +283,7 @@ export function reduceNativeSessionFeed(
       agentsEpoch: feed.agentsEpoch + 1,
       connected: true,
       busy: event.session.state.isStreaming === true,
+      queue: nativePromptQueue(event.session.state.queuedMessages) ?? EMPTY_NATIVE_QUEUE,
       error: null,
       reconciliationError: null,
     };
@@ -273,6 +301,7 @@ export function reduceNativeSessionFeed(
       ...feed,
       connected: false,
       busy: false,
+      queue: EMPTY_NATIVE_QUEUE,
       dialogs: [],
       editor: null,
       agents: [],
@@ -312,6 +341,7 @@ export function reduceNativeSessionFeed(
       ...(frame.sessionId !== next.session.sessionId
         ? {
             busy: false,
+            queue: EMPTY_NATIVE_QUEUE,
             dialogs: [],
             editor: null,
             commandOutputs: [],
@@ -378,6 +408,8 @@ export function reduceNativeSessionFeed(
         },
       };
   }
+  if (frame.type === "queue_update")
+    next = { ...next, queue: nativePromptQueue(frame) ?? next.queue };
   if (frame.type === "prompt_result" && frame.status === "error")
     next = {
       ...next,
