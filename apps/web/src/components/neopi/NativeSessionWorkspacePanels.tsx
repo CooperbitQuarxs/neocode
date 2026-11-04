@@ -68,6 +68,7 @@ import { closePreviewSession } from "../preview/closePreviewSession";
 import { subscribePreviewAction } from "../preview/previewActionBus";
 import { ThreadPreviewMiniPlayer } from "../preview/ThreadPreviewMiniPlayer";
 import { usePreviewSession } from "../preview/usePreviewSession";
+import { NativeBackgroundTasksPanel } from "./NativeBackgroundTasksPanel";
 import { NativeSessionTerminal, type NativeSessionTerminalHandle } from "./NativeSessionTerminal";
 
 const PreviewPanel = lazy(() =>
@@ -466,6 +467,9 @@ export function NativeSessionWorkspacePanels({
       deviceAvailable
       liveAgentCount={agentModel.liveCount}
       nativeHistory={{ onOpen: onOpenTree }}
+      nativeBackgroundTasks={{
+        onOpen: () => useRightPanelStore.getState().open(target, "background-tasks"),
+      }}
     >
       <Suspense fallback={null}>
         {activeSurface?.kind === "preview" ? (
@@ -488,6 +492,9 @@ export function NativeSessionWorkspacePanels({
         ) : null}
         {activeSurface?.kind === "agents" ? (
           <AgentsPanel model={agentModel} environmentId={target.environmentId} />
+        ) : null}
+        {activeSurface?.kind === "background-tasks" ? (
+          <NativeBackgroundTasksPanel target={target} />
         ) : null}
         {activeSurface?.kind === "native-history" ? (
           <Button variant="ghost" onClick={onOpenTree}>

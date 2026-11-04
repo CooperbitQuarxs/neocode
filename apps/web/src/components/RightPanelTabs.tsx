@@ -24,6 +24,7 @@ import {
   Files,
   Globe2,
   GitBranch,
+  ListChecks,
   Plus,
   TerminalSquare,
   Volume2,
@@ -135,6 +136,7 @@ interface RightPanelTabsProps {
   agentsAvailable: boolean;
   deviceAvailable: boolean;
   nativeHistory?: { onOpen: () => void } | undefined;
+  nativeBackgroundTasks?: { onOpen: () => void } | undefined;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   /** Running + waiting subagents; badges the Agents card in the empty state. */
   liveAgentCount: number;
@@ -340,6 +342,7 @@ function RightPanelEmptyState(props: {
   deviceAvailable: boolean;
   liveAgentCount: number;
   nativeHistory?: { onOpen: () => void } | undefined;
+  nativeBackgroundTasks?: { onOpen: () => void } | undefined;
 }) {
   // -1 means no highlight: it only appears on hover or arrow use.
   const [highlight, setHighlight] = useState(-1);
@@ -427,6 +430,19 @@ function RightPanelEmptyState(props: {
             available: true,
             disabledReason: "",
             onClick: props.nativeHistory.onOpen,
+            badgeCount: 0,
+          },
+        ]
+      : []),
+    ...(props.nativeBackgroundTasks
+      ? [
+          {
+            label: "Background tasks",
+            icon: ListChecks,
+            shortcut: "K",
+            available: true,
+            disabledReason: "",
+            onClick: props.nativeBackgroundTasks.onOpen,
             badgeCount: 0,
           },
         ]
@@ -650,6 +666,8 @@ function surfaceTitle(
       return "Agents";
     case "native-history":
       return "Native history";
+    case "background-tasks":
+      return "Background tasks";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "preview": {
@@ -737,6 +755,8 @@ function SurfaceIcon({
       return <Bot className="size-3 shrink-0" />;
     case "native-history":
       return <GitBranch className="size-3 shrink-0" />;
+    case "background-tasks":
+      return <ListChecks className="size-3 shrink-0" />;
     case "device":
       return surface.target?.platform === "ios" ? (
         <AppleIcon className="size-3 shrink-0" />
@@ -964,6 +984,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             available: true,
             disabledReason: "",
             onClick: props.nativeHistory.onOpen,
+          },
+        ]
+      : []),
+    ...(props.nativeBackgroundTasks
+      ? [
+          {
+            label: "Background tasks",
+            icon: ListChecks,
+            shortcut: "K",
+            available: true,
+            disabledReason: "",
+            onClick: props.nativeBackgroundTasks.onOpen,
           },
         ]
       : []),
@@ -1455,6 +1487,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             deviceAvailable={props.deviceAvailable}
             liveAgentCount={props.liveAgentCount}
             nativeHistory={props.nativeHistory}
+            nativeBackgroundTasks={props.nativeBackgroundTasks}
           />
         ) : (
           props.children
