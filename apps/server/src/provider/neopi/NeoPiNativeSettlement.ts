@@ -28,6 +28,7 @@ const SettledFile = Schema.fromJsonString(
     sessions: Schema.Record(Schema.String, SettledRecord),
   }),
 );
+const encodeSettledFile = Schema.encodeEffect(SettledFile);
 
 export interface NeoPiNativeSettlementInput {
   readonly record: NeoPiNativeSettledRecord | undefined;
@@ -108,7 +109,7 @@ export const makeNeoPiNativeSettledStore = Effect.fn("NeoPiNativeSettledStore.ma
             if (record === null) next.delete(file);
             else next.set(file, record);
           }
-          const contents = yield* Schema.encodeEffect(SettledFile)({
+          const contents = yield* encodeSettledFile({
             version: 1,
             sessions: Object.fromEntries(next),
           });

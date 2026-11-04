@@ -949,7 +949,12 @@ describe("native session liveness and settling", () => {
   it.effect("reports NeoPi's owner state, and NeoCode's own feed for sessions it owns", () =>
     Effect.gen(function* () {
       const { native, dependencies } = yield* fixture();
-      const waiting = { state: "waiting", isStreaming: false, pendingDialogs: 1, branch: "main" };
+      const waiting = {
+        state: "waiting",
+        isStreaming: false,
+        pendingDialogs: 1,
+        branch: "main",
+      } as const;
       const service = yield* makeNeoPiNativeSessionsWith({
         ...dependencies,
         catalog: (profile) =>
@@ -959,7 +964,7 @@ describe("native session liveness and settling", () => {
                   catalogRow({
                     inUse: { pid: 42 },
                     control: { instanceId: "terminal" },
-                    live: { ...waiting, state: "waiting" },
+                    live: waiting,
                   }),
                 ]
               : [],
