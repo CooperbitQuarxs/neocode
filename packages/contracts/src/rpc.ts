@@ -42,6 +42,8 @@ import {
   NeoPiNativeSessionsStreamEvent,
   NeoPiNativeSessionsCloseInput,
   NeoPiNativeSessionsCloseResult,
+  NeoPiNativeSessionsSetSettledInput,
+  NeoPiNativeSessionsSetSettledResult,
   NeoPiNativeSessionsGetDiffPreviewInput,
   NeoPiNativeSessionsGetDiffFileContentsInput,
 } from "./neopiNativeSessions.ts";
@@ -324,6 +326,7 @@ export const WS_METHODS = {
   neopiNativeSessionsRequest: "neopiNativeSessions.request",
   neopiNativeSessionsWatch: "neopiNativeSessions.watch",
   neopiNativeSessionsClose: "neopiNativeSessions.close",
+  neopiNativeSessionsSetSettled: "neopiNativeSessions.setSettled",
   neopiNativeSessionsGetDiffPreview: "neopiNativeSessions.getDiffPreview",
   neopiNativeSessionsGetDiffFileContents: "neopiNativeSessions.getDiffFileContents",
   neopiSessionsList: "neopiSessions.list",
@@ -991,6 +994,11 @@ const WsNeoPiNativeSessionsCloseRpc = Rpc.make(WS_METHODS.neopiNativeSessionsClo
   success: NeoPiNativeSessionsCloseResult,
   error: NeoPiNativeSessionsRpcError,
 });
+const WsNeoPiNativeSessionsSetSettledRpc = Rpc.make(WS_METHODS.neopiNativeSessionsSetSettled, {
+  payload: NeoPiNativeSessionsSetSettledInput,
+  success: NeoPiNativeSessionsSetSettledResult,
+  error: NeoPiNativeSessionsRpcError,
+});
 const NeoPiNativeReviewRpcError = Schema.Union([
   ReviewDiffPreviewError,
   NeoPiNativeSessionsError,
@@ -1581,6 +1589,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsNeoPiNativeSessionsRequestRpc,
   WsNeoPiNativeSessionsWatchRpc,
   WsNeoPiNativeSessionsCloseRpc,
+  WsNeoPiNativeSessionsSetSettledRpc,
   WsNeoPiNativeSessionsGetDiffPreviewRpc,
   WsNeoPiNativeSessionsGetDiffFileContentsRpc,
   WsNeoPiSessionsListRpc,

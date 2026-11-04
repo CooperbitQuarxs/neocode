@@ -19,6 +19,7 @@ import {
   type NeoPiNativeProfile,
   type NeoPiNativeSessionsDependencies,
 } from "./NeoPiNativeSessions.ts";
+import type { NeoPiNativeSettledRecord, NeoPiNativeSettledStore } from "./NeoPiNativeSettlement.ts";
 import { prepareNeoPiNativePrompt } from "./NeoPiNativeAttachments.ts";
 import { updateNativeModelsConfiguration } from "./NeoPiModels.ts";
 
@@ -911,5 +912,145 @@ describe("canonical native session lifecycle", () => {
         assert.deepEqual(yield* service.close({ ref: originalRef }), { closed: true });
         assert.equal(native.disposals, 1);
       }).pipe(Effect.scoped),
+  );
+});
+
+const catalogRow = (overrides: Partial<CatalogRowFixture> = {}): CatalogRowFixture => ({
+  path: originalRef.sessionFile,
+  id: "disk-id",
+  cwd: "/workspace-free",
+  title: null,
+  firstMessage: "saved",
+  modified: "2026-10-28T00:00:00Z",
+  inUse: null,
+  control: null,
+  ...overrides,
+});
+type CatalogRowFixture = Effect.Success<
+  ReturnType<NeoPiNativeSessionsDependencies["catalog"]>
+>[number];
+
+const memorySettledStore = () => {
+  const records = new Map<string, NeoPiNativeSettledRecord>();
+  const store: NeoPiNativeSettledStore = {
+    read: Effect.sync(() => new Map(records)),
+    update: (changes) =>
+      Effect.sync(() => {
+        for (const [file, record] of changes) {
+          if (record === null) records.delete(file);
+          else records.set(file, record);
+        }
+      }),
+  };
+  return { records, store };
+};
+
+describe("native session liveness and settling", () => {
+  it.effect("reports NeoPi's owner state, and NeoCode's own feed for sessions it owns", () =>
+    Effect.gen(function* () {
+      const { native, dependencies } = yield* fixture();
+      const waiting = {
+        state: "waiting",
+        isStreaming: false,
+        pendingDialogs: 1,
+        branch: "main",
+      } as const;
+      const service = yield* makeNeoPiNativeSessionsWith({
+        ...dependencies,
+        catalog: (profile) =>
+          Effect.succeed(
+            profile.providerInstanceId === instanceId
+              ? [
+                  catalogRow({
+                    inUse: { pid: 42 },
+                    control: { instanceId: "terminal" },
+                    live: waiting,
+                  }),
+                ]
+              : [],
+          ),
+      });
+      const liveOf = () => service.list({}).pipe(Effect.map((result) => result.sessions[0]?.live));
+      assert.deepEqual(yield* liveOf(), waiting);
+
+      yield* service.open({ ...originalRef });
+      assert.deepEqual(yield* liveOf(), {
+        state: "idle",
+        isStreaming: false,
+        pendingDialogs: 0,
+        branch: "main",
+      });
+      yield* native.publish({ type: "agent_start" });
+      assert.equal((yield* liveOf())?.state, "busy");
+      yield* native.publish({
+        type: "extension_ui_request",
+        id: "approve",
+        method: "confirm",
+        title: "Run it?",
+      });
+      assert.deepEqual(
+        { state: (yield* liveOf())?.state, dialogs: (yield* liveOf())?.pendingDialogs },
+        { state: "waiting", dialogs: 1 },
+      );
+      yield* native.publish({
+        type: "extension_ui_request",
+        id: "cancel-approve",
+        method: "cancel",
+        targetId: "approve",
+      });
+      yield* native.publish({ type: "agent_end" });
+      assert.equal((yield* liveOf())?.state, "idle");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("keeps a manual settle until the file sees activity, then wakes it", () =>
+    Effect.gen(function* () {
+      const { dependencies } = yield* fixture();
+      const { records, store } = memorySettledStore();
+      let row = catalogRow({ modified: "2999-01-01T00:00:00Z" });
+      const service = yield* makeNeoPiNativeSessionsWith({
+        ...dependencies,
+        catalog: (profile) =>
+          Effect.succeed(profile.providerInstanceId === instanceId ? [row] : []),
+        settlement: { store, autoSettleAfterDays: Effect.succeed(null) },
+      });
+      const settledAt = () =>
+        service.list({}).pipe(Effect.map((result) => result.sessions[0]?.settledAt));
+      assert.equal(yield* settledAt(), undefined);
+
+      assert.deepEqual(yield* service.setSettled({ ref: originalRef, settled: true }), {
+        settled: true,
+      });
+      assert.equal(typeof (yield* settledAt()), "string");
+      assert.equal(records.size, 1);
+
+      row = { ...row, modified: "2999-01-02T00:00:00Z" };
+      assert.equal(yield* settledAt(), undefined);
+      assert.equal(records.size, 0);
+    }).pipe(Effect.scoped),
+  );
+
+  // The auto-settle window compares against the wall clock, which `it.effect` replaces.
+  it.live("auto-settles idle sessions and honors an explicit un-settle", () =>
+    Effect.gen(function* () {
+      const { dependencies } = yield* fixture();
+      const { store } = memorySettledStore();
+      const service = yield* makeNeoPiNativeSessionsWith({
+        ...dependencies,
+        catalog: (profile) =>
+          Effect.succeed(
+            profile.providerInstanceId === instanceId
+              ? [catalogRow({ modified: "2020-01-01T00:00:00Z" })]
+              : [],
+          ),
+        settlement: { store, autoSettleAfterDays: Effect.succeed(3) },
+      });
+      const settledAt = () =>
+        service.list({}).pipe(Effect.map((result) => result.sessions[0]?.settledAt));
+      assert.equal(yield* settledAt(), "2020-01-04T00:00:00.000Z");
+
+      yield* service.setSettled({ ref: originalRef, settled: false });
+      assert.equal(yield* settledAt(), undefined);
+    }).pipe(Effect.scoped),
   );
 });
