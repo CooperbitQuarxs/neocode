@@ -32,6 +32,7 @@ import { Textarea } from "../ui/textarea";
 import { Checkbox } from "../ui/checkbox";
 import { SidebarInset } from "../ui/sidebar";
 import { Dialog, DialogPopup, DialogHeader, DialogTitle, DialogFooter } from "../ui/dialog";
+import { NativeSessionStatusBar } from "./NativeSessionStatusBar";
 import { NativeSessionTabBar } from "./NativeSessionTabBar";
 import { useCreateNativeSession } from "./NativeSessionSidebar";
 import { NativeSessionTree } from "./NativeSessionTree";
@@ -711,6 +712,7 @@ export function NativeSessionView({
             />
           </ComposerSurface.Host>
         </ComposerSurface.Shell>
+        <NativeSessionStatusBar target={target} />
       </NativeSessionWorkspacePanels>
       {expandedImage ? (
         <ExpandedImageDialog preview={expandedImage} onClose={() => setExpandedImage(null)} />
