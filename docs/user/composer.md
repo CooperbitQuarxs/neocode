@@ -205,6 +205,19 @@ button appears only for native sessions NeoCode owns on the desktop app's own
 backend, because NeoPi records on the machine it runs on. Browsers and remote
 environments do not offer it.
 
+## Branch and worktree
+
+In a native session whose folder is a git repository, a strip under the composer
+shows the folder's branch. Open it to search the local branches and switch, or type
+a new name to create and switch to it. A branch another worktree already holds is
+listed but cannot be selected.
+
+**New worktree** (or **Worktree**, when the session already works in one) asks for an
+optional branch name and runs NeoPi's `/wt`: NeoPi creates the worktree, carries
+uncommitted changes into it and moves the session there. The tab and header stay on
+the same session. Both controls are disabled while NeoPi is working, because NeoPi
+refuses `/wt` mid-run and switching branches would change files under it.
+
 ## Commands and skills
 
 Type `/` for commands or `$` to add a skill from the selected environment and
