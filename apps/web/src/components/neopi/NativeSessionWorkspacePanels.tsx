@@ -69,6 +69,7 @@ import { subscribePreviewAction } from "../preview/previewActionBus";
 import { ThreadPreviewMiniPlayer } from "../preview/ThreadPreviewMiniPlayer";
 import { usePreviewSession } from "../preview/usePreviewSession";
 import { NativeSessionTerminal, type NativeSessionTerminalHandle } from "./NativeSessionTerminal";
+import { NativeSessionTreePanel } from "./NativeSessionTreePanel";
 
 const PreviewPanel = lazy(() =>
   import("../preview/PreviewPanel").then((module) => ({ default: module.PreviewPanel })),
@@ -91,6 +92,9 @@ export function NativeSessionWorkspacePanels({
   onAddTerminalContext,
   onSendAnnotation,
   onOpenTree,
+  request,
+  execute,
+  onTreeNavigated,
   onOpenModels,
   onInterrupt,
   busy,
@@ -111,6 +115,10 @@ export function NativeSessionWorkspacePanels({
     image: ComposerImageAttachment | null,
   ) => void;
   onOpenTree: () => void;
+  /** Plain native reads and session-changing commands for the tree surface. */
+  request: (command: Record<string, unknown> & { type: string }) => Promise<unknown>;
+  execute: (command: Record<string, unknown> & { type: string }) => Promise<unknown>;
+  onTreeNavigated: () => void;
   onOpenModels: () => void;
   onInterrupt: () => void;
   busy: boolean;
@@ -490,9 +498,12 @@ export function NativeSessionWorkspacePanels({
           <AgentsPanel model={agentModel} environmentId={target.environmentId} />
         ) : null}
         {activeSurface?.kind === "native-history" ? (
-          <Button variant="ghost" onClick={onOpenTree}>
-            Session tree
-          </Button>
+          <NativeSessionTreePanel
+            target={target}
+            request={request}
+            execute={execute}
+            onNavigated={onTreeNavigated}
+          />
         ) : null}
         {panel.surfaces.map((surface) =>
           surface.kind === "terminal" && cwd ? (
