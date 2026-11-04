@@ -76,6 +76,8 @@ import type { ExpandedImagePreview } from "../chat/ExpandedImagePreview";
 import { createPageScrollController } from "../chat/pageScrollController";
 import type { NativeModelChoice } from "../chat/neopiModelSwitcher";
 import { NativeSessionModelPicker } from "./NativeSessionModelPicker";
+import { appAtomRegistry } from "../../rpc/atomRegistry";
+import { NativeBranchToolbar } from "./NativeBranchToolbar";
 import { NativeSessionWorkspacePanels } from "./NativeSessionWorkspacePanels";
 import {
   NATIVE_CYCLE_ROLE_CAPABILITY,
@@ -257,10 +259,21 @@ export function NativeSessionView({
   useEffect(() => {
     if (session) setState(session.state);
   }, [session]);
+  // NeoPi moved this session to another file (`/wt`, fork): the selection and
+  // its tab follow in place, never a second tab for the same session.
+  const movedRef = feed.movedTo ?? session?.ref ?? null;
   useEffect(() => {
-    if (session && session.ref.sessionFile !== target.ref.sessionFile)
-      replaceNativeSession(target, { environmentId: target.environmentId, ref: session.ref });
-  }, [session, target]);
+    if (movedRef && movedRef.sessionFile !== target.ref.sessionFile)
+      replaceNativeSession(target, { environmentId: target.environmentId, ref: movedRef });
+  }, [movedRef, target]);
+  // The sidebar and tab titles read the session list, which still names the old file.
+  const hasMoved = feed.movedTo !== null;
+  useEffect(() => {
+    if (hasMoved)
+      appAtomRegistry.refresh(
+        nativeSessionAtoms.list({ environmentId: target.environmentId, input: {} }),
+      );
+  }, [hasMoved, target.environmentId]);
   const loadOlder = async () => {
     if (paging || !conversation.cursor) return;
     setPaging(true);
@@ -675,7 +688,7 @@ export function NativeSessionView({
             onRemoveQueuedMessage={removeQueued}
           />
         </div>
-        <ComposerSurface.Shell ref={setComposerElement} className="shrink-0">
+        <ComposerSurface.Shell ref={setComposerElement} contextStrip className="shrink-0">
           {Object.values(feed.notices).some(Boolean) ? (
             <div className="flex flex-col gap-0.5 ps-(--workspace-gutter-start) pe-(--workspace-gutter-end) pt-2 text-xs text-muted-foreground">
               {Object.values(feed.notices)
@@ -774,6 +787,18 @@ export function NativeSessionView({
               }}
             />
           </ComposerSurface.Host>
+          <NativeBranchToolbar
+            environmentId={target.environmentId}
+            cwd={session?.cwd ?? null}
+            busy={feed.busy}
+            connected={feed.connected}
+            onRunCommand={(message) => {
+              void execute({ type: "prompt", message }).catch((cause) =>
+                setLocalError(String(cause)),
+              );
+            }}
+            onReturnFocus={focusComposer}
+          />
         </ComposerSurface.Shell>
         <NativeSessionStatusBar target={target} />
       </NativeSessionWorkspacePanels>

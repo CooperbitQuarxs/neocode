@@ -286,17 +286,36 @@ export function createNativeSessionAtoms<R, E>(
                   Stream.fromQueue(queue),
                   { haltStrategy: "left" },
                 ).pipe(
+                  Stream.tap((event) =>
+                    Effect.sync(() => {
+                      // A move leaves this observation on the old file, but the
+                      // owner keeps talking on it (`/wt` prints its summary after
+                      // relocating). Hand those frames to the moved file's feed
+                      // until that feed has its own connection.
+                      const moved = cache.get(key)?.movedTo;
+                      if (!moved || event.type !== "event") return;
+                      const movedKey = nativeSessionKey({
+                        environmentId: supervisor.target.environmentId,
+                        ref: moved,
+                      });
+                      if (!cache.get(movedKey)?.connected)
+                        publish(movedKey, event).pipe(Effect.runSync);
+                    }),
+                  ),
                   Stream.takeUntil((event) => {
                     if (event.type === "closed") {
                       endedObservations.add(key);
                       return true;
                     }
                     if (event.type === "snapshot") endedObservations.delete(key);
+                    // Another session id on a different file is a new owner. The same
+                    // session on a different file is a move, which the feed follows.
                     return (
                       event.type === "event" &&
                       event.frame.type === "journal_state" &&
                       typeof event.frame.sessionFile === "string" &&
-                      event.frame.sessionFile !== input.ref.sessionFile
+                      event.frame.sessionFile !== input.ref.sessionFile &&
+                      event.frame.sessionId !== cache.get(key)?.session?.sessionId
                     );
                   }),
                 ),
@@ -304,7 +323,18 @@ export function createNativeSessionAtoms<R, E>(
                   rpcRequest(WS_METHODS.neopiNativeSessionsRequest, { ref: input.ref, command }),
                 cache.get(key) ?? emptyNativeSessionFeed(),
                 (feed) => {
+                  const wasMoved = cache.get(key)?.movedTo != null;
                   cache.set(key, feed);
+                  // The moved session's own observation starts from what is
+                  // already known, so the transcript does not flash empty.
+                  if (feed.movedTo && !wasMoved)
+                    cache.set(
+                      nativeSessionKey({
+                        environmentId: supervisor.target.environmentId,
+                        ref: feed.movedTo,
+                      }),
+                      { ...feed, movedTo: null, connected: false },
+                    );
                 },
               );
             }),

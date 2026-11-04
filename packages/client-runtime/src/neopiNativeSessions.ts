@@ -168,6 +168,11 @@ export interface NativeSessionFeed {
   readonly activity: NativeActivity;
   readonly editor: { readonly id: string; readonly text: string } | null;
   readonly dictation: NativeDictation | null;
+  /**
+   * NeoPi relocated this same session to another file (`/wt`, `/move`). The
+   * observation of the old ref ends here; the web layer repoints to this ref.
+   */
+  readonly movedTo: NeoPiNativeSessionRef | null;
   readonly error: string | null;
   readonly reconciliationError: {
     readonly operation: "state" | "branch" | "subagents" | "jobs";
@@ -190,6 +195,7 @@ export const emptyNativeSessionFeed = (): NativeSessionFeed => ({
   activity: EMPTY_NATIVE_ACTIVITY,
   editor: null,
   dictation: null,
+  movedTo: null,
   error: null,
   reconciliationError: null,
 });
@@ -387,6 +393,7 @@ export function reduceNativeSessionFeed(
         nowMs(),
       ),
       connected: true,
+      movedTo: null,
       busy: event.session.state.isStreaming === true,
       queue: nativePromptQueue(event.session.state.queuedMessages) ?? EMPTY_NATIVE_QUEUE,
       error: null,
@@ -400,6 +407,20 @@ export function reduceNativeSessionFeed(
     feed.session &&
     frame.sessionFile !== feed.session.ref.sessionFile
   ) {
+    if (frame.reason === "identity" && frame.sessionId === feed.session.sessionId) {
+      // The same session moved to a new file: the transcript, queue and dialogs
+      // still belong to it, so follow the move instead of treating it as a new owner.
+      const ref = { ...feed.session.ref, sessionFile: frame.sessionFile };
+      const identity = feed.conversation.identity;
+      return {
+        ...feed,
+        session: { ...feed.session, ref },
+        conversation: identity
+          ? { ...feed.conversation, identity: { ...identity, sessionFile: frame.sessionFile } }
+          : feed.conversation,
+        movedTo: ref,
+      };
+    }
     // This cache and its command target belong to the old file. Do not relabel
     // its transcript or silently follow a terminal owner's file switch.
     return {
