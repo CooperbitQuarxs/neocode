@@ -345,25 +345,57 @@ function formatTokens(count: number): string {
   return String(count);
 }
 
-function dividerText(entry: NeoPiJournalEntry): string | null {
+/** `anthropic/claude-opus-5-5` → `Claude Opus 5.5`; `gpt-6.1-sol` → `GPT 6.1 Sol`. */
+export function modelDisplayName(model: string): string {
+  const id = model.replace(/^.*\//, "");
+  const words: string[] = [];
+  for (const token of id.split("-").filter(Boolean)) {
+    const last = words.at(-1);
+    if (/^\d+$/.test(token) && last !== undefined && /^\d+(\.\d+)*$/.test(last)) {
+      words[words.length - 1] = `${last}.${token}`;
+    } else if (["gpt", "stt", "tts", "npi"].includes(token.toLowerCase())) {
+      words.push(token.toUpperCase());
+    } else {
+      words.push(token.charAt(0).toUpperCase() + token.slice(1));
+    }
+  }
+  return words.join(" ");
+}
+
+function dividerText(
+  entry: NeoPiJournalEntry,
+  next: NeoPiJournalEntry | undefined,
+): {
+  text: string;
+  consumed: number;
+} | null {
   switch (entry.type) {
     case "compaction": {
       const before = num(entry.tokensBefore);
       const after = num(entry.tokensAfter);
-      if (before !== null && after !== null)
-        return `Context compacted · ${formatTokens(before)} → ${formatTokens(after)} tokens`;
-      return "Context compacted";
+      return {
+        text:
+          before !== null && after !== null
+            ? `Context compacted · ${formatTokens(before)} → ${formatTokens(after)} tokens`
+            : "Context compacted",
+        consumed: 0,
+      };
     }
-    case "model_change":
-      return `Model changed to ${String(entry.model ?? "unknown")}`;
+    case "model_change": {
+      const model = modelDisplayName(String(entry.model ?? "unknown"));
+      // A model switch usually lands with its reasoning level; one line for both.
+      if (next?.type === "thinking_level_change" && typeof next.thinkingLevel === "string")
+        return { text: `${model} · ${next.thinkingLevel}`, consumed: 1 };
+      return { text: model, consumed: 0 };
+    }
     case "thinking_level_change":
-      return `Reasoning set to ${String(entry.thinkingLevel ?? "unknown")}`;
+      return { text: `Reasoning ${String(entry.thinkingLevel ?? "unknown")}`, consumed: 0 };
     case "service_tier_change":
-      return "Service tier changed";
+      return { text: "Service tier changed", consumed: 0 };
     case "reset_boundary":
-      return "Context reset · earlier entries stay in the journal";
+      return { text: "Context reset · earlier entries stay in the journal", consumed: 0 };
     case "branch_summary":
-      return "Branch summary";
+      return { text: "Branch summary", consumed: 0 };
     default:
       return null;
   }
@@ -573,7 +605,8 @@ export function projectTranscript(
   };
 
   appendOutputs(null);
-  for (const entry of source.entries) {
+  for (let index = 0; index < source.entries.length; index++) {
+    const entry = source.entries[index]!;
     const base = { entry, timestamp: entry.timestamp, live: false };
     if (entry.type === "message") visitMessage(entry, false);
     else if (entry.type === "custom_message") {
@@ -592,8 +625,14 @@ export function projectTranscript(
         });
       }
     } else if (VISIBLE_DIVIDERS.has(entry.type)) {
-      const text = dividerText(entry);
-      if (text) push({ ...base, kind: "divider", id: `${entry.id}:divider`, text });
+      const divider = dividerText(entry, source.entries[index + 1]);
+      if (divider) {
+        push({ ...base, kind: "divider", id: `${entry.id}:divider`, text: divider.text });
+        for (let skipped = 1; skipped <= divider.consumed; skipped++) {
+          appendOutputs(source.entries[index + skipped]?.id ?? null);
+        }
+        index += divider.consumed;
+      }
       if (entry.type === "compaction" && options.debug && typeof entry.summary === "string")
         push({
           ...base,

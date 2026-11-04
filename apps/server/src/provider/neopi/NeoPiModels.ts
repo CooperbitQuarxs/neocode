@@ -177,7 +177,7 @@ export const makeNativeModelsAuth = Effect.fn("makeNativeModelsAuth")(function* 
   const startAuth = (input: {
     target: NeoPiModelsTarget;
     providerId: string;
-    serverUrl?: string;
+    serverUrl?: string | undefined;
   }) =>
     Effect.uninterruptibleMask((restore) =>
       Effect.gen(function* () {

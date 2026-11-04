@@ -11,6 +11,7 @@ import type {
   UserRow,
   WorkToggleRow,
 } from "@t3tools/client-runtime/neopi-transcript";
+import { modelDisplayName } from "@t3tools/client-runtime/neopi-transcript";
 import {
   ArrowRightLeftIcon,
   BotIcon,
@@ -308,23 +309,6 @@ function formatDuration(ms: number): string {
   const minutes = Math.floor(seconds / 60);
   const rest = Math.round(seconds - minutes * 60);
   return `${minutes}m ${rest}s`;
-}
-
-/** `anthropic/claude-opus-5-5` → `Claude Opus 5.5`; `gpt-6.1-sol` → `GPT 6.1 Sol`. */
-function modelDisplayName(model: string): string {
-  const id = model.replace(/^.*\//, "");
-  const words: string[] = [];
-  for (const token of id.split("-").filter(Boolean)) {
-    const last = words.at(-1);
-    if (/^\d+$/.test(token) && last !== undefined && /^\d+(\.\d+)*$/.test(last)) {
-      words[words.length - 1] = `${last}.${token}`;
-    } else if (/^[a-z]+$/i.test(token) && token.length <= 3 && !["pro", "max"].includes(token)) {
-      words.push(token.toUpperCase());
-    } else {
-      words.push(token.charAt(0).toUpperCase() + token.slice(1));
-    }
-  }
-  return words.join(" ");
 }
 
 function AssistantRowView({ row }: { row: AssistantRow }) {

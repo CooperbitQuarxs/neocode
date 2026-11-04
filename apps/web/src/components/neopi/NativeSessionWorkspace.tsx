@@ -13,6 +13,7 @@ import {
 } from "@t3tools/client-runtime/neopi-transcript";
 import { createNativeSubmissionFollow } from "@t3tools/client-runtime/neopi-submission-follow";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { cn } from "../../lib/utils";
 import {
   nativeSessionAtoms,
   selectNativeSession,
@@ -422,10 +423,25 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   const dialog = feed.dialogs.find(
     (item) => typeof item.id === "string" && !dismissed.has(item.id),
   );
+  const status = feed.connected
+    ? feed.busy
+      ? { label: "Working", dot: "bg-warning animate-pulse" }
+      : session?.attachment === "terminal"
+        ? { label: "Following a terminal", dot: "bg-info" }
+        : { label: "Ready", dot: "bg-success" }
+    : loading
+      ? { label: "Connecting", dot: "bg-muted-foreground/50 animate-pulse" }
+      : { label: "Reconnecting · showing cached conversation", dot: "bg-muted-foreground/50" };
   return (
     <>
       <WorkspacePageHeader electron={isElectron}>
         <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span
+            role="status"
+            aria-label={status.label}
+            title={status.label}
+            className={cn("size-2 shrink-0 rounded-full", status.dot)}
+          />
           <span className="truncate text-sm">
             {String(state.sessionName ?? "Native conversation")}
           </span>
@@ -476,17 +492,6 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
         onInterrupt={interrupt}
         busy={feed.busy}
       >
-        <div role="status" className="shrink-0 px-5 py-1 text-xs text-muted-foreground">
-          {feed.connected
-            ? feed.busy
-              ? "Working"
-              : session?.attachment === "terminal"
-                ? "Attached to terminal"
-                : "Ready"
-            : loading
-              ? "Connecting…"
-              : "Reconnecting · showing cached conversation"}
-        </div>
         {error || localError ? (
           <p role="alert" className="shrink-0 px-5 py-1 text-xs text-destructive">
             {localError ?? error}
