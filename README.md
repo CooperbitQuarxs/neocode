@@ -1,18 +1,40 @@
 # NeoCode
 
-NeoCode is NeoPi's graphical frontend, built from upstream [T3 Code](https://github.com/pingdotgg/t3code). NeoPi is the primary harness, enabled by default and listed first; explicit saved provider and model choices remain authoritative.
+NeoCode is NeoPi's graphical frontend, built from upstream [T3 Code](https://github.com/pingdotgg/t3code). NeoPi owns execution, sessions and harness configuration. Models and inference providers come from the connected NeoPi runtime.
 
-Other harnesses remain available, including Claude Code, Codex, Cursor, Grok Build, OpenCode and Antigravity. NeoCode keeps upstream attribution and compatibility without adopting T3 Code's product identity.
-
-## Upstream
-
-T3 Code provides the foundation for the web, desktop and mobile clients. Its authors retain their copyright and attribution; NeoCode develops as a distinct open-source project centered on NeoPi.
+Saved conversations from retired harnesses remain readable. New work runs through NeoPi.
 
 ## Installation
 
-Download [NeoCode releases](https://github.com/PsychedelicShayna/neocode/releases), then follow [Install and first run](docs/user/install.md) for platform details and provider setup. For a source checkout, use the [development guide](docs/operations/development.md).
+Download the desktop app from [NeoCode releases](https://github.com/PsychedelicShayna/neocode/releases).
+Choose a stable release, or a **Pre-release** if you want nightly builds. The fork
+currently publishes Linux x64 AppImage/`.deb` and unsigned Windows x64 installers;
+upstream T3 Code installers, npm packages and package-manager entries are not NeoCode.
 
-Fresh installations enable only NeoPi. Other supported harnesses remain available in Settings, and existing enabled harnesses stay enabled. Upstream T3 Code installers and package-manager entries install upstream T3 Code, not this fork.
+On Linux, download the `NeoCode-…-x86_64.AppImage` asset, open a terminal in its
+download folder, and use its exact filename in both commands:
+
+```bash
+chmod +x ./NeoCode-<version>-x86_64.AppImage
+./NeoCode-<version>-x86_64.AppImage
+```
+
+Replace `<version>` with the downloaded release's full version. Debian/Ubuntu
+users can install that release's `.deb` with `sudo apt install ./NeoCode-<version>-amd64.deb`.
+On Windows, use the release's `NeoCode-…-x64.exe`; it is unsigned, so review the
+download source and security warning before deciding whether to run it.
+
+Then follow [Install and first run](docs/user/install.md#neopi) to download NeoPi
+and select its executable in **Settings → NeoCore**. Ordinary fork releases do not
+bundle NeoPi; a separately labeled NeoPi-enabled Linux build can. Models and
+provider authentication are managed through NeoPi. For a source checkout, use the
+[development guide](docs/operations/development.md).
+
+## Upstream
+
+T3 Code provides the foundation for the web, desktop and mobile clients. Its
+authors retain their copyright and attribution; NeoCode develops as a distinct
+open-source project centered on NeoPi.
 
 ## Some notes
 
@@ -31,7 +53,7 @@ Full docs live in [docs/](./docs). There's no docs site yet.
 - [Remote access from a phone or another machine](./docs/user/remote-access.md)
 - [Keeping app and server in sync](./docs/user/updating.md)
 - [Source control integrations](./docs/user/source-control.md)
-- Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
+- [NeoPi setup and profiles](./docs/user/install.md#neopi)
 - [Run the server as a background service](./docs/user/background-service.md)
 
 Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md).
