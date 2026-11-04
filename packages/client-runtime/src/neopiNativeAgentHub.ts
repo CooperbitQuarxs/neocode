@@ -1,4 +1,5 @@
 import type { NeoPiJournalEntry } from "@t3tools/contracts";
+import { agentIdentity, type AgentIdentity } from "@t3tools/shared/agentNames";
 import { journalRecord } from "./neopiJournal.ts";
 import type { NativeSubagent, NativeSubagentFacts } from "./neopiNativeSubagents.ts";
 import { isActiveSubagentStatus, type RuntimeSubagentStatus } from "./state/subagentRuntime.ts";
@@ -11,6 +12,8 @@ import { isActiveSubagentStatus, type RuntimeSubagentStatus } from "./state/suba
 export interface AgentHubAgent {
   /** Unique within its source. */
   readonly id: string;
+  /** Its name and designation, drawn from the id so it is the same on every client. */
+  readonly identity: AgentIdentity;
   readonly title: string;
   readonly role: string | null;
   readonly status: RuntimeSubagentStatus;
@@ -59,9 +62,14 @@ export type AgentHubModelSelector =
 /** Capability NeoPi advertises once `set_subagent_model` exists. */
 export const SUBAGENT_MODEL_CAPABILITY = "set_subagent_model";
 
+/**
+ * `sessionKey` is the parent session's identity key: agent ids can be as plain
+ * as `worker`, so each child's name draws from its parent's key and its own id.
+ */
 export function nativeAgentHubAgents(
   agents: readonly NativeSubagent[],
   ticks: Readonly<Record<string, number>>,
+  sessionKey: string,
 ): readonly AgentHubAgent[] {
   return [...agents]
     .filter((agent) => agent.kind === "subagent")
@@ -75,6 +83,7 @@ export function nativeAgentHubAgents(
       const facts = agent.native.facts;
       return {
         id: agent.id,
+        identity: agentIdentity(`${sessionKey}#${agent.id}`),
         title: agent.title,
         role: agent.role,
         status: agent.status,

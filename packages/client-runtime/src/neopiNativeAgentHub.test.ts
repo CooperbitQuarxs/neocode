@@ -56,7 +56,7 @@ describe("native agent hub roster", () => {
       2,
       at,
     );
-    const [agent] = nativeAgentHubAgents(agents, { worker: 4 });
+    const [agent] = nativeAgentHubAgents(agents, { worker: 4 }, "session-1");
     expect(agent).toMatchObject({
       id: "worker",
       live: true,
@@ -65,6 +65,19 @@ describe("native agent hub roster", () => {
       fast: { enabled: true, active: false },
       ticks: 4,
     });
+  });
+
+  it("names a child from its parent session and its own id, the same on every read", () => {
+    const children = snapshotNativeSubagents(
+      [],
+      [{ id: "worker", status: "running", agent: "x", index: 0 }],
+      0,
+      1,
+      at,
+    );
+    const identity = (session: string) => nativeAgentHubAgents(children, {}, session)[0]?.identity;
+    expect(identity("session-1")).toEqual(identity("session-1"));
+    expect(identity("session-1")?.label).not.toBe(identity("session-2")?.label);
   });
 
   it("summarizes status counts and only reports cost once an agent reports it", () => {
@@ -81,6 +94,7 @@ describe("native agent hub roster", () => {
         at,
       ),
       {},
+      "session-1",
     );
     expect(summarizeAgentHub(base)).toMatchObject({
       total: 3,
@@ -98,6 +112,7 @@ describe("native agent hub roster", () => {
     const [agent] = nativeAgentHubAgents(
       snapshotNativeSubagents([], [{ id: "a", status: "running", agent: "x", index: 0 }], 0, 1, at),
       {},
+      "session-1",
     );
     expect(agentContextFill(agent!)).toBeNull();
     expect(agentContextFill({ ...agent!, contextTokens: 50, contextWindow: 200 })).toBe(0.25);

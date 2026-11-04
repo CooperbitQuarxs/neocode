@@ -1,5 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
+import { AgentLabel } from "./AgentLabel";
+import { agentIdentity, nativeSessionIdentityKey } from "@t3tools/shared/agentNames";
 import type { NativeSessionList } from "@t3tools/client-runtime/neopi-native-sessions";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -206,6 +208,12 @@ const NativeSessionRow = memo(function NativeSessionRow({
   onChoose: (session: NativeSessionEntry) => void;
 }) {
   const locked = session.owner.kind === "process" && !session.owner.attachable;
+  const identity = agentIdentity(
+    nativeSessionIdentityKey({
+      sessionId: session.sessionId,
+      sessionFile: session.ref.sessionFile,
+    }),
+  );
   return (
     <SidebarMenuItem className="[contain-intrinsic-size:auto_2rem] [content-visibility:auto]">
       <SidebarMenuButton
@@ -220,6 +228,7 @@ const NativeSessionRow = memo(function NativeSessionRow({
           {locked ? (
             <LockIcon className="size-3 text-icon-muted" aria-label="In use by another process" />
           ) : null}
+          <AgentLabel identity={identity} />
           <span className="text-3xs tabular-nums text-secondary-label">
             {formatRelativeTimeLabel(session.modifiedAt)}
           </span>

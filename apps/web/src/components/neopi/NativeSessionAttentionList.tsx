@@ -8,6 +8,11 @@ import {
 } from "@t3tools/client-runtime/neopi-native-session-attention";
 import type { NativeSessionList } from "@t3tools/client-runtime/neopi-native-sessions";
 import type { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
+import {
+  agentIdentity,
+  nativeSessionIdentityKey,
+  type AgentIdentity,
+} from "@t3tools/shared/agentNames";
 import * as Schema from "effect/Schema";
 import {
   CheckIcon,
@@ -45,6 +50,7 @@ import {
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { vcsEnvironment } from "../../state/vcs";
+import { AgentLabel } from "./AgentLabel";
 import { SidebarGroup } from "../ui/sidebar";
 import { prStatusIndicator } from "../ThreadStatusIndicators";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -72,6 +78,7 @@ type Section = "attention" | "working" | "recent" | "settled";
 interface RowModel {
   readonly key: string;
   readonly providerInstanceId: ProviderInstanceId;
+  readonly sessionId: string;
   readonly sessionFile: string;
   readonly title: string;
   readonly cwd: string;
@@ -110,6 +117,7 @@ function toRowModel(
   return {
     key: `${ref.providerInstanceId}:${ref.sessionFile}`,
     providerInstanceId: ref.providerInstanceId,
+    sessionId: session.sessionId,
     sessionFile: ref.sessionFile,
     title: session.title?.trim() || session.firstMessage.trim() || "New session",
     cwd: session.cwd,
@@ -211,8 +219,10 @@ function BranchLine({
   near,
   locked,
   terminalOwned,
+  identity,
 }: {
   environmentId: EnvironmentId;
+  identity: AgentIdentity;
   cwd: string;
   liveBranch: string | null;
   near: boolean;
@@ -234,6 +244,7 @@ function BranchLine({
       ) : (
         <span className="flex-1" />
       )}
+      <AgentLabel identity={identity} />
       {terminalOwned ? (
         <Tooltip>
           <TooltipTrigger
@@ -312,6 +323,14 @@ const NativeSessionRow = memo(function NativeSessionRow({
   actions,
 }: RowProps) {
   const { status, active } = model;
+  // A pure hash of the id; memoized so a streamed refresh does not redo it.
+  const identity = useMemo(
+    () =>
+      agentIdentity(
+        nativeSessionIdentityKey({ sessionId: model.sessionId, sessionFile: model.sessionFile }),
+      ),
+    [model.sessionId, model.sessionFile],
+  );
   // Work in the background recedes; only blocked and unseen rows stay at full strength.
   const recede = status === "working" || status === "idle" || model.settled;
   const [near, nearRef] = useNearViewport();
@@ -409,6 +428,7 @@ const NativeSessionRow = memo(function NativeSessionRow({
           <span className="min-w-0 flex-1 truncate text-sm text-secondary-label/70 group-hover/sidebar-row:text-foreground group-focus-within/sidebar-row:text-foreground">
             {model.title}
           </span>
+          <AgentLabel identity={identity} />
           <span className="relative ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end">
             <span className="inline-flex justify-end text-xs tabular-nums text-secondary-label transition-opacity group-hover/sidebar-row:opacity-0">
               {model.timeLabel}
@@ -464,6 +484,7 @@ const NativeSessionRow = memo(function NativeSessionRow({
           <BranchLine
             environmentId={environmentId}
             cwd={model.cwd}
+            identity={identity}
             liveBranch={model.liveBranch}
             near={near}
             locked={model.locked}
