@@ -17,7 +17,8 @@ import { ComposerSurface } from "../chat/ComposerSurface";
 import { cn } from "../../lib/utils";
 import {
   nativeSessionAtoms,
-  selectNativeSession,
+  closeNativeSession,
+  replaceNativeSession,
   useNativeSession,
   useNativeSessionSelection,
 } from "../../state/neopiNativeSessions";
@@ -27,14 +28,13 @@ import { Textarea } from "../ui/textarea";
 import { Checkbox } from "../ui/checkbox";
 import { SidebarInset } from "../ui/sidebar";
 import { Dialog, DialogPopup, DialogHeader, DialogTitle, DialogFooter } from "../ui/dialog";
-import { WorkspacePageHeader } from "../WorkspacePageHeader";
-import { isElectron } from "../../env";
+import { NativeSessionTabBar } from "./NativeSessionTabBar";
 import { useCreateNativeSession } from "./NativeSessionSidebar";
 import { NativeSessionTree } from "./NativeSessionTree";
 import { NativeTimelineView, nativeTimelineKey } from "./NativeTimelineView";
 import { nativeQueuedMessages, parseNativeQueuedMessageId } from "./nativeTimeline";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { useEnvironmentQuery } from "../../state/query";
+import { createPortal } from "react-dom";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useAtomValue } from "@effect/atom-react";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
@@ -92,10 +92,16 @@ function HeaderIconButton(props: {
 
 export function NativeSessionWorkspace() {
   const target = useNativeSessionSelection((state) => state.target);
+  const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden">
+      <NativeSessionTabBar actionsRef={setActionsSlot} />
       {target ? (
-        <NativeSessionView key={nativeSessionKey(target)} target={target} />
+        <NativeSessionView
+          key={nativeSessionKey(target)}
+          target={target}
+          actionsSlot={actionsSlot}
+        />
       ) : (
         <NativeSessionStart />
       )}
@@ -108,7 +114,6 @@ function NativeSessionStart() {
   const [pending, setPending] = useState(false);
   return (
     <>
-      <WorkspacePageHeader electron={isElectron} />
       <div className="m-auto flex max-w-lg flex-col items-center gap-4 p-6">
         <h1 className="text-xl font-semibold">Start a conversation</h1>
         <p className="text-sm text-muted-foreground">
@@ -135,7 +140,14 @@ function NativeSessionStart() {
   );
 }
 
-export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
+export function NativeSessionView({
+  target,
+  actionsSlot,
+}: {
+  target: NativeSessionTarget;
+  /** The tab bar's trailing slot, where this session's header actions render. */
+  actionsSlot?: HTMLElement | null;
+}) {
   const { feed, session, conversation, request, loading, error } = useNativeSession(target);
   const close = useAtomCommand(nativeSessionAtoms.close, { reportFailure: false });
   const key = nativeSessionKey(target);
@@ -143,14 +155,6 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   const draftStore = useComposerDraftStore;
   const panelOpen = useRightPanelStore(
     (value) => selectThreadRightPanelState(value.byThreadKey, target).isOpen,
-  );
-  // The sidebar's own entry, so the header and the session list always agree on the title.
-  const listed = useEnvironmentQuery(
-    nativeSessionAtoms.list({ environmentId: target.environmentId, input: {} }),
-  ).data?.sessions.find(
-    (entry) =>
-      entry.ref.sessionFile === target.ref.sessionFile &&
-      entry.ref.providerInstanceId === target.ref.providerInstanceId,
   );
   const settings = useEnvironmentSettings(target.environmentId);
   const { resolvedTheme } = useTheme();
@@ -206,8 +210,8 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   }, [session]);
   useEffect(() => {
     if (session && session.ref.sessionFile !== target.ref.sessionFile)
-      selectNativeSession({ environmentId: target.environmentId, ref: session.ref });
-  }, [session, target.environmentId, target.ref.sessionFile]);
+      replaceNativeSession(target, { environmentId: target.environmentId, ref: session.ref });
+  }, [session, target]);
   const loadOlder = async () => {
     if (paging || !conversation.cursor) return;
     setPaging(true);
@@ -409,76 +413,47 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   const dialog = feed.dialogs.find(
     (item) => typeof item.id === "string" && !dismissed.has(item.id),
   );
-  const status = feed.connected
-    ? feed.busy
-      ? { label: "Working", dot: "bg-warning" }
-      : session?.attachment === "terminal"
-        ? { label: "Following a terminal", dot: "bg-info" }
-        : { label: "Ready", dot: "bg-success" }
-    : loading
-      ? { label: "Connecting", dot: "bg-muted-foreground/50" }
-      : { label: "Reconnecting · showing cached conversation", dot: "bg-muted-foreground/50" };
   return (
     <>
-      <WorkspacePageHeader electron={isElectron}>
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span
-            role="status"
-            aria-label={status.label}
-            title={status.label}
-            className={cn("size-2 shrink-0 rounded-full", status.dot)}
-          />
-          <h2 className="min-w-0 truncate text-sm font-medium">
-            {listed?.title ??
-              (typeof state.sessionName === "string" && state.sessionName.trim()
-                ? state.sessionName
-                : listed?.firstMessage ||
-                  promptHistory[0]?.text.split("\n")[0]?.trim() ||
-                  "New session")}
-          </h2>
-          {session?.cwd ? (
-            <span
-              className="hidden min-w-0 truncate text-xs text-muted-foreground lg:inline"
-              title={session.cwd}
+      {actionsSlot
+        ? createPortal(
+            // Leaves room for the fixed terminal and panel toggles at the titlebar edge.
+            <div
+              className={cn(
+                "flex shrink-0 items-center gap-0.5 [-webkit-app-region:no-drag]",
+                // The fixed titlebar controls gain a maximize button while the panel is open.
+                panelOpen ? "pr-26.5 sm:pr-22.5" : "pr-18.25 sm:pr-14.25",
+              )}
             >
-              {session.cwd.replace(/\/+$/, "").split("/").at(-1) || session.cwd}
-            </span>
-          ) : null}
-        </div>
-        {/* Leaves room for the fixed terminal and panel toggles at the titlebar edge. */}
-        <div
-          className={cn(
-            "flex shrink-0 items-center gap-0.5 [-webkit-app-region:no-drag]",
-            // The fixed titlebar controls gain a maximize button while the panel is open.
-            panelOpen ? "pr-26.5 sm:pr-22.5" : "pr-18.25 sm:pr-14.25",
-          )}
-        >
-          <HeaderIconButton label="Session tree" onClick={() => setTree(true)}>
-            <GitForkIcon className="size-4" />
-          </HeaderIconButton>
-          <HeaderIconButton
-            label={debug ? "Hide native records" : "Show native records"}
-            pressed={debug}
-            onClick={() => setDebug((value) => !value)}
-          >
-            <BracesIcon className="size-4" />
-          </HeaderIconButton>
-          <HeaderIconButton
-            label="Disconnect session"
-            onClick={() =>
-              void close({ environmentId: target.environmentId, input: { ref: target.ref } }).then(
-                (result) => {
-                  if (result._tag === "Failure")
-                    setLocalError(String(squashAtomCommandFailure(result)));
-                  else selectNativeSession(null);
-                },
-              )
-            }
-          >
-            <UnplugIcon className="size-4" />
-          </HeaderIconButton>
-        </div>
-      </WorkspacePageHeader>
+              <HeaderIconButton label="Session tree" onClick={() => setTree(true)}>
+                <GitForkIcon className="size-4" />
+              </HeaderIconButton>
+              <HeaderIconButton
+                label={debug ? "Hide native records" : "Show native records"}
+                pressed={debug}
+                onClick={() => setDebug((value) => !value)}
+              >
+                <BracesIcon className="size-4" />
+              </HeaderIconButton>
+              <HeaderIconButton
+                label="Disconnect session"
+                onClick={() =>
+                  void close({
+                    environmentId: target.environmentId,
+                    input: { ref: target.ref },
+                  }).then((result) => {
+                    if (result._tag === "Failure")
+                      setLocalError(String(squashAtomCommandFailure(result)));
+                    else closeNativeSession(target);
+                  })
+                }
+              >
+                <UnplugIcon className="size-4" />
+              </HeaderIconButton>
+            </div>,
+            actionsSlot,
+          )
+        : null}
       <NativeSessionWorkspacePanels
         target={target}
         cwd={session?.cwd ?? null}
