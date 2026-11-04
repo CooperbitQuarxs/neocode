@@ -24,6 +24,15 @@ On the desktop app, `ctrl+space` starts and stops [dictation](composer.md#dictat
 in a native session. It is literal Ctrl on every platform, so it can be rebound
 under `composer.dictation.toggle` if your system uses it for input sources.
 
+In a native session, `ctrl+s` (`agents.panel.toggle`) shows or hides the agents
+panel and `alt+s` (`agents.hub.toggle`) shows or hides the full Agent Hub. These
+match NeoPi's own chords for those views. Both apply only in native sessions
+(`when: nativeSession`), where `ctrl+s` replaces the composer stash on Linux and
+Windows; other threads keep the stash. Rebind `agents.panel.toggle` to keep
+`ctrl+s` for the stash everywhere. In the panel and the hub, click or use the
+arrow keys (or `j`/`k`) to preview an agent, Enter or a double-click to open it,
+and Esc to go back.
+
 In the model picker, press Left in an empty search field or Shift+Tab to reach
 the provider list. Use Up/Down to move and Enter to choose. Right returns to
 model search. `mod+shift+up` and `mod+shift+down` switch providers directly and clear the
@@ -88,7 +97,8 @@ Join modifiers and a key with `+`, such as `mod+shift+d` or `ctrl+l`.
 ## When conditions
 
 Available context keys are `terminalFocus`, `terminalOpen`, `previewFocus`,
-`previewOpen`, `modelPickerOpen`, `usagePageOpen`, `editableFocus`, `isWeb`, and `isDesktop`.
+`previewOpen`, `modelPickerOpen`, `usagePageOpen`, `nativeSession`, `editableFocus`, `isWeb`, and
+`isDesktop`. `nativeSession` is true while a NeoPi session fills the window.
 `editableFocus` is true while a text field, the composer, or another editor has
 the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the
 desktop app. Unknown keys evaluate to `false`.
