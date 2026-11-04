@@ -30,10 +30,16 @@ computer, then make `npi` available on its PATH or set **Binary path** to the
 executable. Correct or clear an invalid explicit path; enable a disabled runtime
 profile with **Enable NeoPi**. Existing launch settings are preserved.
 
-You can continue without finishing NeoPi setup. Starting a new thread without
-an available runtime opens the same computer's NeoCore settings. Configure
-inference-provider accounts through **Models** after NeoPi is available; setup
-does not start an installer or sign-in flow.
+Choose **Connect to NeoProxy** to connect with your server address and member key.
+If asked to verify a certificate, compare the complete fingerprints with your
+administrator before accepting. Your administrator controls which models your
+member can use; an upstream-provider login is not needed.
+See [Connect to NeoProxy](./install.md#connect-to-neoproxy).
+
+You can continue without finishing NeoPi or NeoProxy setup. Starting a new thread
+without an available runtime opens the same computer's NeoCore settings. Other
+inference-provider accounts remain available through **Models** after NeoPi is
+available; setup does not start an installer.
 
 Continue to the workspace when ready. Start a thread without a project, choose a
 project folder, or use **Resume NeoPi session** to open native history. Setup does not scan Claude

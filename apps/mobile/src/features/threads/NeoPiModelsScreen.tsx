@@ -15,7 +15,7 @@ import { formatNeoPiModelTokenLimit } from "@t3tools/client-runtime/neopi-models
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import * as Linking from "expo-linking";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FlatList, ScrollView, View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
@@ -178,6 +178,7 @@ function ModelsSnapshot({
       environmentId={environmentId}
       target={target}
       configuration={result.value}
+      catalogReady={!result.waiting}
       refresh={refresh}
     />
   );
@@ -220,11 +221,13 @@ function ModelsContent({
   target,
   configuration,
   refresh,
+  catalogReady,
 }: {
   environmentId: EnvironmentId;
   target: NeoPiModelsTarget;
   configuration: Configuration;
   refresh: () => void;
+  catalogReady: boolean;
 }) {
   const update = useAtomCommand(neopiModels.update, { reportFailure: false });
   const [section, setSection] = useState("all");
@@ -280,7 +283,15 @@ function ModelsContent({
       .sort((a, b) => Number(b.authenticated) - Number(a.authenticated) || a.id.localeCompare(b.id))
       .map((value) => ({
         value: `provider:${value.id}`,
-        label: `${value.authenticated ? "●" : "○"} ${value.id} · ${value.authenticated ? "Signed in" : "Not signed in"}`,
+        label: `${value.authenticated ? "●" : "○"} ${value.id} · ${
+          value.id === "neoproxy"
+            ? value.authenticated
+              ? "Connected"
+              : "Not connected"
+            : value.authenticated
+              ? "Signed in"
+              : "Not signed in"
+        }`,
       })),
   ];
   return (
@@ -384,6 +395,10 @@ function ModelsContent({
                   environmentId={environmentId}
                   target={target}
                   provider={provider}
+                  hasAvailableCatalogModels={configuration.models.some(
+                    (model) => model.provider === provider.id && model.available,
+                  )}
+                  catalogReady={catalogReady}
                   refresh={refresh}
                   pending={pending}
                   save={save}
@@ -689,6 +704,8 @@ function ProviderAccounts({
   environmentId,
   target,
   provider,
+  hasAvailableCatalogModels,
+  catalogReady,
   refresh,
   pending,
   save,
@@ -696,48 +713,57 @@ function ProviderAccounts({
   environmentId: EnvironmentId;
   target: NeoPiModelsTarget;
   provider: Configuration["providers"][number];
+  hasAvailableCatalogModels: boolean;
+  catalogReady: boolean;
   refresh: () => void;
   pending: boolean;
   save: (change: Change) => Promise<boolean>;
 }) {
+  const isNeoProxy = provider.id === "neoproxy";
   const accountsCommand = useAtomCommand(neopiModels.accounts, { reportFailure: false });
   const start = useAtomCommand(neopiModels.startAuth, { reportFailure: false });
   const cancel = useAtomCommand(neopiModels.cancelAuth, { reportFailure: false });
   const [accounts, setAccounts] = useState<
     ReadonlyArray<{ credentialId: number; label: string; detail: string; active: boolean }>
   >([]);
+  const [accountsReady, setAccountsReady] = useState(false);
   const [key, setKey] = useState("");
   const [flowId, setFlowId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const active = useRef(true);
   const startingRef = useRef(false);
-  const currentFlow = useRef<string | null>(null);
-  currentFlow.current = flowId;
-  useEffect(() => {
-    active.current = true;
-    return () => {
-      active.current = false;
-      if (currentFlow.current)
-        void cancel({ environmentId, input: { flowId: currentFlow.current } });
-    };
-  }, [cancel, environmentId]);
-  async function loadAccounts() {
+  const loadAccounts = useCallback(async () => {
+    setAccountsReady(false);
     const result = await accountsCommand({
       environmentId,
       input: { target, providerId: provider.id },
     });
     if (!active.current) return;
     if (result._tag === "Failure") setError(errorMessage(squashAtomCommandFailure(result)));
-    else setAccounts(result.value.accounts);
-  }
+    else {
+      setAccounts(result.value.accounts);
+      setAccountsReady(true);
+      setError(null);
+    }
+  }, [accountsCommand, environmentId, target, provider.id]);
+  useEffect(() => {
+    active.current = true;
+    void loadAccounts();
+    return () => {
+      active.current = false;
+    };
+  }, [loadAccounts]);
   async function login(providerId: string) {
     if (startingRef.current || flowId !== null) return;
     startingRef.current = true;
     setStarting(true);
     setError(null);
     try {
-      const result = await start({ environmentId, input: { target, providerId } });
+      const result = await start({
+        environmentId,
+        input: { target, providerId: isNeoProxy ? "neoproxy" : providerId },
+      });
       if (result._tag === "Failure") {
         if (active.current) setError(errorMessage(squashAtomCommandFailure(result)));
         return;
@@ -758,7 +784,13 @@ function ProviderAccounts({
     <View className="gap-3 border-b border-border-subtle pb-4">
       <Text className="text-sm text-foreground">
         {provider.authenticated ? "●" : "○"}{" "}
-        {provider.authenticated ? "Signed in" : "Not signed in"}
+        {provider.authenticated
+          ? isNeoProxy
+            ? "Connected"
+            : "Signed in"
+          : isNeoProxy
+            ? "Not connected"
+            : "Not signed in"}
       </Text>
       <Text className="text-sm text-foreground-muted">
         {provider.disabled
@@ -778,7 +810,7 @@ function ProviderAccounts({
         {provider.loginProviders.map((value) => (
           <MaterialButton
             key={value.id}
-            label={`Log in to ${value.name}`}
+            label={isNeoProxy ? "Connect to NeoProxy" : `Log in to ${value.name}`}
             disabled={!value.available || pending || starting || flowId !== null}
             onPress={() => void login(value.id)}
           />
@@ -794,6 +826,7 @@ function ProviderAccounts({
           key={flowId}
           environmentId={environmentId}
           flowId={flowId}
+          providerId={provider.id}
           refresh={refresh}
           close={() => {
             setFlowId(null);
@@ -801,22 +834,44 @@ function ProviderAccounts({
           }}
         />
       ) : null}
-      <NativeField
-        label={`Native ${provider.id} API key`}
-        value={key}
-        onChange={setKey}
-        secret
-        disabled={pending}
-      />
-      <MaterialButton
-        label="Save native key"
-        disabled={pending || !key.trim()}
-        onPress={() => {
-          const apiKey = key;
-          setKey("");
-          void save({ operation: "key", providerId: provider.id, apiKey });
-        }}
-      />
+      {isNeoProxy && !provider.disabled && provider.discovery?.error ? (
+        <Text className="text-sm text-foreground-muted">
+          Last model discovery report: {provider.discovery.error}
+        </Text>
+      ) : null}
+      {isNeoProxy &&
+      catalogReady &&
+      accountsReady &&
+      provider.authenticated &&
+      !provider.disabled &&
+      accounts.length > 0 &&
+      !hasAvailableCatalogModels ? (
+        <Text className="text-sm text-foreground-muted">
+          No NeoProxy models are available in this configuration. Check the connection, model
+          discovery and selected scope in NeoPi, then refresh. If NeoPi's connection flow explicitly
+          reports that this member has no granted models, ask your administrator to grant access.
+        </Text>
+      ) : null}
+      {!isNeoProxy ? (
+        <>
+          <NativeField
+            label={`Native ${provider.id} API key`}
+            value={key}
+            onChange={setKey}
+            secret
+            disabled={pending}
+          />
+          <MaterialButton
+            label="Save native key"
+            disabled={pending || !key.trim()}
+            onPress={() => {
+              const apiKey = key;
+              setKey("");
+              void save({ operation: "key", providerId: provider.id, apiKey });
+            }}
+          />
+        </>
+      ) : null}
       {accounts.map((account) => (
         <View key={account.credentialId} className="gap-2">
           <Text className="text-sm text-foreground">
@@ -825,7 +880,7 @@ function ProviderAccounts({
           </Text>
           <Text className="text-xs text-foreground-muted">{account.detail}</Text>
           <MaterialButton
-            label="Remove this account"
+            label={isNeoProxy ? "Disconnect" : "Remove this account"}
             disabled={pending}
             onPress={() =>
               void save({
@@ -846,11 +901,13 @@ function ProviderAccounts({
 function NativeLogin({
   environmentId,
   flowId,
+  providerId,
   refresh,
   close,
 }: {
   environmentId: EnvironmentId;
   flowId: string;
+  providerId: string;
   refresh: () => void;
   close: () => void;
 }) {
@@ -859,13 +916,42 @@ function NativeLogin({
   const cancel = useAtomCommand(neopiModels.cancelAuth, { reportFailure: false });
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const pendingRequest = useRef<string | null>(null);
+  const active = useRef(false);
   const result = AsyncResult.isSuccess(state) ? state.value : null;
+  const promptId = useRef(result?.prompt?.id);
+  promptId.current = result?.prompt?.id;
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+    };
+  }, []);
   useEffect(() => {
     setValue("");
+    setError(null);
+    setSubmitting(false);
+    pendingRequest.current = null;
   }, [result?.prompt?.id]);
   useEffect(() => {
     if (result?.status === "complete") refresh();
   }, [result?.status, refresh]);
+  const send = (requestId: string, answer: { value: string } | { confirmed: boolean }) => {
+    if (pendingRequest.current !== null || cancelling || result?.status !== "running") return;
+    pendingRequest.current = requestId;
+    setSubmitting(true);
+    setError(null);
+    void respond({ environmentId, input: { flowId, requestId, ...answer } }).then((response) => {
+      if (!active.current || promptId.current !== requestId) return;
+      if (response._tag === "Failure") {
+        setError(errorMessage(squashAtomCommandFailure(response)));
+        pendingRequest.current = null;
+        setSubmitting(false);
+      } else setValue("");
+    });
+  };
   if (AsyncResult.isFailure(state))
     return (
       <View className="gap-3">
@@ -876,14 +962,24 @@ function NativeLogin({
   const url = result?.url && /^https?:\/\//i.test(result.url) ? result.url : null;
   return (
     <View className="gap-3 border-y border-border-subtle py-3">
-      <Text className="text-sm text-foreground">
-        {result?.message ?? "Waiting for native login"}
-      </Text>
+      {result?.message || !result?.prompt ? (
+        <Text className="text-sm text-foreground">
+          {providerId === "neoproxy" && result?.status === "complete"
+            ? "Connected"
+            : (result?.message ??
+              (providerId === "neoproxy" ? "Connecting…" : "Waiting for native login"))}
+        </Text>
+      ) : null}
       {url ? (
         <MaterialButton
           label="Open native authorization page"
           onPress={() => void Linking.openURL(url).catch((cause) => setError(errorMessage(cause)))}
         />
+      ) : null}
+      {result?.userCode ? (
+        <Text selectable className="font-t3-medium text-foreground">
+          {result.userCode}
+        </Text>
       ) : null}
       {result?.instructions ? (
         <Text selectable className="text-sm text-foreground-muted">
@@ -891,7 +987,7 @@ function NativeLogin({
         </Text>
       ) : null}
       <NativeError message={error} />
-      {result?.prompt ? (
+      {result?.prompt?.kind === "input" ? (
         <View className="gap-2">
           <NativeField
             label={result.prompt.title}
@@ -899,33 +995,58 @@ function NativeLogin({
             onChange={setValue}
             secret={result.prompt.secret}
             placeholder={result.prompt.placeholder ?? undefined}
+            disabled={submitting || cancelling}
           />
           <MaterialButton
             label="Send to native login"
+            disabled={!value.trim() || submitting || cancelling}
             onPress={() => {
-              const prompt = result.prompt!;
-              const answer = value;
-              setValue("");
-              void respond({
-                environmentId,
-                input: { flowId, requestId: prompt.id, value: answer },
-              }).then((response) => {
-                if (response._tag === "Failure")
-                  setError(errorMessage(squashAtomCommandFailure(response)));
-              });
+              if (result.prompt?.kind === "input") send(result.prompt.id, { value });
             }}
           />
+        </View>
+      ) : result?.prompt?.kind === "confirm" ? (
+        <View className="gap-3 rounded-lg border border-border-subtle p-3">
+          <Text accessibilityRole="header" className="font-t3-medium text-foreground">
+            {result.prompt.title}
+          </Text>
+          <Text selectable className="text-sm text-foreground-muted">
+            {result.prompt.message}
+          </Text>
+          <View className="flex-row flex-wrap gap-2">
+            <MaterialButton
+              label={providerId === "neoproxy" ? "Don't trust" : "Decline"}
+              disabled={submitting || cancelling}
+              onPress={() => {
+                if (result.prompt?.kind === "confirm") send(result.prompt.id, { confirmed: false });
+              }}
+            />
+            <MaterialButton
+              label={providerId === "neoproxy" ? "Trust this server" : "Confirm"}
+              tone="primary"
+              disabled={submitting || cancelling}
+              onPress={() => {
+                if (result.prompt?.kind === "confirm") send(result.prompt.id, { confirmed: true });
+              }}
+            />
+          </View>
         </View>
       ) : null}
       <MaterialButton
         label={!result || result.status === "running" ? "Cancel login" : "Close login"}
+        disabled={(!result || result.status === "running") && cancelling}
         onPress={() => {
-          if (!result || result.status === "running")
+          if (!result || result.status === "running") {
+            if (cancelling) return;
+            setCancelling(true);
             void cancel({ environmentId, input: { flowId } }).then((response) => {
-              if (response._tag === "Failure")
+              if (!active.current) return;
+              if (response._tag === "Failure") {
                 setError(errorMessage(squashAtomCommandFailure(response)));
+                setCancelling(false);
+              }
             });
-          else close();
+          } else close();
         }}
       />
     </View>
