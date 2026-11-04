@@ -24,6 +24,10 @@ export const NEOPI_CAPABILITIES = {
   controlPipe: "control_pipe",
   /** Present in `ready` only when the peer is a control connection: this runtime is attached, not the owner. */
   controlAttached: "control_v1",
+  /** Command lists name every builtin with `availability: "headless" | "tui"`; TUI-only prompts are refused. */
+  commandCatalog: "command_catalog",
+  /** `get_command_completions` serves slash-command argument completions. */
+  commandCompletions: "command_completions",
 } as const;
 
 /** v2 negotiation is the required transport floor; all named features are optional. */
