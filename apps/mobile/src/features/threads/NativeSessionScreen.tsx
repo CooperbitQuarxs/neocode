@@ -10,6 +10,7 @@ import {
 } from "@t3tools/client-runtime/neopi-native-sessions";
 import { journalEntryLabel } from "@t3tools/client-runtime/neopi-journal";
 import { createNativeSubmissionFollow } from "@t3tools/client-runtime/neopi-submission-follow";
+import { upgradeLegacyContextMessage } from "@t3tools/shared/composerContextLegacy";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, ScrollView, View } from "react-native";
 import { AppText as Text } from "../../components/AppText";
@@ -335,6 +336,34 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
         }
       />
       <View className="gap-2 border-t border-border px-4 py-3">
+        {[
+          ...feed.queue.steering.map((text, index) => ({ lane: "steering" as const, text, index })),
+          ...feed.queue.followUp.map((text, index) => ({ lane: "followUp" as const, text, index })),
+        ].map((queued) => (
+          <View
+            key={`${queued.lane}:${queued.index}`}
+            className="flex-row items-center gap-2 rounded-xl border border-dashed border-border px-3 py-2"
+          >
+            <Text className="flex-1 text-sm text-foreground-muted" numberOfLines={2}>
+              {upgradeLegacyContextMessage(queued.text).text || "Queued message"}
+            </Text>
+            {queued.lane === "steering" && queued.index < feed.queue.liveSteered ? (
+              <Text className="text-xs text-foreground-muted">Sending</Text>
+            ) : (
+              <MaterialButton
+                label="Cancel"
+                tone="text"
+                onPress={() =>
+                  void execute({
+                    type: "remove_queued_message",
+                    message: queued.text,
+                    queue: queued.lane,
+                  }).catch((cause) => setLocalError(String(cause)))
+                }
+              />
+            )}
+          </View>
+        ))}
         {Object.values(feed.notices)
           .filter(Boolean)
           .map((notice, index) => (

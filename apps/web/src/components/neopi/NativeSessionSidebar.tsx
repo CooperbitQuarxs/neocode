@@ -6,7 +6,8 @@ import type {
 } from "@t3tools/client-runtime/neopi-native-sessions";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useCallback, useEffect, useState } from "react";
-import { LockIcon, PlusIcon, TerminalIcon } from "lucide-react";
+import { LockIcon, PlusIcon } from "lucide-react";
+import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { isElectron } from "../../env";
 import { selectOnboardingProvidersByDriver } from "../../onboarding/providerReadiness.logic";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
@@ -221,7 +222,9 @@ export function NativeEnvironmentSessions({
   };
   return (
     <SidebarGroup>
-      {label ? <p className="mb-2 text-xs text-muted-foreground">{label}</p> : null}
+      {label ? (
+        <p className="px-2 pb-1 text-xs font-medium text-muted-foreground">{label}</p>
+      ) : null}
       {result.error || error ? (
         <p role="alert" className="text-xs text-destructive">
           {error ?? result.error}
@@ -256,19 +259,20 @@ export function NativeEnvironmentSessions({
                   <span className="min-w-0 flex-1 truncate">
                     {session.title ?? (session.firstMessage || "New session")}
                   </span>
-                  {session.owner.kind === "process" ? (
+                  <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                    {disabled ? (
+                      <LockIcon
+                        className="size-3 text-icon-muted"
+                        aria-label="In use by another process"
+                      />
+                    ) : null}
                     <span
-                      className="flex shrink-0 items-center text-icon-muted"
-                      title={disabled ? "In use by another process" : "Running in a terminal"}
-                      aria-label={disabled ? "In use" : "Running in a terminal"}
+                      className="text-3xs tabular-nums text-secondary-label"
+                      title={session.owner.kind === "process" ? "Running in a terminal" : undefined}
                     >
-                      {disabled ? (
-                        <LockIcon className="size-3" aria-hidden />
-                      ) : (
-                        <TerminalIcon className="size-3" aria-hidden />
-                      )}
+                      {formatRelativeTimeLabel(session.modifiedAt)}
                     </span>
-                  ) : null}
+                  </span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             );

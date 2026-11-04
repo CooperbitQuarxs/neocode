@@ -1,4 +1,5 @@
-import { LegendList, type LegendListRef } from "@legendapp/list/react";
+import { BracesIcon, GitForkIcon, UnplugIcon } from "lucide-react";
+import type { LegendListRef } from "@legendapp/list/react";
 import {
   nativeCatalogModels,
   nativeRecord,
@@ -9,10 +10,10 @@ import {
   projectTranscript,
   transcriptUserText,
   type CommandRow,
-  type TranscriptRow,
 } from "@t3tools/client-runtime/neopi-transcript";
-import { createNativeSubmissionFollow } from "@t3tools/client-runtime/neopi-submission-follow";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { ComposerSurface } from "../chat/ComposerSurface";
 import { cn } from "../../lib/utils";
 import {
   nativeSessionAtoms,
@@ -30,15 +31,10 @@ import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import { isElectron } from "../../env";
 import { useCreateNativeSession } from "./NativeSessionSidebar";
 import { NativeSessionTree } from "./NativeSessionTree";
-import {
-  NativeTranscriptCtx,
-  NativeTranscriptRowView,
-  transcriptRowClassName,
-  transcriptRowType,
-  useTranscriptOpenRows,
-  type NativeTranscriptContext,
-} from "./NativeTranscript";
+import { NativeTimelineView, nativeTimelineKey } from "./NativeTimelineView";
+import { nativeQueuedMessages, parseNativeQueuedMessageId } from "./nativeTimeline";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useEnvironmentQuery } from "../../state/query";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useAtomValue } from "@effect/atom-react";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
@@ -53,7 +49,7 @@ import { useComposerHandleContext } from "../../composerHandleContext";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { useTheme } from "../../hooks/useTheme";
 import { primaryServerKeybindingsAtom, serverEnvironment } from "../../state/server";
-import { useRightPanelStore } from "../../rightPanelStore";
+import { selectThreadRightPanelState, useRightPanelStore } from "../../rightPanelStore";
 import type { TerminalContextDraft } from "../../lib/terminalContext";
 import { ChatComposer, type ChatComposerHandle } from "../chat/ChatComposer";
 import { ExpandedImageDialog } from "../chat/ExpandedImageDialog";
@@ -61,11 +57,38 @@ import type { ExpandedImagePreview } from "../chat/ExpandedImagePreview";
 import { createPageScrollController } from "../chat/pageScrollController";
 import { NativeSessionWorkspacePanels } from "./NativeSessionWorkspacePanels";
 import { consumeNativeDraft, prepareNativePrompt } from "./neopiNativeComposer";
+import type { ComposerSubmissionIntent } from "../../composer-logic";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../../terminalUiStateStore";
 
 type Request = ReturnType<typeof useNativeSession>["request"];
 const answeredDialogs = new Map<string, Set<string>>();
 const consumedEditors = new Map<string, string>();
+
+function HeaderIconButton(props: {
+  readonly label: string;
+  readonly pressed?: boolean;
+  readonly onClick: () => void;
+  readonly children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label={props.label}
+            {...(props.pressed !== undefined ? { "aria-pressed": props.pressed } : {})}
+            onClick={props.onClick}
+          />
+        }
+      >
+        {props.children}
+      </TooltipTrigger>
+      <TooltipPopup side="bottom">{props.label}</TooltipPopup>
+    </Tooltip>
+  );
+}
 
 export function NativeSessionWorkspace() {
   const target = useNativeSessionSelection((state) => state.target);
@@ -118,6 +141,17 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   const key = nativeSessionKey(target);
   const draft = useComposerThreadDraft(target);
   const draftStore = useComposerDraftStore;
+  const panelOpen = useRightPanelStore(
+    (value) => selectThreadRightPanelState(value.byThreadKey, target).isOpen,
+  );
+  // The sidebar's own entry, so the header and the session list always agree on the title.
+  const listed = useEnvironmentQuery(
+    nativeSessionAtoms.list({ environmentId: target.environmentId, input: {} }),
+  ).data?.sessions.find(
+    (entry) =>
+      entry.ref.sessionFile === target.ref.sessionFile &&
+      entry.ref.providerInstanceId === target.ref.providerInstanceId,
+  );
   const settings = useEnvironmentSettings(target.environmentId);
   const { resolvedTheme } = useTheme();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -133,73 +167,15 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   const terminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
-  const timelineHostRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<LegendListRef | null>(null);
-  const followRevisionRef = useRef(conversation.revision);
-  followRevisionRef.current = conversation.revision;
-  const followRowsRef = useRef<readonly TranscriptRow[]>([]);
-  const submissionFollow = useMemo(
-    () =>
-      createNativeSubmissionFollow({
-        scheduleFrame: (callback) => requestAnimationFrame(callback),
-        cancelFrame: (frame) => cancelAnimationFrame(frame),
-        readLayout: () => {
-          const list = timelineRef.current;
-          const viewport = list?.getScrollableNode() as HTMLElement | undefined;
-          if (!list || !viewport) return null;
-          const rows = followRowsRef.current;
-          const last = rows.at(-1);
-          const state = list.getState();
-          const measured =
-            !!last &&
-            state.indexByKey(last.id) === state.data.length - 1 &&
-            state.sizes.has(last.id);
-          return {
-            measured,
-            atEnd: viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 1,
-            revision: JSON.stringify([
-              last?.id,
-              followRevisionRef.current,
-              state.sizes.get(last?.id ?? ""),
-              viewport.scrollHeight,
-              viewport.clientHeight,
-              viewport.scrollTop,
-            ]),
-          };
-        },
-        scrollToEnd: () => {
-          void timelineRef.current?.scrollToEnd({ animated: false });
-        },
-      }),
-    [],
-  );
-  const cancelSubmissionFollow = useCallback(() => {
-    if (!submissionFollow.cancel()) return;
-    // LegendList may still have a pending estimated-index scroll. Supersede it
-    // before applying the user's navigation, as the stock timeline does.
-    const list = timelineRef.current;
-    const viewport = list?.getScrollableNode() as HTMLElement | undefined;
-    if (viewport) void list?.scrollToOffset({ offset: viewport.scrollTop, animated: false });
-  }, [submissionFollow]);
-  useEffect(() => cancelSubmissionFollow, [cancelSubmissionFollow]);
+  const [followSignal, setFollowSignal] = useState(0);
   const submit = useCallback<Request>(
     async (command, attachments) => {
-      if (command.type !== "prompt") {
-        cancelSubmissionFollow();
-        return request(command, attachments);
-      }
-      cancelSubmissionFollow();
-      const generation = submissionFollow.begin();
-      try {
-        const result = await request(command, attachments);
-        submissionFollow.accept(generation);
-        return result;
-      } catch (cause) {
-        submissionFollow.reject(generation);
-        throw cause;
-      }
+      const result = await request(command, attachments);
+      if (command.type === "prompt") setFollowSignal((value) => value + 1);
+      return result;
     },
-    [request, cancelSubmissionFollow, submissionFollow],
+    [request],
   );
   const [composerElement, setComposerElement] = useState<HTMLDivElement | null>(null);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
@@ -210,12 +186,10 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   const pageScroll = useMemo(
     () =>
       createPageScrollController({
-        getContainer: () =>
-          timelineHostRef.current?.querySelector<HTMLElement>(".overflow-auto") ?? null,
+        getContainer: () => timelineRef.current?.getScrollableNode() ?? null,
         getScrollPaddingBottomPx: () => 0,
-        onScrollStart: cancelSubmissionFollow,
       }),
-    [cancelSubmissionFollow],
+    [],
   );
   useEffect(() => () => pageScroll.dispose(), [pageScroll]);
   const [debug, setDebug] = useState(false);
@@ -235,7 +209,6 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
       selectNativeSession({ environmentId: target.environmentId, ref: session.ref });
   }, [session, target.environmentId, target.ref.sessionFile]);
   const loadOlder = async () => {
-    cancelSubmissionFollow();
     if (paging || !conversation.cursor) return;
     setPaging(true);
     try {
@@ -287,52 +260,47 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
     },
     [request, submit],
   );
-  const send = useCallback(async () => {
-    const snapshot = draftStore.getState().getComposerDraft(target);
-    if (
-      !composerDraftHasUserContent(snapshot) ||
-      !snapshot ||
-      sendingRef.current ||
-      !feed.connected
-    )
-      return;
-    if (composerRef.current?.hasPendingAttachments()) {
-      setLocalError("Wait for the attachment to finish preparing before sending.");
-      return;
-    }
-    sendingRef.current = true;
-    setSending(true);
-    setLocalError(null);
-    try {
-      const prompt = await prepareNativePrompt(target, snapshot);
-      await submit(
-        {
-          type: "prompt",
-          message: prompt.message,
-          ...((nativeSessionAtoms.cached(target)?.busy ?? feed.busy)
-            ? { streamingBehavior: "followUp" }
-            : {}),
-        },
-        prompt.attachments,
-      );
-      consumeNativeDraft(target, snapshot, prompt.attachments);
-    } catch (cause) {
-      setLocalError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      sendingRef.current = false;
-      setSending(false);
-      focusComposer();
-    }
-  }, [target, feed.connected, feed.busy, submit, composerRef, focusComposer]);
-  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(() => new Set());
-  const toggleGroup = useCallback((groupId: string) => {
-    setExpandedGroups((previous) => {
-      const next = new Set(previous);
-      if (next.has(groupId)) next.delete(groupId);
-      else next.add(groupId);
-      return next;
-    });
-  }, []);
+  // While NeoPi runs, a prompt steers in at the next tool boundary, which is
+  // what T3's queue promises; the alternate intent waits for the whole run.
+  const send = useCallback(
+    async (intent?: ComposerSubmissionIntent) => {
+      const snapshot = draftStore.getState().getComposerDraft(target);
+      if (
+        !composerDraftHasUserContent(snapshot) ||
+        !snapshot ||
+        sendingRef.current ||
+        !feed.connected
+      )
+        return;
+      if (composerRef.current?.hasPendingAttachments()) {
+        setLocalError("Wait for the attachment to finish preparing before sending.");
+        return;
+      }
+      sendingRef.current = true;
+      setSending(true);
+      setLocalError(null);
+      try {
+        const prompt = await prepareNativePrompt(target, snapshot);
+        const busy = nativeSessionAtoms.cached(target)?.busy ?? feed.busy;
+        await submit(
+          {
+            type: "prompt",
+            message: prompt.message,
+            ...(busy ? { streamingBehavior: intent === "alternate" ? "followUp" : "steer" } : {}),
+          },
+          prompt.attachments,
+        );
+        consumeNativeDraft(target, snapshot, prompt.attachments);
+      } catch (cause) {
+        setLocalError(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        sendingRef.current = false;
+        setSending(false);
+        focusComposer();
+      }
+    },
+    [target, feed.connected, feed.busy, submit, composerRef, focusComposer],
+  );
   const commandOutputs = useMemo(() => {
     // Command results are local display history anchored after the entry they followed.
     const outputs = new Map<string | null, CommandRow[]>();
@@ -355,48 +323,64 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
           pending: conversation.pending,
           leafId: conversation.identity?.leafId ?? null,
         },
-        { debug, expandedGroups, commandOutputs },
+        { debug, commandOutputs },
       ),
     [
       conversation.entries,
       conversation.pending,
       conversation.identity?.leafId,
       debug,
-      expandedGroups,
       commandOutputs,
     ],
   );
-  followRowsRef.current = rows;
-  useEffect(() => {
-    if (!feed.connected) cancelSubmissionFollow();
-    else submissionFollow.changed();
-  }, [rows, feed.connected, submissionFollow, cancelSubmissionFollow]);
-  const openRows = useTranscriptOpenRows();
-  const transcriptContext = useMemo<NativeTranscriptContext>(
-    () => ({
-      environmentId: target.environmentId,
-      nativeRef: session?.ref ?? target.ref,
-      threadRef: undefined,
-      cwd: session?.cwd,
-      debug,
-      onToggleGroup: toggleGroup,
-      onImageExpand: setExpandedImage,
-      openRows,
-    }),
-    [target.environmentId, target.ref, session?.ref, session?.cwd, debug, toggleGroup, openRows],
+  const queueStamp = conversation.entries.at(-1)?.timestamp ?? "";
+  const queuedMessages = useMemo(
+    () => nativeQueuedMessages(feed.queue, queueStamp),
+    [feed.queue, queueStamp],
   );
-  const renderEntry = useCallback(
-    ({ item }: { item: TranscriptRow }) => (
-      <div
-        className={transcriptRowClassName(item)}
-        data-native-entry-id={item.kind === "command" ? undefined : item.entry.id}
-      >
-        <NativeTranscriptCtx value={transcriptContext}>
-          <NativeTranscriptRowView key={item.id} row={item} />
-        </NativeTranscriptCtx>
-      </div>
-    ),
-    [transcriptContext],
+  const steerQueued = useCallback(
+    (id: string) => {
+      const queued = parseNativeQueuedMessageId(id);
+      if (!queued) return;
+      void request({ type: "promote_queued_message", message: queued.text }).catch((cause) =>
+        setLocalError(String(cause)),
+      );
+    },
+    [request],
+  );
+  const removeQueued = useCallback(
+    (id: string) => {
+      const queued = parseNativeQueuedMessageId(id);
+      const parsed = queuedMessages.find((message) => message.id === id);
+      if (!queued || !parsed) return;
+      void request({ type: "remove_queued_message", message: queued.text, queue: queued.lane })
+        .then(() => {
+          // Cancel returns the draft, context included, without destroying a newer one.
+          const store = draftStore.getState();
+          const current = store.getComposerDraft(target)?.prompt ?? "";
+          store.setPrompt(
+            target,
+            current.trim() ? `${parsed.prompt}\n\n${current}` : parsed.prompt,
+          );
+          if (parsed.terminalContexts.length > 0)
+            store.addTerminalContexts(target, parsed.terminalContexts);
+          for (const annotation of parsed.previewAnnotations)
+            store.addPreviewAnnotation(target, annotation);
+          for (const comment of parsed.reviewComments) store.addReviewComment(target, comment);
+          focusComposer();
+        })
+        .catch((cause) => setLocalError(String(cause)));
+    },
+    [request, draftStore, target, focusComposer, queuedMessages],
+  );
+  const loadEarlier = useMemo(
+    () =>
+      conversation.cursor
+        ? { loading: paging, cursor: conversation.cursor, onLoadEarlier: () => void loadOlder() }
+        : null,
+    // loadOlder reads the latest cursor and paging state on each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [conversation.cursor, paging],
   );
   const promptHistory = useMemo(
     () => transcriptUserText(conversation.entries),
@@ -427,12 +411,12 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
   );
   const status = feed.connected
     ? feed.busy
-      ? { label: "Working", dot: "bg-warning animate-pulse" }
+      ? { label: "Working", dot: "bg-warning" }
       : session?.attachment === "terminal"
         ? { label: "Following a terminal", dot: "bg-info" }
         : { label: "Ready", dot: "bg-success" }
     : loading
-      ? { label: "Connecting", dot: "bg-muted-foreground/50 animate-pulse" }
+      ? { label: "Connecting", dot: "bg-muted-foreground/50" }
       : { label: "Reconnecting · showing cached conversation", dot: "bg-muted-foreground/50" };
   return (
     <>
@@ -444,40 +428,56 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
             title={status.label}
             className={cn("size-2 shrink-0 rounded-full", status.dot)}
           />
-          <span className="truncate text-sm">
-            {String(state.sessionName ?? "Native conversation")}
-          </span>
-          <span className="truncate text-xs text-muted-foreground">{session?.cwd}</span>
+          <h2 className="min-w-0 truncate text-sm font-medium">
+            {listed?.title ??
+              (typeof state.sessionName === "string" && state.sessionName.trim()
+                ? state.sessionName
+                : listed?.firstMessage ||
+                  promptHistory[0]?.text.split("\n")[0]?.trim() ||
+                  "New session")}
+          </h2>
+          {session?.cwd ? (
+            <span
+              className="hidden min-w-0 truncate text-xs text-muted-foreground lg:inline"
+              title={session.cwd}
+            >
+              {session.cwd.replace(/\/+$/, "").split("/").at(-1) || session.cwd}
+            </span>
+          ) : null}
         </div>
-        <Button size="sm" variant="ghost" onClick={() => setTree(true)}>
-          Session tree
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => {
-            cancelSubmissionFollow();
-            setDebug((value) => !value);
-          }}
-          aria-pressed={debug}
+        {/* Leaves room for the fixed terminal and panel toggles at the titlebar edge. */}
+        <div
+          className={cn(
+            "flex shrink-0 items-center gap-0.5 [-webkit-app-region:no-drag]",
+            // The fixed titlebar controls gain a maximize button while the panel is open.
+            panelOpen ? "pr-26.5 sm:pr-22.5" : "pr-18.25 sm:pr-14.25",
+          )}
         >
-          Debug
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() =>
-            void close({ environmentId: target.environmentId, input: { ref: target.ref } }).then(
-              (result) => {
-                if (result._tag === "Failure")
-                  setLocalError(String(squashAtomCommandFailure(result)));
-                else selectNativeSession(null);
-              },
-            )
-          }
-        >
-          Disconnect session
-        </Button>
+          <HeaderIconButton label="Session tree" onClick={() => setTree(true)}>
+            <GitForkIcon className="size-4" />
+          </HeaderIconButton>
+          <HeaderIconButton
+            label={debug ? "Hide native records" : "Show native records"}
+            pressed={debug}
+            onClick={() => setDebug((value) => !value)}
+          >
+            <BracesIcon className="size-4" />
+          </HeaderIconButton>
+          <HeaderIconButton
+            label="Disconnect session"
+            onClick={() =>
+              void close({ environmentId: target.environmentId, input: { ref: target.ref } }).then(
+                (result) => {
+                  if (result._tag === "Failure")
+                    setLocalError(String(squashAtomCommandFailure(result)));
+                  else selectNativeSession(null);
+                },
+              )
+            }
+          >
+            <UnplugIcon className="size-4" />
+          </HeaderIconButton>
+        </div>
       </WorkspacePageHeader>
       <NativeSessionWorkspacePanels
         target={target}
@@ -499,136 +499,110 @@ export function NativeSessionView({ target }: { target: NativeSessionTarget }) {
             {localError ?? error}
           </p>
         ) : null}
-        <div
-          ref={timelineHostRef}
-          className="flex min-h-0 flex-1 flex-col"
-          onWheelCapture={cancelSubmissionFollow}
-          onKeyDownCapture={(event) => {
-            if (
-              ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)
-            )
-              cancelSubmissionFollow();
-          }}
-          onPointerDownCapture={cancelSubmissionFollow}
-        >
-          <NativeTranscriptCtx value={transcriptContext}>
-            <LegendList
-              ref={timelineRef}
-              data={rows}
-              keyExtractor={(entry) => entry.id}
-              getItemType={transcriptRowType}
-              renderItem={renderEntry}
-              estimatedItemSize={64}
-              recycleItems
-              maintainVisibleContentPosition
-              maintainScrollAtEnd={{ animated: false }}
-              maintainScrollAtEndThreshold={0.1}
-              onItemSizeChanged={submissionFollow.changed}
-              onLayout={submissionFollow.changed}
-              onLoad={submissionFollow.changed}
-              onScroll={submissionFollow.changed}
-              ListHeaderComponent={
-                <div className="mx-auto w-full max-w-(--chat-max-width) px-5 pt-3">
-                  {conversation.cursor ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={paging}
-                      onClick={() => void loadOlder()}
-                    >
-                      {paging ? "Loading earlier messages…" : "Load earlier messages"}
-                    </Button>
-                  ) : null}
-                </div>
-              }
-              ListFooterComponent={<div className="h-4" />}
-              className="min-h-0 flex-1 overflow-auto"
-            />
-          </NativeTranscriptCtx>
-        </div>
-        <div
-          ref={setComposerElement}
-          className="shrink-0 border-t px-4 pb-4 pt-2"
-          data-slot="composer-shell"
-        >
-          {Object.values(feed.notices)
-            .filter(Boolean)
-            .map((notice, index) => (
-              <p key={index} className="mb-1 whitespace-pre-wrap text-xs text-muted-foreground">
-                {notice}
-              </p>
-            ))}
-          <ChatComposer
-            routeKind="native"
-            routeThreadRef={target}
-            composerDraftTarget={target}
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <NativeTimelineView
+            rows={rows}
+            busy={feed.busy}
             environmentId={target.environmentId}
-            attachmentUploadsCapabilityKnown={serverConfig !== null}
-            supportsAttachmentUploads={
-              serverConfig?.environment.capabilities.attachmentUploads === true
-            }
-            maxFileAttachmentBytes={
-              fileAttachmentBytes === null
-                ? null
-                : clampFileAttachmentUploadBytes(fileAttachmentBytes)
-            }
-            phase={feed.connected ? (feed.busy ? "running" : "ready") : "disconnected"}
-            isConnecting={loading}
-            isSendBusy={sending}
-            sendDisabledReason={feed.connected ? null : "Reconnect NeoPi before sending."}
-            settings={settings}
-            resolvedTheme={resolvedTheme}
-            keybindings={keybindings}
-            terminalOpen={terminalOpen}
-            gitCwd={session?.cwd ?? null}
-            promptRef={promptRef}
-            composerImagesRef={imagesRef}
-            composerFilesRef={filesRef}
-            composerTerminalContextsRef={terminalContextsRef}
-            composerRef={composerRef}
-            onPageScrollKeyDown={pageScroll.handleKeyDown}
-            onPageScrollKeyUp={pageScroll.handleKeyUp}
-            onPageScrollRelease={pageScroll.releaseActiveKey}
-            onSend={(event) => {
-              event?.preventDefault();
-              void send();
-            }}
-            onInterrupt={interrupt}
-            focusComposer={focusComposer}
-            scheduleComposerFocus={focusComposer}
-            setThreadError={(_, message) => setLocalError(message)}
-            onExpandImage={setExpandedImage}
-            onFileOpen={(attachment) =>
-              useRightPanelStore.getState().openAttachment(target, attachment)
-            }
-            nativeSession={{
-              modelLabel: String(model.name ?? model.id ?? "Choose native model"),
-              displayState:
-                [
-                  state.thinkingLevel,
-                  typeof state.chatMode === "string" ? `Chat: ${state.chatMode}` : null,
-                ]
-                  .filter((value) => typeof value === "string")
-                  .join(" · ") || null,
-              commands: nativeCommands,
-              promptHistory,
-              modelPickerOpen: models,
-              onOpenModelPicker: () => setModels(true),
-              onOpenSessionTree: () => setTree(true),
-              onOpenModeControl: () => {
-                void execute({ type: "prompt", message: "/chat" }).catch((cause) =>
-                  setLocalError(String(cause)),
-                );
-              },
-              onToggleModelPicker: () => setModels((value) => !value),
-              onCompactContext: () => {
-                void execute({ type: "prompt", message: "/compact" }).catch((cause) =>
-                  setLocalError(String(cause)),
-                );
-              },
-            }}
+            timelineKey={nativeTimelineKey(target.environmentId, target.ref.sessionFile)}
+            cwd={session?.cwd}
+            listRef={timelineRef}
+            loadEarlier={loadEarlier}
+            followSignal={followSignal}
+            onImageExpand={setExpandedImage}
+            queuedMessages={queuedMessages}
+            onSteerQueuedMessage={steerQueued}
+            onRemoveQueuedMessage={removeQueued}
           />
         </div>
+        <ComposerSurface.Shell ref={setComposerElement} className="shrink-0">
+          {Object.values(feed.notices).some(Boolean) ? (
+            <div className="flex flex-col gap-0.5 ps-(--workspace-gutter-start) pe-(--workspace-gutter-end) pt-2 text-xs text-muted-foreground">
+              {Object.values(feed.notices)
+                .filter(Boolean)
+                .map((notice, index) => (
+                  <p key={index} className="whitespace-pre-wrap">
+                    {notice}
+                  </p>
+                ))}
+            </div>
+          ) : null}
+          <ComposerSurface.Host>
+            <ChatComposer
+              routeKind="native"
+              routeThreadRef={target}
+              composerDraftTarget={target}
+              environmentId={target.environmentId}
+              attachmentUploadsCapabilityKnown={serverConfig !== null}
+              supportsAttachmentUploads={
+                serverConfig?.environment.capabilities.attachmentUploads === true
+              }
+              maxFileAttachmentBytes={
+                fileAttachmentBytes === null
+                  ? null
+                  : clampFileAttachmentUploadBytes(fileAttachmentBytes)
+              }
+              phase={feed.connected ? (feed.busy ? "running" : "ready") : "disconnected"}
+              isConnecting={loading}
+              isSendBusy={sending}
+              sendDisabledReason={feed.connected ? null : "Reconnect NeoPi before sending."}
+              settings={settings}
+              resolvedTheme={resolvedTheme}
+              keybindings={keybindings}
+              terminalOpen={terminalOpen}
+              gitCwd={session?.cwd ?? null}
+              promptRef={promptRef}
+              composerImagesRef={imagesRef}
+              composerFilesRef={filesRef}
+              composerTerminalContextsRef={terminalContextsRef}
+              composerRef={composerRef}
+              onPageScrollKeyDown={pageScroll.handleKeyDown}
+              onPageScrollKeyUp={pageScroll.handleKeyUp}
+              onPageScrollRelease={pageScroll.releaseActiveKey}
+              onSend={(event, intent) => {
+                event?.preventDefault();
+                void send(intent);
+              }}
+              onInterrupt={interrupt}
+              focusComposer={focusComposer}
+              scheduleComposerFocus={focusComposer}
+              setThreadError={(_, message) => setLocalError(message)}
+              onExpandImage={setExpandedImage}
+              onFileOpen={(attachment) =>
+                useRightPanelStore.getState().openAttachment(target, attachment)
+              }
+              nativeSession={{
+                modelLabel: String(model.name ?? model.id ?? "Choose native model"),
+                displayState:
+                  [
+                    state.thinkingLevel,
+                    // Chat mode is NeoPi's no-tools conversation mode; only an active one is news.
+                    typeof state.chatMode === "string" && state.chatMode !== "off"
+                      ? `Chat ${state.chatMode}`
+                      : null,
+                  ]
+                    .filter((value) => typeof value === "string")
+                    .join(" · ") || null,
+                commands: nativeCommands,
+                promptHistory,
+                modelPickerOpen: models,
+                onOpenModelPicker: () => setModels(true),
+                onOpenSessionTree: () => setTree(true),
+                onOpenModeControl: () => {
+                  void execute({ type: "prompt", message: "/chat" }).catch((cause) =>
+                    setLocalError(String(cause)),
+                  );
+                },
+                onToggleModelPicker: () => setModels((value) => !value),
+                onCompactContext: () => {
+                  void execute({ type: "prompt", message: "/compact" }).catch((cause) =>
+                    setLocalError(String(cause)),
+                  );
+                },
+              }}
+            />
+          </ComposerSurface.Host>
+        </ComposerSurface.Shell>
       </NativeSessionWorkspacePanels>
       {expandedImage ? (
         <ExpandedImageDialog preview={expandedImage} onClose={() => setExpandedImage(null)} />

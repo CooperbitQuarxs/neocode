@@ -137,6 +137,7 @@ import {
 import type { ThreadSyncPhase } from "../../threadSync";
 import { ComposerBanner } from "./ComposerBanner";
 import { ComposerSurface } from "./ComposerSurface";
+import { useComposerBodyResize } from "./useComposerBodyResize";
 import {
   ComposerBannerStack,
   type ComposerBannerStackContent,
@@ -471,7 +472,9 @@ import {
   PlayIcon,
   ShieldIcon,
   XIcon,
+  ChevronDownIcon,
 } from "lucide-react";
+import { NeoPiIcon } from "../Icons";
 import { proposedPlanTitle } from "../../proposedPlan";
 import { hasProviderSetup } from "./ProviderStatusBanner";
 import {
@@ -1648,6 +1651,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     null,
   );
   const [composerMenuAnchor, setComposerMenuAnchor] = useState<HTMLDivElement | null>(null);
+  const composerBodyResize = useComposerBodyResize();
+  const setComposerBody = useCallback(
+    (element: HTMLDivElement | null) => {
+      composerBodyResize.bodyRef.current = element;
+      setComposerMenuAnchor(element);
+    },
+    [composerBodyResize.bodyRef],
+  );
   const [isStashMenuOpen, setIsStashMenuOpen] = useState(false);
   const [isTasksDrawerOpen, setIsTasksDrawerOpen] = useState(false);
   const [stashPulse, setStashPulse] = useState<{ key: number; active: boolean }>({
@@ -4170,19 +4181,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     .slice(restingBlockDefs.length - restingHiddenBlockCount)
     .map((def) => def.id);
   const composerControls = nativeSession ? (
-    <>
-      <ComposerControl
-        type="button"
-        onClick={nativeSession.onOpenModelPicker}
-        data-composer-shortcut="composer.model"
-        disabled={isSendBusy}
-      >
-        {nativeSession.modelLabel}
-      </ComposerControl>
+    <ComposerControl
+      type="button"
+      onClick={nativeSession.onOpenModelPicker}
+      data-composer-shortcut="composer.model"
+      disabled={isSendBusy}
+      className="min-w-0"
+      aria-label={`Model: ${nativeSession.modelLabel}${nativeSession.displayState ? `, ${nativeSession.displayState}` : ""}`}
+    >
+      <NeoPiIcon aria-hidden className="size-4 shrink-0" />
+      <span className="truncate">{nativeSession.modelLabel}</span>
       {nativeSession.displayState ? (
-        <span className="truncate text-xs text-muted-foreground">{nativeSession.displayState}</span>
+        <span className="truncate text-muted-foreground">{nativeSession.displayState}</span>
       ) : null}
-    </>
+      <ComposerControlIcon icon={ChevronDownIcon} size="xs" className="opacity-60" />
+    </ComposerControl>
   ) : runtimeReadOnlyReason || showProviderUnavailable ? (
     <ComposerControl
       type="button"
@@ -5334,20 +5347,35 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         ) : null}
       </ComposerBanner.Dock>
       <div className="relative">
+        {/* Drag the dock's top edge to size the prompt; double-click returns to auto. */}
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize prompt"
+          title="Drag to resize · double-click to fit the draft"
+          className="group/composer-resize absolute inset-x-0 -top-2.5 z-30 mx-auto flex h-2.5 max-w-(--chat-max-width) cursor-row-resize touch-none justify-center"
+          {...composerBodyResize.handleProps}
+        >
+          <span className="mt-[3px] h-0.5 w-10 rounded-full bg-border opacity-0 transition-opacity group-hover/composer-resize:opacity-100" />
+        </div>
         <ComposerSurface.Main>
           <div
             data-chat-composer-surface="true"
             className={cn(
-              "bg-background transition-[background-color] duration-200",
+              "rounded-2xl transition-[background-color] duration-200",
               isDragOverComposer ? "bg-accent/45 ring-1 ring-primary/70" : null,
               projectSelectionRequired ? "opacity-75" : null,
             )}
           >
             {/* Draft growth scrolls here rather than moving the frame or history. */}
             <div
-              ref={setComposerMenuAnchor}
+              ref={setComposerBody}
               data-chat-composer-body="true"
-              className="relative h-32 max-h-[30dvh] overflow-y-auto overscroll-contain ps-(--workspace-gutter-start) pe-(--workspace-gutter-end) pt-3.5 pb-2 sm:h-36 sm:pt-4"
+              style={composerBodyResize.bodyStyle}
+              className={cn(
+                "relative overflow-y-auto overscroll-contain ps-(--workspace-gutter-start) pe-(--workspace-gutter-end) pt-3 pb-1.5",
+                !composerBodyResize.pinned && "max-h-[40dvh]",
+              )}
             >
               {isStashMenuOpen && !composerMenuOpen && !isComposerApprovalState && (
                 <ComposerCommandMenuLayer anchor={composerMenuAnchor}>
