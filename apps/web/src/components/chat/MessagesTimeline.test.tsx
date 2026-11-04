@@ -1051,7 +1051,7 @@ describe("MessagesTimeline", () => {
 
     expect(markup).not.toContain("Show full message");
     expect(markup).toContain('data-user-message-collapsible="false"');
-    expect(markup).toContain("rounded-2xl bg-message p-3");
+    expect(markup).toContain('data-bubble="user"');
   });
 
   it("preserves arbitrary XML-like tags and comparisons in rendered user messages", async () => {
@@ -1651,7 +1651,7 @@ describe("MessagesTimeline", () => {
         });
         await act(() => renderer!.root.findByProps({ "aria-expanded": false }).props.onClick());
         const text = renderer!.root.findByProps({
-          className: "relative min-w-0 flex-1 truncate text-secondary-label",
+          className: "relative min-w-0 truncate text-secondary-label",
         });
         const preview = text.parent!;
         expect(

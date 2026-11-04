@@ -18,8 +18,7 @@ function Shell({
       data-with-context={contextStrip || undefined}
       className={cn(
         "@container/composer-surface group/composer-surface relative isolate w-full bg-background px-3 pt-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4",
-        "[--chat-composer-drawer-inset:1.375rem] [--chat-composer-glass-surface:var(--card)] [--chat-composer-outline:var(--border)]",
-        "dark:[--chat-composer-glass-surface:var(--surface-raised)]",
+        "[--chat-composer-drawer-inset:1.375rem] [--chat-composer-glass-surface:var(--chat-composer-surface)] [--chat-composer-outline:var(--border)]",
         className,
       )}
       {...props}
