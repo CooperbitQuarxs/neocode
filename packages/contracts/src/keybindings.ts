@@ -89,6 +89,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "composer.host",
   "composer.effort",
   "composer.mode",
+  "composer.dictation.toggle",
   "composer.workspace",
   "composer.previousWorktree",
   "composer.branch",

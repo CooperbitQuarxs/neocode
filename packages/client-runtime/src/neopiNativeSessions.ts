@@ -82,6 +82,47 @@ function nativePromptQueue(value: unknown): NativePromptQueue | null {
     liveSteered: typeof record.liveSteered === "number" ? record.liveSteered : 0,
   };
 }
+/** One native microphone capture, as NeoPi's `dictation_*` frames report it. */
+export interface NativeDictation {
+  readonly captureId: string;
+  readonly phase: "starting" | "recording" | "transcribing" | "ended";
+  /** The full preview while capturing; the final text once `ended`. */
+  readonly text: string;
+  readonly error: string | null;
+}
+const DICTATION_PHASES: ReadonlySet<unknown> = new Set(["starting", "recording", "transcribing"]);
+/**
+ * NeoPi runs one capture at a time and always opens it with a state frame, so a
+ * new capture id replaces the old one there. Any other frame for a different id,
+ * or for a capture that already ended, is a straggler.
+ */
+function reduceNativeDictation(
+  current: NativeDictation | null,
+  frame: Readonly<Record<string, unknown>>,
+): NativeDictation | null {
+  const captureId = frame.captureId;
+  if (typeof captureId !== "string") return current;
+  const same = current?.captureId === captureId;
+  if (same && current.phase === "ended") return current;
+  if (frame.type === "dictation_state" && DICTATION_PHASES.has(frame.state))
+    return {
+      captureId,
+      phase: frame.state as NativeDictation["phase"],
+      text: same ? current.text : "",
+      error: null,
+    };
+  if (current !== null && !same) return current;
+  if (frame.type === "dictation_transcript" && typeof frame.text === "string")
+    return { captureId, phase: current?.phase ?? "recording", text: frame.text, error: null };
+  if (frame.type === "dictation_end")
+    return {
+      captureId,
+      phase: "ended",
+      text: typeof frame.text === "string" ? frame.text : "",
+      error: typeof frame.error === "string" && frame.error ? frame.error : null,
+    };
+  return current;
+}
 export interface NativeSessionFeed {
   readonly session: NativeSession | null;
   readonly conversation: NativeConversation;
@@ -95,6 +136,7 @@ export interface NativeSessionFeed {
   readonly agentsRevision: number;
   readonly agentsEpoch: number;
   readonly editor: { readonly id: string; readonly text: string } | null;
+  readonly dictation: NativeDictation | null;
   readonly error: string | null;
   readonly reconciliationError: {
     readonly operation: "state" | "branch" | "subagents";
@@ -114,6 +156,7 @@ export const emptyNativeSessionFeed = (): NativeSessionFeed => ({
   agentsRevision: 0,
   agentsEpoch: 0,
   editor: null,
+  dictation: null,
   error: null,
   reconciliationError: null,
 });
@@ -249,7 +292,16 @@ export function reduceNativeSessionFeed(
       agentsRevision: feed.agentsRevision + 1,
       agentsEpoch: feed.agentsEpoch + 1,
       ...(event.type === "closed"
-        ? { busy: false, queue: EMPTY_NATIVE_QUEUE, error: event.reason }
+        ? {
+            busy: false,
+            queue: EMPTY_NATIVE_QUEUE,
+            error: event.reason,
+            // The owner is gone, so no end frame is coming for a live capture.
+            dictation:
+              feed.dictation && feed.dictation.phase !== "ended"
+                ? { ...feed.dictation, phase: "ended" as const, error: event.reason }
+                : feed.dictation,
+          }
         : {}),
     };
   if (event.type === "snapshot") {
@@ -407,6 +459,10 @@ export function reduceNativeSessionFeed(
           [frame.widgetKey]: Array.isArray(frame.widgetLines) ? frame.widgetLines.join("\n") : "",
         },
       };
+  }
+  if (frame.type.startsWith("dictation_")) {
+    const dictation = reduceNativeDictation(next.dictation, frame);
+    if (dictation !== next.dictation) next = { ...next, dictation };
   }
   if (frame.type === "queue_update")
     next = { ...next, queue: nativePromptQueue(frame) ?? next.queue };

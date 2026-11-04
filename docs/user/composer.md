@@ -191,6 +191,20 @@ awake; it can sleep normally once recording stops.
 Transcription runs on your device. T3 Code deletes the temporary audio after
 transcription or cancellation; only the message text is sent when you submit.
 
+## Dictate on the desktop app
+
+In the desktop app, the composer's microphone button (or `Ctrl+Space`, command
+`composer.dictation.toggle`) has NeoPi record from this computer's microphone.
+Click again to stop. While you speak, a notice above the composer shows the live
+transcript. When you stop, the final text is inserted at the cursor where you
+started, and nothing is sent. Press Escape to throw the recording away.
+
+Dictation needs NeoPi's `stt.enabled` setting. If it is off, the speech model is
+unavailable, or live voice is running, the composer shows NeoPi's message. The
+button appears only for native sessions NeoCode owns on the desktop app's own
+backend, because NeoPi records on the machine it runs on. Browsers and remote
+environments do not offer it.
+
 ## Commands and skills
 
 Type `/` for commands or `$` to add a skill from the selected environment and

@@ -220,6 +220,53 @@ export interface PromptCommand {
   readonly streamingBehavior?: "steer" | "followUp";
 }
 
+/** Native microphone capture states, in the order NeoPi reports them. */
+export type DictationState = "starting" | "recording" | "transcribing";
+
+/**
+ * Starts one draft-only capture on the machine running NeoPi. The response is
+ * held until the microphone is recording. Requires NeoPi `stt.enabled`.
+ */
+export interface DictationStartCommand {
+  readonly id?: string;
+  readonly type: "dictation_start";
+  readonly captureId: string;
+}
+
+/** Stops the capture and answers with the final text once transcription flushed. */
+export interface DictationStopCommand {
+  readonly id?: string;
+  readonly type: "dictation_stop";
+}
+
+export interface DictationStopResult {
+  readonly text: string;
+}
+
+/** Dictation frames bypass NeoPi's session event filter and reach every observer. */
+export interface DictationStateFrame {
+  readonly type: "dictation_state";
+  readonly captureId: string;
+  readonly state: DictationState;
+}
+
+/** The full accumulated preview, replacing the previous preview for this capture. */
+export interface DictationTranscriptFrame {
+  readonly type: "dictation_transcript";
+  readonly captureId: string;
+  readonly text: string;
+}
+
+/** Exactly one per capture, including failures; `text` is whatever was transcribed. */
+export interface DictationEndFrame {
+  readonly type: "dictation_end";
+  readonly captureId: string;
+  readonly text: string;
+  readonly error?: string;
+}
+
+export type DictationFrame = DictationStateFrame | DictationTranscriptFrame | DictationEndFrame;
+
 export interface TextContentWire {
   readonly type: "text";
   readonly text: string;

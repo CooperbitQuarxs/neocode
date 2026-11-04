@@ -20,6 +20,10 @@ workspace, and `mod+shift+g` for the Git branch. The workspace menu includes the
 current checkout, a new worktree, and the previous worktree when available.
 Use `mod+shift+l` to reuse the previous worktree directly.
 
+On the desktop app, `ctrl+space` starts and stops [dictation](composer.md#dictate-on-the-desktop-app)
+in a native session. It is literal Ctrl on every platform, so it can be rebound
+under `composer.dictation.toggle` if your system uses it for input sources.
+
 In the model picker, press Left in an empty search field or Shift+Tab to reach
 the provider list. Use Up/Down to move and Enter to choose. Right returns to
 model search. `mod+shift+up` and `mod+shift+down` switch providers directly and clear the
