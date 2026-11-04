@@ -35,6 +35,8 @@ import {
   type NativeModelChoice,
   type NativeSelectorContext,
   type NativeSwitcherModel,
+  filterNativeSwitcherModels,
+  pinNativeSwitcherModel,
 } from "./neopiModelSwitcher";
 import { useNeoPiModelSelector } from "./useNeoPiModelSelector";
 
@@ -126,7 +128,17 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const [browse, setBrowse] = useState<ReadonlyArray<NativeSwitcherModel>>(EMPTY_MODELS);
   const browseModels = query === "" && !native.pending ? queried : browse;
   if (browseModels !== browse) setBrowse(browseModels);
-  const models = query === "" ? browseModels : queried;
+  // While NeoPi ranks a typed query, the unfiltered catalog narrows locally so results appear
+  // at once; the ranked answer then replaces them, keeping the user's highlighted row in place.
+  const highlightPinRef = useRef<{ key: string; index: number } | null>(null);
+  const searchModels = useMemo(
+    () =>
+      native.pending
+        ? filterNativeSwitcherModels(browseModels, query)
+        : pinNativeSwitcherModel(queried, highlightPinRef.current),
+    [native.pending, browseModels, query, queried],
+  );
+  const models = query === "" ? browseModels : searchModels;
   const allModelsByKey = useMemo(
     () =>
       new Map(models.map((model) => [modelPickerModelKey(model.instanceId, model.slug), model])),
@@ -216,6 +228,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
   const selectRail = useCallback(
     (key: string) => {
       highlightedRef.current = null;
+      highlightPinRef.current = null;
       setSelectedRail(key);
       setQuery("");
       focusSearch();
@@ -353,6 +366,10 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
           }
           onItemHighlighted={(key, details) => {
             highlightedRef.current = typeof key === "string" ? key : null;
+            highlightPinRef.current =
+              typeof key === "string" && details.reason !== "none" && details.index >= 0
+                ? { key, index: details.index }
+                : highlightPinRef.current;
             if (details.reason === "keyboard" && details.index >= 0)
               void listRef.current?.scrollIndexIntoView?.({
                 index: details.index,
@@ -374,7 +391,10 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
               placeholder="Search models and roles"
               aria-label="Search models and roles"
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                highlightPinRef.current = null;
+                setQuery(event.target.value);
+              }}
               onKeyDown={(event) => {
                 if (
                   (event.key === "ArrowLeft" && !query && !event.shiftKey) ||
@@ -407,7 +427,7 @@ export const ModelPickerContent = memo(function ModelPickerContent(props: {
               onMouseDown={(event) => event.stopPropagation()}
               onTouchStart={(event) => event.stopPropagation()}
             />
-            {native.pending ? (
+            {native.pending && visibleModels.length === 0 ? (
               <p role="status" className="px-3 py-2 text-sm text-muted-foreground">
                 Querying native models...
               </p>

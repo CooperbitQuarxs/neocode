@@ -7,12 +7,24 @@ import { neopiModels } from "../neopi/modelsPageState";
 import { nativeSelectorRequests, type NativeSelectorContext } from "./neopiModelSwitcher";
 
 const EMPTY_RESULTS: ReadonlyMap<ProviderInstanceId, NeoPiModelSelectorResult> = new Map();
+/** Typing settles for this long before NeoPi is asked to rank; clearing the query is immediate. */
+export const NATIVE_QUERY_DEBOUNCE_MS = 150;
 
+/**
+ * `pending` stays true until NeoPi has answered the query as typed, so callers can show
+ * their own provisional results meanwhile. Answers to older queries are discarded.
+ */
 export function useNeoPiModelSelector(
   context: NativeSelectorContext,
   entries: ReadonlyArray<ProviderInstanceEntry>,
-  query: string,
+  typedQuery: string,
 ) {
+  const [settledQuery, setSettledQuery] = useState(typedQuery);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettledQuery(typedQuery), NATIVE_QUERY_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [typedQuery]);
+  const query = typedQuery === "" ? "" : settledQuery;
   const read = useAtomCommand(neopiModels.querySelector, { reportFailure: false });
   const { environmentId, projectId, connectedThread, connectedSession } = context;
   const threadId = connectedThread?.threadId;
@@ -102,7 +114,7 @@ export function useNeoPiModelSelector(
       current = false;
     };
   }, [request, read]);
-  const current = snapshot?.key === request.key ? snapshot : null;
+  const current = snapshot?.key === request.key && query === typedQuery ? snapshot : null;
   return {
     results: current?.results ?? EMPTY_RESULTS,
     errors: current?.errors ?? [],

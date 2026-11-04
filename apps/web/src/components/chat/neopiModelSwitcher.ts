@@ -8,6 +8,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import type { ProviderInstanceEntry } from "../../providerInstances";
+import { modelPickerModelKey } from "./modelPickerKeys";
 import type { ModelEsque } from "./providerIconUtils";
 
 export interface NativeSelectorContext {
@@ -193,4 +194,50 @@ export function nativeSwitcherFactSummary(
   ]
     .filter((part) => part !== null)
     .join(" · ");
+}
+
+/**
+ * A provisional answer while NeoPi ranks a typed query: every whitespace-separated token must
+ * appear (case-insensitively) in the name, selector, provider or model/role id. Input order is
+ * kept, so it stays the native catalog's own order until the ranked result replaces it.
+ */
+export function filterNativeSwitcherModels(
+  models: ReadonlyArray<NativeSwitcherModel>,
+  query: string,
+): ReadonlyArray<NativeSwitcherModel> {
+  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return models;
+  return models.filter((model) => {
+    const haystack = [
+      model.name,
+      model.slug,
+      model.subProvider,
+      model.choice?.kind === "role" ? model.choice.role : model.choice?.modelId,
+    ]
+      .filter(Boolean)
+      .join("\n")
+      .toLowerCase();
+    return tokens.every((token) => haystack.includes(token));
+  });
+}
+
+/**
+ * Ranked results replace a provisional list under the user's hands. Keeping the row they had
+ * highlighted at its position, when the new list still has it, stops the highlight and Enter
+ * from landing on a different model.
+ */
+export function pinNativeSwitcherModel(
+  models: ReadonlyArray<NativeSwitcherModel>,
+  pin: { readonly key: string; readonly index: number } | null,
+): ReadonlyArray<NativeSwitcherModel> {
+  if (!pin) return models;
+  const from = models.findIndex(
+    (model) => modelPickerModelKey(model.instanceId, model.slug) === pin.key,
+  );
+  const to = Math.min(pin.index, models.length - 1);
+  if (from < 0 || from === to) return models;
+  const next = [...models];
+  const [row] = next.splice(from, 1);
+  next.splice(to, 0, row!);
+  return next;
 }
