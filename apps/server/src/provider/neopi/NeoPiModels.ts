@@ -174,7 +174,11 @@ export const makeNativeModelsAuth = Effect.fn("makeNativeModelsAuth")(function* 
     );
   const cancelAuth = (input: { flowId: string }) =>
     Effect.flatMap(requireFlow(input.flowId), (flow) => flow.cancel);
-  const startAuth = (input: { target: NeoPiModelsTarget; providerId: string }) =>
+  const startAuth = (input: {
+    target: NeoPiModelsTarget;
+    providerId: string;
+    serverUrl?: string | undefined;
+  }) =>
     Effect.uninterruptibleMask((restore) =>
       Effect.gen(function* () {
         const scope = yield* Scope.make();
@@ -225,10 +229,45 @@ export const makeNativeModelsAuth = Effect.fn("makeNativeModelsAuth")(function* 
         );
         const flow: AuthFlow = { connection: native, state, scope, cancel, watchers: 0 };
         const ui = yield* Stream.toPull(native.ui).pipe(Effect.provideService(Scope.Scope, scope));
+        // A server address supplied up front answers the provider's own address
+        // prompt once, so the person never types it twice.
+        let pendingServerUrl = input.serverUrl?.trim() || null;
         // toPull is lazy; start consuming before login can emit its first prompt.
         yield* Stream.fromPull(Effect.succeed(ui)).pipe(
           Stream.runForEach((frame) => {
             if (frame.loginId !== flowId) return Effect.void;
+            if (
+              pendingServerUrl !== null &&
+              frame.method === "input" &&
+              typeof frame.title === "string" &&
+              /\b(url|address)\b/i.test(frame.title) &&
+              typeof frame.id === "string"
+            ) {
+              const value = pendingServerUrl;
+              pendingServerUrl = null;
+              const promptId = frame.id;
+              // On failure the person gets the prompt back, with the reason, rather than a silent spinner.
+              return native.respondUi({ id: promptId, value }).pipe(
+                Effect.catch((cause) =>
+                  SubscriptionRef.update(state, (current) =>
+                    current.status !== "running"
+                      ? current
+                      : {
+                          ...current,
+                          message: `Could not submit the server address automatically: ${modelError(cause).message}`,
+                          prompt: {
+                            kind: "input" as const,
+                            id: promptId,
+                            title: frame.title as string,
+                            placeholder:
+                              typeof frame.placeholder === "string" ? frame.placeholder : null,
+                            secret: false,
+                          },
+                        },
+                  ),
+                ),
+              );
+            }
             return SubscriptionRef.update(state, (current) => {
               if (current.status !== "running") return current;
               if (frame.method === "open_url" && typeof frame.url === "string")

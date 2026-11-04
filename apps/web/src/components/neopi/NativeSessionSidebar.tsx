@@ -6,7 +6,7 @@ import type {
 } from "@t3tools/client-runtime/neopi-native-sessions";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useCallback, useEffect, useState } from "react";
-import { PlusIcon } from "lucide-react";
+import { LockIcon, PlusIcon, TerminalIcon } from "lucide-react";
 import { isElectron } from "../../env";
 import { selectOnboardingProvidersByDriver } from "../../onboarding/providerReadiness.logic";
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
@@ -257,8 +257,16 @@ export function NativeEnvironmentSessions({
                     {session.title ?? (session.firstMessage || "New session")}
                   </span>
                   {session.owner.kind === "process" ? (
-                    <span className="text-xs text-muted-foreground">
-                      {disabled ? "In use" : "Terminal"}
+                    <span
+                      className="flex shrink-0 items-center text-icon-muted"
+                      title={disabled ? "In use by another process" : "Running in a terminal"}
+                      aria-label={disabled ? "In use" : "Running in a terminal"}
+                    >
+                      {disabled ? (
+                        <LockIcon className="size-3" aria-hidden />
+                      ) : (
+                        <TerminalIcon className="size-3" aria-hidden />
+                      )}
                     </span>
                   ) : null}
                 </SidebarMenuButton>

@@ -18,12 +18,12 @@ import {
 } from "@t3tools/contracts";
 
 export const DEFAULT_SANS_FONT_STACK =
-  '"Inter var", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+  '"Inter var", "Inter", "Symbols Nerd Font Mono", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 
 // Concrete names first: some engines alias `ui-monospace` to the
 // proportional system UI font, which would break every code surface.
 export const DEFAULT_CODE_FONT_STACK =
-  '"SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace';
+  '"SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", "Symbols Nerd Font Mono", monospace';
 
 export const TYPOGRAPHY_ADVANCED_STORAGE_KEY = "t3code:typography-advanced";
 

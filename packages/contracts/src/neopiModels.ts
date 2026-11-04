@@ -252,6 +252,8 @@ export type NeoPiModelsAccounts = typeof NeoPiModelsAccounts.Type;
 export const NeoPiModelsAuthStart = Schema.Struct({
   target: NeoPiModelsTarget,
   providerId: Schema.String,
+  /** Answers the provider's own server-address prompt so the address is typed once. */
+  serverUrl: Schema.optional(Schema.String),
 });
 export const NeoPiModelsAuthRef = Schema.Struct({ flowId: Schema.String });
 export const NeoPiModelsAuthRespond = Schema.Union([

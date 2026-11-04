@@ -84,15 +84,17 @@ export function moveModelItem<T>(items: ReadonlyArray<T>, index: number, offset:
   return next;
 }
 
-/** Ready is native availability, not stored authentication; public providers can be ready. */
+/** Ready is native availability, not stored authentication; public providers can be ready.
+ *  NeoProxy leads each group: it is the team's switch, not one vendor among many. */
 export function modelProviderGroups(
   providers: NeoPiModelsConfiguration["providers"],
   query: string,
 ) {
   const search = query.trim().toLocaleLowerCase();
+  const rank = (id: string) => (id === "neoproxy" ? 0 : 1);
   const matching = providers
     .filter((provider) => provider.id.toLocaleLowerCase().includes(search))
-    .sort((a, b) => a.id.localeCompare(b.id));
+    .sort((a, b) => rank(a.id) - rank(b.id) || a.id.localeCompare(b.id));
   return {
     ready: matching.filter((provider) => provider.available === true),
     notSetUp: matching.filter((provider) => provider.available !== true),
