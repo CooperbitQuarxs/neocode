@@ -43,6 +43,12 @@ const TIMELINE_MINIMAP_ITEM_SPACING = 8;
 export const TIMELINE_MINIMAP_MIN_ITEMS = 2;
 const TIMELINE_MINIMAP_MAX_HEIGHT_CSS = "calc(100vh - 18rem)";
 const TIMELINE_MINIMAP_PERSISTENT_GUTTER = 48;
+/**
+ * Below this many user messages the whole thread fits on screen, and two or
+ * three short bars at the edge read as a stray mark rather than navigation, so
+ * the minimap waits for hover.
+ */
+const TIMELINE_MINIMAP_PERSISTENT_MIN_ITEMS = 6;
 
 function singleToolCallLabel(entry: WorkLogEntry): string {
   const toolPresentation = resolveWorkEntryToolPresentation(entry, "completed");
@@ -255,6 +261,13 @@ export function resolveTimelineMinimapHasPersistentGutter(
   );
 }
 
+export function resolveTimelineMinimapIsPersistent(
+  hasPersistentGutter: boolean,
+  itemCount: number,
+): boolean {
+  return hasPersistentGutter && itemCount >= TIMELINE_MINIMAP_PERSISTENT_MIN_ITEMS;
+}
+
 const TIMELINE_MINIMAP_HIT_STRIP_LEFT = 12;
 const TIMELINE_MINIMAP_HIT_STRIP_MAX_WIDTH = 40;
 const TIMELINE_MINIMAP_EXPANDED_HIT_STRIP_WIDTH = "22rem";
@@ -414,6 +427,8 @@ export type MessagesTimelineRow =
       message: ChatMessage;
       durationStart: string;
       showAssistantMeta: boolean;
+      /** First assistant bubble since the user's last message; it carries the author name. */
+      showAssistantIdentity: boolean;
       showAssistantCopyButton: boolean;
       assistantCopyStreaming: boolean;
       assistantTurnDiffSummary?: TurnDiffSummary | undefined;
@@ -817,9 +832,18 @@ function deriveTurnFolds(input: {
     const isLatestInterruptedTurn =
       input.latestTurn?.turnId === turnId && input.latestTurn.state === "interrupted";
     // A turn cut short by a steer leaves trailing work entries behind its
-    // terminal message — take whichever ended last.
+    // terminal message — take whichever ended last. Compaction and
+    // configuration dividers (model, reasoning, tier changes) are journalled
+    // against the turn they follow but are not work, so they never extend it.
+    const lastActivityEntry =
+      group.entries.findLast(
+        (entry) =>
+          !(entry.kind === "work" && entry.entry.sourceActivityKind === "context-compaction"),
+      ) ?? lastEntry;
     const lastEntryEnd =
-      lastEntry.kind === "message" ? lastEntry.message.updatedAt : lastEntry.createdAt;
+      lastActivityEntry.kind === "message"
+        ? lastActivityEntry.message.updatedAt
+        : lastActivityEntry.createdAt;
     const elapsedMs =
       input.latestTurn?.turnId === turnId &&
       input.latestTurn.startedAt &&
@@ -1152,6 +1176,8 @@ export function deriveMessagesTimelineRows(input: {
   };
 
   let scannedActivityThrough = -1;
+  // Each assistant turn names its author once, on its first bubble.
+  let assistantIdentityPending = true;
   for (let index = 0; index < input.timelineEntries.length; index += 1) {
     const timelineEntry = input.timelineEntries[index];
     if (!timelineEntry) {
@@ -1417,6 +1443,15 @@ export function deriveMessagesTimelineRows(input: {
       terminalAssistantMessageIds.has(timelineEntry.message.id) &&
       !assistantResponseStillInProgress;
 
+    if (timelineEntry.message.role === "user") {
+      assistantIdentityPending = true;
+    }
+    const showAssistantIdentity =
+      timelineEntry.message.role === "assistant" && assistantIdentityPending;
+    if (timelineEntry.message.role === "assistant") {
+      assistantIdentityPending = false;
+    }
+
     nextRows.push({
       kind: "message",
       id: timelineEntry.id,
@@ -1424,6 +1459,7 @@ export function deriveMessagesTimelineRows(input: {
       message: timelineEntry.message,
       durationStart,
       showAssistantMeta,
+      showAssistantIdentity,
       showAssistantCopyButton: showAssistantMeta,
       assistantCopyStreaming: timelineEntry.message.streaming || assistantResponseStillInProgress,
       assistantTurnDiffSummary:
@@ -1712,6 +1748,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.message === bm.message &&
         a.durationStart === bm.durationStart &&
         a.showAssistantMeta === bm.showAssistantMeta &&
+        a.showAssistantIdentity === bm.showAssistantIdentity &&
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
         a.assistantCopyStreaming === bm.assistantCopyStreaming &&
         a.assistantTurnDiffSummary === bm.assistantTurnDiffSummary &&

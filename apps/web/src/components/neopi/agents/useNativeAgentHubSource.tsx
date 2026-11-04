@@ -1,3 +1,4 @@
+import { nativeSessionIdentityKey } from "@t3tools/shared/agentNames";
 import {
   nativeAgentHubAgents,
   SUBAGENT_MODEL_CAPABILITY,
@@ -45,9 +46,16 @@ export function useNativeAgentHubSource({
   request: Request;
 }): AgentHubSource {
   const key = nativeSessionKey(target);
+  const sessionId = feed.session?.sessionId;
+  const sessionFile = target.ref.sessionFile;
   const agents = useMemo(
-    () => nativeAgentHubAgents(feed.agents, feed.agentTicks),
-    [feed.agents, feed.agentTicks],
+    () =>
+      nativeAgentHubAgents(
+        feed.agents,
+        feed.agentTicks,
+        nativeSessionIdentityKey({ sessionId, sessionFile }),
+      ),
+    [feed.agents, feed.agentTicks, sessionId, sessionFile],
   );
   const modelControlUnavailable = feed.session?.capabilities.includes(SUBAGENT_MODEL_CAPABILITY)
     ? null

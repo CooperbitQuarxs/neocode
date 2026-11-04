@@ -5,6 +5,7 @@ import {
   type NativeSessionFeed,
   type NativeSessionTarget,
 } from "@t3tools/client-runtime/neopi-native-sessions";
+import { agentIdentity, nativeSessionIdentityKey } from "@t3tools/shared/agentNames";
 import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { PlusIcon } from "lucide-react";
 import { useEffect, useRef } from "react";
@@ -103,6 +104,12 @@ function NativeSessionTab({
       : undefined);
   const title =
     listed?.title || sessionName || listed?.firstMessage.split("\n")[0]?.trim() || "New session";
+  const identity = agentIdentity(
+    nativeSessionIdentityKey({
+      sessionId: sessionId || listed?.sessionId,
+      sessionFile: tab.ref.sessionFile,
+    }),
+  );
   const close = () => closeNativeSession(tab);
   return (
     <Tab
@@ -118,7 +125,7 @@ function NativeSessionTab({
         close();
       }}
     >
-      <PanelTabCloseButton label={`Close ${title}`} onClick={close}>
+      <PanelTabCloseButton label={`Close ${title} (${identity.label})`} onClick={close}>
         <span
           role="img"
           aria-label={status.label}
@@ -131,16 +138,20 @@ function NativeSessionTab({
             <button
               type="button"
               aria-current={active ? "page" : undefined}
-              className="min-w-0 cursor-pointer truncate text-left"
+              className="flex min-w-0 cursor-pointer flex-col text-left"
               onClick={() => selectNativeSession(tab)}
             />
           }
         >
-          {title}
+          <span className="truncate">{title}</span>
+          <span className="truncate text-3xs text-muted-foreground">{identity.label}</span>
         </TooltipTrigger>
         <TooltipPopup>
           <div className="flex max-w-80 flex-col gap-0.5">
             <span className="break-words">{title}</span>
+            <span className="text-muted-foreground">
+              {identity.label} · {identity.pronouns}
+            </span>
             {listed?.cwd ? (
               <span className="break-all text-muted-foreground">{listed.cwd}</span>
             ) : null}

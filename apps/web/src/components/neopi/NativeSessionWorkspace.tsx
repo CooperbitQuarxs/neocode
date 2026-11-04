@@ -10,6 +10,7 @@ import {
   transcriptUserText,
   type CommandRow,
 } from "@t3tools/client-runtime/neopi-transcript";
+import { agentIdentity, nativeSessionIdentityKey } from "@t3tools/shared/agentNames";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
@@ -92,6 +93,7 @@ import {
   useNativeTranscriptView,
 } from "../../state/nativeTranscriptView";
 import { consumeNativeDraft, prepareNativePrompt } from "./neopiNativeComposer";
+import { restoreNativeEditor } from "./neopiNativeDraft";
 import type { ComposerSubmissionIntent } from "../../composer-logic";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../../terminalUiStateStore";
 
@@ -186,6 +188,12 @@ export function NativeSessionView({
   const { feed, session, conversation, request, loading, error } = useNativeSession(target);
   const close = useAtomCommand(nativeSessionAtoms.close, { reportFailure: false });
   const key = nativeSessionKey(target);
+  const assistantName = agentIdentity(
+    nativeSessionIdentityKey({
+      sessionId: session?.sessionId,
+      sessionFile: target.ref.sessionFile,
+    }),
+  ).label;
   const agentHub = useNativeAgentHubSource({ target, feed, request });
   const draftStore = useComposerDraftStore;
   const panelOpen = useRightPanelStore(
@@ -448,6 +456,25 @@ export function NativeSessionView({
     },
     [request, draftStore, target, focusComposer, queuedMessages],
   );
+  // Selecting a user message in the tree hands its text back for editing, as the
+  // TUI does. A draft already in the composer stays; the notice says why.
+  const onTreeNavigated = useCallback(
+    (answer: Record<string, unknown>) => {
+      try {
+        if (restoreNativeEditor(target, answer) === "kept")
+          toastManager.add({
+            id: "native-tree-editor",
+            title: "Draft kept",
+            description: "The selected message was not placed in the composer.",
+            timeout: 4000,
+          });
+      } catch (cause) {
+        setLocalError(cause instanceof Error ? cause.message : String(cause));
+      }
+      focusComposer();
+    },
+    [target, focusComposer],
+  );
   const loadEarlier = useMemo(
     () =>
       conversation.cursor
@@ -659,7 +686,7 @@ export function NativeSessionView({
         onOpenTree={openTree}
         request={request}
         execute={execute}
-        onTreeNavigated={focusComposer}
+        onTreeNavigated={onTreeNavigated}
         onOpenModels={() => setModels((value) => !value)}
         onInterrupt={interrupt}
         busy={feed.busy}
@@ -676,6 +703,7 @@ export function NativeSessionView({
           <NativeTimelineView
             rows={rows}
             busy={feed.busy}
+            assistantName={assistantName}
             environmentId={target.environmentId}
             timelineKey={nativeTimelineKey(target.environmentId, target.ref.sessionFile)}
             cwd={session?.cwd}

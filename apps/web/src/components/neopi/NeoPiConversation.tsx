@@ -1,5 +1,6 @@
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { projectTranscript } from "@t3tools/client-runtime/neopi-transcript";
+import { agentIdentity, nativeSessionIdentityKey } from "@t3tools/shared/agentNames";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../ui/button";
 import { ExpandedImageDialog } from "../chat/ExpandedImageDialog";
@@ -56,6 +57,15 @@ export function NeoPiConversation({
       ),
     [conversation.entries, conversation.pending, conversation.identity?.leafId, debug],
   );
+  const identity = conversation.identity;
+  const assistantName = identity
+    ? agentIdentity(
+        nativeSessionIdentityKey({
+          sessionId: identity.sessionId,
+          sessionFile: identity.sessionFile ?? "",
+        }),
+      ).label
+    : undefined;
   const attached = connection?.status === "connected";
   const olderAvailable =
     conversation.identity !== null &&
@@ -123,6 +133,7 @@ export function NeoPiConversation({
         <NativeTimelineView
           rows={rows}
           busy={busy === true}
+          {...(assistantName ? { assistantName } : {})}
           environmentId={threadRef.environmentId}
           timelineKey={nativeTimelineKey(threadRef.environmentId, threadRef.threadId)}
           cwd={cwd}

@@ -7,6 +7,10 @@
       "types": "./src/neopiWorkspace.ts",
       "import": "./src/neopiWorkspace.ts"
     },
+    "./agentNames": {
+      "types": "./src/agentNames.ts",
+      "import": "./src/agentNames.ts"
+    },
     "./neopiStats": {
       "types": "./src/neopiStats.ts",
       "import": "./src/neopiStats.ts"

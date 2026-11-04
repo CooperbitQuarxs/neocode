@@ -473,6 +473,7 @@ describe("MessagesTimeline", () => {
     const {
       resolveTimelineIsAtEnd,
       resolveTimelineMinimapHasPersistentGutter,
+      resolveTimelineMinimapIsPersistent,
       resolveTimelineMinimapCurrentIndex,
       resolveTimelineMinimapHeightStyle,
       resolveTimelineMinimapHitStripWidth,
@@ -571,6 +572,10 @@ describe("MessagesTimeline", () => {
     expect(resolveTimelineMinimapHasPersistentGutter(1400, 1152)).toBe(true);
     expect(resolveTimelineMinimapHasPersistentGutter(1200, 1152)).toBe(false);
     expect(resolveTimelineMinimapHasPersistentGutter(2560, 2560)).toBe(false);
+    // A short thread has nothing to navigate, so its bars wait for hover.
+    expect(resolveTimelineMinimapIsPersistent(true, 3)).toBe(false);
+    expect(resolveTimelineMinimapIsPersistent(true, 6)).toBe(true);
+    expect(resolveTimelineMinimapIsPersistent(false, 40)).toBe(false);
 
     // No usable gutter (zoomed in / narrow pane): the strip must go inert
     // instead of overlaying the centered content column.
@@ -1046,7 +1051,7 @@ describe("MessagesTimeline", () => {
 
     expect(markup).not.toContain("Show full message");
     expect(markup).toContain('data-user-message-collapsible="false"');
-    expect(markup).toContain("rounded-2xl bg-message p-3");
+    expect(markup).toContain('data-bubble="user"');
   });
 
   it("preserves arbitrary XML-like tags and comparisons in rendered user messages", async () => {
@@ -1646,7 +1651,7 @@ describe("MessagesTimeline", () => {
         });
         await act(() => renderer!.root.findByProps({ "aria-expanded": false }).props.onClick());
         const text = renderer!.root.findByProps({
-          className: "relative min-w-0 flex-1 truncate text-secondary-label",
+          className: "relative min-w-0 truncate text-secondary-label",
         });
         const preview = text.parent!;
         expect(
