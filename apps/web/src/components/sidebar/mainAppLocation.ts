@@ -2,8 +2,8 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect } from "react";
 
 // Settings, Models, Usage, and Pull Requests replace the sidebar utility row with a
-// Back button. Everything else is the main app. Legacy `/projects/<key>` links
-// redirect into settings, so they count too and are never remembered.
+// Back button. Legacy `/projects/<key>` links redirect into settings, so they
+// count too and are never remembered.
 export function isSidebarUtilityPage(pathname: string) {
   return (
     pathname === "/settings" ||
@@ -18,10 +18,13 @@ export function isSidebarUtilityPage(pathname: string) {
 let mainAppHref: string | null = null;
 
 // Mount once in the app shell. Records the latest main app URL so Back can
-// return there no matter how many utility pages were visited since.
+// return there after utility pages or setup, without remembering the wizard.
 export function MainAppLocationTracker() {
   const href = useLocation({
-    select: (location) => (isSidebarUtilityPage(location.pathname) ? null : location.href),
+    select: (location) =>
+      location.pathname === "/welcome" || isSidebarUtilityPage(location.pathname)
+        ? null
+        : location.href,
   });
   useEffect(() => {
     if (href !== null) mainAppHref = href;

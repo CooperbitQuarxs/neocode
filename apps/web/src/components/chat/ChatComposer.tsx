@@ -1466,7 +1466,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     (noProviderAvailable
       ? providerCatalogPending
         ? "Waiting for the NeoPi provider catalog."
-        : "NeoPi is unavailable. Open NeoPi settings to reconnect the selected instance."
+        : "NeoPi is unavailable. Set up the selected instance in Settings → NeoCore."
       : null);
   const sendDisabledReason =
     externalSendDisabledReason ??
@@ -5776,7 +5776,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             : projectSelectionRequired
                               ? "Choose a project above to start a thread"
                               : showProviderUnavailable
-                                ? "Enable a provider in Settings to send a message"
+                                ? "Set up NeoPi in Settings → NeoCore to send a message"
                                 : phase === "disconnected"
                                   ? DISCONNECTED_COMPOSER_PLACEHOLDER
                                   : "Ask anything, @tag files/folders, $use skills, or / for commands"

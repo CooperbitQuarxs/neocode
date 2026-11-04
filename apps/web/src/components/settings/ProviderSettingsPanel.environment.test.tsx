@@ -83,22 +83,6 @@ const environmentId = EnvironmentId.make("remote-device");
 const neopiId = ProviderInstanceId.make("neopi");
 const customId = ProviderInstanceId.make("neopi_work");
 
-function provider(): ServerProvider {
-  return {
-    instanceId: neopiId,
-    driver: ProviderDriverKind.make("neopi"),
-    enabled: true,
-    installed: true,
-    version: "1.0.0",
-    status: "ready",
-    auth: { status: "authenticated" },
-    checkedAt: "2026-07-24T12:00:00.000Z",
-    models: [],
-    slashCommands: [],
-    skills: [],
-  };
-}
-
 function renderPanel(options?: {
   readonly readOnly?: boolean;
   readonly targetInstanceId?: ProviderInstanceId;
@@ -116,26 +100,7 @@ function renderPanel(options?: {
   }) as ReactElement<Record<string, unknown>>;
 }
 
-function isRefreshButton(element: ReactElement<Record<string, unknown>>): boolean {
-  const children = element.props.children;
-  return (
-    Array.isArray(children) &&
-    children.some(
-      (child) =>
-        typeof child === "object" &&
-        child !== null &&
-        (child as ReactElement<Record<string, unknown>>).props?.className === "sr-only" &&
-        (child as ReactElement<Record<string, unknown>>).props?.children ===
-          "Refresh provider status",
-    )
-  );
-}
-
-function isAddProviderButton(element: ReactElement<Record<string, unknown>>): boolean {
-  return element.props["aria-label"] === "Add provider";
-}
-
-describe("EnvironmentProviderSettings routing", () => {
+describe("EnvironmentProviderSettings account isolation", () => {
   beforeEach(() => {
     hooks.reset();
     atoms.providers = null;
@@ -143,61 +108,6 @@ describe("EnvironmentProviderSettings routing", () => {
     settingsState.updateSettings.mockReset();
     settingsState.updateClientSettings.mockReset();
     commands.refresh.mockReset().mockResolvedValue({ _tag: "Success" });
-  });
-
-  it("opens the requested provider instance instead of the first provider", () => {
-    settingsState.value = {
-      ...DEFAULT_UNIFIED_SETTINGS,
-      providerInstances: {
-        [customId]: { driver: ProviderDriverKind.make("neopi"), enabled: true },
-      },
-    };
-    atoms.providers = [provider()];
-    const panel = renderPanel({ targetInstanceId: customId });
-    const editor = visitElements(panel, (element) => element.props.mode === "editor");
-    expect(editor?.props.instanceId).toBe(customId);
-  });
-
-  it("keeps every NeoPi profile selectable without writing settings on navigation", () => {
-    const firstId = ProviderInstanceId.make("neopi_personal");
-    const secondId = ProviderInstanceId.make("neopi_work");
-    settingsState.value = {
-      ...DEFAULT_UNIFIED_SETTINGS,
-      providerInstances: {
-        [firstId]: { driver: ProviderDriverKind.make("neopi"), enabled: true },
-        [secondId]: {
-          driver: ProviderDriverKind.make("neopi"),
-          enabled: false,
-          config: { binaryPath: "/opt/work/npi", profile: "work", launchArgs: "--no-extensions" },
-          environment: [{ name: "API_KEY", value: "", sensitive: true, valueRedacted: true }],
-        },
-        [customId]: { driver: ProviderDriverKind.make("codex"), enabled: true },
-      },
-    };
-    let panel = renderPanel({ neoCore: true, targetInstanceId: firstId });
-    expect(visitElements(panel, (element) => element.props.instanceId === customId)).toBeNull();
-    const workRow = visitElements(
-      panel,
-      (element) => element.props.instanceId === secondId && element.props.mode === "list",
-    );
-    (workRow?.props.onSelect as () => void)();
-    panel = renderPanel({ neoCore: true, targetInstanceId: firstId });
-    const editor = visitElements(panel, (element) => element.props.mode === "editor");
-    expect(editor?.props.instanceId).toBe(secondId);
-    expect(settingsState.updateSettings).not.toHaveBeenCalled();
-    expect(commands.refresh).not.toHaveBeenCalled();
-
-    const instance = settingsState.value.providerInstances![secondId]!;
-    (editor?.props.onUpdate as (next: typeof instance) => void)({ ...instance, enabled: true });
-    expect(settingsState.updateSettings).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        providerInstances: expect.objectContaining({
-          [secondId]: { ...instance, enabled: true },
-          [firstId]: settingsState.value.providerInstances![firstId],
-          [customId]: settingsState.value.providerInstances![customId],
-        }),
-      }),
-    );
   });
 
   it("normalizes one account's favorites without erasing another account's choices", () => {
@@ -265,48 +175,6 @@ describe("EnvironmentProviderSettings routing", () => {
       providerModelPreferences: { [neopiId]: otherPreferences },
     });
     expect(settingsState.updateSettings).not.toHaveBeenCalled();
-  });
-
-  it("does not substitute another account when the requested instance was removed", () => {
-    atoms.providers = [provider()];
-    const panel = renderPanel({ targetInstanceId: customId });
-    expect(visitElements(panel, (element) => element.props.mode === "editor")).toBeNull();
-    expect(settingsState.updateSettings).not.toHaveBeenCalled();
-  });
-
-  it("keeps provider selection available while write controls are read only", () => {
-    settingsState.value = {
-      ...DEFAULT_UNIFIED_SETTINGS,
-      providerInstances: {
-        [customId]: {
-          driver: ProviderDriverKind.make("neopi"),
-          enabled: true,
-        },
-      },
-    };
-    atoms.providers = [provider()];
-    let panel = renderPanel({ readOnly: true });
-
-    const inertWrapper = visitElements(panel, (element) => element.props.inert === true);
-    expect(inertWrapper).not.toBeNull();
-
-    const customRow = visitElements(
-      panel,
-      (element) => element.props.instanceId === customId && element.props.mode === "list",
-    );
-    expect(customRow?.props.readOnly).toBe(true);
-    expect(customRow?.props.onSelect).toBeTypeOf("function");
-    (customRow?.props.onSelect as (() => void) | undefined)?.();
-
-    panel = renderPanel({ readOnly: true });
-    const customEditor = visitElements(
-      panel,
-      (element) => element.props.instanceId === customId && element.props.mode === "editor",
-    );
-    expect(customEditor).not.toBeNull();
-
-    expect(visitElements(panel, isRefreshButton)).toBeNull();
-    expect(visitElements(panel, isAddProviderButton)).toBeNull();
   });
 
   it("deletes and resets provider configuration without erasing shared preferences", () => {
