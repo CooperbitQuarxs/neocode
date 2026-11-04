@@ -427,6 +427,8 @@ export type MessagesTimelineRow =
       message: ChatMessage;
       durationStart: string;
       showAssistantMeta: boolean;
+      /** First assistant bubble since the user's last message; it carries the author name. */
+      showAssistantIdentity: boolean;
       showAssistantCopyButton: boolean;
       assistantCopyStreaming: boolean;
       assistantTurnDiffSummary?: TurnDiffSummary | undefined;
@@ -1174,6 +1176,8 @@ export function deriveMessagesTimelineRows(input: {
   };
 
   let scannedActivityThrough = -1;
+  // Each assistant turn names its author once, on its first bubble.
+  let assistantIdentityPending = true;
   for (let index = 0; index < input.timelineEntries.length; index += 1) {
     const timelineEntry = input.timelineEntries[index];
     if (!timelineEntry) {
@@ -1439,6 +1443,15 @@ export function deriveMessagesTimelineRows(input: {
       terminalAssistantMessageIds.has(timelineEntry.message.id) &&
       !assistantResponseStillInProgress;
 
+    if (timelineEntry.message.role === "user") {
+      assistantIdentityPending = true;
+    }
+    const showAssistantIdentity =
+      timelineEntry.message.role === "assistant" && assistantIdentityPending;
+    if (timelineEntry.message.role === "assistant") {
+      assistantIdentityPending = false;
+    }
+
     nextRows.push({
       kind: "message",
       id: timelineEntry.id,
@@ -1446,6 +1459,7 @@ export function deriveMessagesTimelineRows(input: {
       message: timelineEntry.message,
       durationStart,
       showAssistantMeta,
+      showAssistantIdentity,
       showAssistantCopyButton: showAssistantMeta,
       assistantCopyStreaming: timelineEntry.message.streaming || assistantResponseStillInProgress,
       assistantTurnDiffSummary:
@@ -1734,6 +1748,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.message === bm.message &&
         a.durationStart === bm.durationStart &&
         a.showAssistantMeta === bm.showAssistantMeta &&
+        a.showAssistantIdentity === bm.showAssistantIdentity &&
         a.showAssistantCopyButton === bm.showAssistantCopyButton &&
         a.assistantCopyStreaming === bm.assistantCopyStreaming &&
         a.assistantTurnDiffSummary === bm.assistantTurnDiffSummary &&

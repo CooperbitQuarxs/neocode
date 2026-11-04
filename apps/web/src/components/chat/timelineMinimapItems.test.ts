@@ -23,6 +23,7 @@ function rows(
     message,
     durationStart: message.createdAt,
     showAssistantMeta: false,
+    showAssistantIdentity: false,
     showAssistantCopyButton: false,
     assistantCopyStreaming: false,
   }));
