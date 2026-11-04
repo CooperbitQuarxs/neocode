@@ -118,6 +118,11 @@ export interface NativeDictation {
   readonly error: string | null;
 }
 const DICTATION_PHASES: ReadonlySet<unknown> = new Set(["starting", "recording", "transcribing"]);
+const SETTLED_CHILD_EVENTS: ReadonlySet<unknown> = new Set([
+  "message_end",
+  "tool_execution_end",
+  "agent_end",
+]);
 /**
  * NeoPi runs one capture at a time and always opens it with a state frame, so a
  * new capture id replaces the old one there. Any other frame for a different id,
@@ -162,6 +167,8 @@ export interface NativeSessionFeed {
   readonly agents: readonly NativeSubagent[];
   readonly agentsRevision: number;
   readonly agentsEpoch: number;
+  /** Settled-step counter per child (`subagent_event` at the `events` level); a re-read trigger, not content. */
+  readonly agentTicks: Readonly<Record<string, number>>;
   /** Background jobs; maintained only for a NeoPi that advertises `background_jobs`. */
   readonly jobs: NativeJobs;
   /** Accumulated agent working time for this session while this client watched it. */
@@ -191,6 +198,7 @@ export const emptyNativeSessionFeed = (): NativeSessionFeed => ({
   agents: [],
   agentsRevision: 0,
   agentsEpoch: 0,
+  agentTicks: {},
   jobs: EMPTY_NATIVE_JOBS,
   activity: EMPTY_NATIVE_ACTIVITY,
   editor: null,
@@ -456,6 +464,13 @@ export function reduceNativeSessionFeed(
       DateTime.formatIso(DateTime.nowUnsafe()),
     );
     if (agents !== next.agents) next = { ...next, agents, agentsRevision: next.agentsRevision + 1 };
+  }
+  if (frame.type === "subagent_event") {
+    const payload = nativeRecord(frame.payload);
+    const id = payload.id;
+    // Streaming deltas would repaint the whole workspace; only settled steps are worth a re-read.
+    if (typeof id === "string" && SETTLED_CHILD_EVENTS.has(nativeRecord(payload.event).type))
+      next = { ...next, agentTicks: { ...next.agentTicks, [id]: (next.agentTicks[id] ?? 0) + 1 } };
   }
   if (frame.type === "job_lifecycle") {
     const jobs = reduceNativeJobs(next.jobs, frame);

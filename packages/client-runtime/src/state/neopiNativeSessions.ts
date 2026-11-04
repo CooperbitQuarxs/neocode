@@ -377,7 +377,9 @@ export function createNativeSessionAtoms<R, E>(
           ref: input.ref,
         });
         const revision = cache.get(key)?.conversation.revision ?? 0;
-        const jobsRevision = cache.get(key)?.jobs.revision ?? 0;
+        const cachedFeed = cache.get(key);
+        const jobsRevision = cachedFeed?.jobs.revision ?? 0;
+        const agentsRevision = cachedFeed?.agentsRevision ?? 0;
         const value = yield* rpcRequest(WS_METHODS.neopiNativeSessionsRequest, input);
         if (input.command.type === "get_jobs") {
           // A panel-initiated read folds into the feed like the reconciler's own.
@@ -410,6 +412,20 @@ export function createNativeSessionAtoms<R, E>(
               page,
               revision,
               older: typeof input.command.cursor === "string",
+            });
+        }
+        if (input.command.type === "get_subagents") {
+          // Model, effort and fast changes emit no lifecycle frame; a command-driven re-read folds them in.
+          const feed = cache.get(key);
+          const agents = nativeRecord(value).subagents;
+          if (feed?.session && Array.isArray(agents))
+            yield* publish(key, {
+              type: "subagents",
+              ref: feed.session.ref,
+              sessionId: feed.session.sessionId,
+              epoch: cachedFeed?.agentsEpoch ?? feed.agentsEpoch,
+              revision: agentsRevision,
+              agents,
             });
         }
         return value;

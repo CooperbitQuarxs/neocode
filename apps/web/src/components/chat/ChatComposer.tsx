@@ -725,6 +725,8 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
 
 export interface ChatComposerHandle {
   focusAtEnd: () => void;
+  /** Close transient drawers (stash, tasks) so a view covering the composer is not left with them open. */
+  dismissMenus: () => void;
   focusAt: (cursor: number) => void;
   addDroppedFiles: (files: File[]) => void;
   addDroppedFolders: (folders: File[]) => void;
@@ -4451,6 +4453,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           terminalFocus: getTerminalFocusOwner() !== null,
           terminalOpen,
           modelPickerOpen: isComposerModelPickerOpen,
+          // A native session's workspace claims Ctrl+S for its agents panel.
+          nativeSession: routeKind === "native",
         },
       });
       if (command !== "composer.stash") return;
@@ -4482,6 +4486,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     stashCurrentPrompt,
     isRevertingCheckpoint,
     terminalOpen,
+    routeKind,
   ]);
 
   // ------------------------------------------------------------------
@@ -5227,6 +5232,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         setProviderInputSubmissionError(validationMessage);
         return validationMessage === null;
       },
+      dismissMenus: () => {
+        setIsStashMenuOpen(false);
+        setIsTasksDrawerOpen(false);
+      },
     }),
     [
       activeThread,
@@ -5443,6 +5452,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         terminalFocus: false,
                         terminalOpen,
                         modelPickerOpen: false,
+                        nativeSession: routeKind === "native",
                       },
                     })}
                     onRestore={restoreStashEntry}

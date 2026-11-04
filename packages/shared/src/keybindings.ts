@@ -48,6 +48,9 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+alt+shift+a", command: "appearance.cycle", when: "!terminalFocus" },
   { key: "mod+alt+shift+t", command: "themeEditor.toggle" },
   { key: "mod+s", command: "composer.stash", when: "!terminalFocus" },
+  // NeoPi's chords for these views. A native session overrides the composer stash on Ctrl+S.
+  { key: "ctrl+s", command: "agents.panel.toggle", when: "nativeSession && !terminalFocus" },
+  { key: "alt+s", command: "agents.hub.toggle", when: "nativeSession && !terminalFocus" },
   { key: "mod+shift+enter", command: "thread.steerQueuedMessage", when: "!terminalFocus" },
   { key: "mod+n", command: "chat.new", when: "!terminalFocus" },
   { key: "mod+shift+o", command: "chat.new", when: "!terminalFocus" },

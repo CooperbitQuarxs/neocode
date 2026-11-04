@@ -1349,6 +1349,27 @@ describe("composer and pull request shortcuts", () => {
     });
   }
 
+  for (const platform of ["Win32", "Linux"]) {
+    it(`takes Ctrl+S for the agents panel only in a native session on ${platform}`, () => {
+      const save = event({ key: "s", ctrlKey: true });
+      const resolve = (nativeSession: boolean, terminalFocus = false) =>
+        resolveShortcutCommand(save, DEFAULT_RESOLVED_KEYBINDINGS, {
+          platform,
+          context: { nativeSession, terminalFocus },
+        });
+      assert.strictEqual(resolve(true), "agents.panel.toggle");
+      assert.strictEqual(resolve(false), "composer.stash");
+      assert.isNull(resolve(true, true));
+      assert.strictEqual(
+        resolveShortcutCommand(event({ key: "s", altKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+          platform,
+          context: { nativeSession: true },
+        }),
+        "agents.hub.toggle",
+      );
+    });
+  }
+
   const altEffortBindings = compileResolvedKeybindingsConfig([
     { key: "mod+alt+e", command: "composer.effort", when: "!terminalFocus" },
   ]);

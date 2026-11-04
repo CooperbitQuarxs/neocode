@@ -79,6 +79,7 @@ import { NativeSessionModelPicker } from "./NativeSessionModelPicker";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { NativeBranchToolbar } from "./NativeBranchToolbar";
 import { NativeSessionWorkspacePanels } from "./NativeSessionWorkspacePanels";
+import { AgentHubSourceProvider, useNativeAgentHubSource } from "./agents/useNativeAgentHubSource";
 import {
   NATIVE_CYCLE_ROLE_CAPABILITY,
   NATIVE_ROLE_CYCLE_UNSUPPORTED,
@@ -185,6 +186,7 @@ export function NativeSessionView({
   const { feed, session, conversation, request, loading, error } = useNativeSession(target);
   const close = useAtomCommand(nativeSessionAtoms.close, { reportFailure: false });
   const key = nativeSessionKey(target);
+  const agentHub = useNativeAgentHubSource({ target, feed, request });
   const draftStore = useComposerDraftStore;
   const panelOpen = useRightPanelStore(
     (value) => selectThreadRightPanelState(value.byThreadKey, target).isOpen,
@@ -604,7 +606,7 @@ export function NativeSessionView({
     (item) => typeof item.id === "string" && !dismissed.has(item.id),
   );
   return (
-    <>
+    <AgentHubSourceProvider source={agentHub}>
       {actionsSlot
         ? createPortal(
             // Leaves room for the fixed terminal and panel toggles at the titlebar edge.
@@ -817,7 +819,7 @@ export function NativeSessionView({
           }}
         />
       ) : null}
-    </>
+    </AgentHubSourceProvider>
   );
 }
 
