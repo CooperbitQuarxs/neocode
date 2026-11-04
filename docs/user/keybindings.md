@@ -120,6 +120,12 @@ terminals so native undo keeps working there.
 `navigation.back` (`mod+[` by default) and `navigation.forward` (`mod+]`) move
 through the pages you have visited, like a browser's back and forward buttons.
 
+`sessionTab.next` (`ctrl+tab` by default) and `sessionTab.previous`
+(`ctrl+shift+tab`) switch between the session tabs at the top of the window and
+wrap around at either end. They work from the composer and are skipped while the
+terminal has focus. Browsers reserve `ctrl+tab` for their own tabs, so this is a
+desktop shortcut; assign another binding to use it on the web.
+
 `chat.new` may ask you to choose a project when there is more than one.
 `chat.newLocal` skips that chooser. Both use your
 [new-thread defaults](./thread-sidebar.md#start-a-thread).
