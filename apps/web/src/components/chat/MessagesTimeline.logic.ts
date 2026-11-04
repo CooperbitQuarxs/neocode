@@ -43,6 +43,12 @@ const TIMELINE_MINIMAP_ITEM_SPACING = 8;
 export const TIMELINE_MINIMAP_MIN_ITEMS = 2;
 const TIMELINE_MINIMAP_MAX_HEIGHT_CSS = "calc(100vh - 18rem)";
 const TIMELINE_MINIMAP_PERSISTENT_GUTTER = 48;
+/**
+ * Below this many user messages the whole thread fits on screen, and two or
+ * three short bars at the edge read as a stray mark rather than navigation, so
+ * the minimap waits for hover.
+ */
+const TIMELINE_MINIMAP_PERSISTENT_MIN_ITEMS = 6;
 
 function singleToolCallLabel(entry: WorkLogEntry): string {
   const toolPresentation = resolveWorkEntryToolPresentation(entry, "completed");
@@ -253,6 +259,13 @@ export function resolveTimelineMinimapHasPersistentGutter(
   return (
     resolveTimelineSideGutter(viewportWidth, contentWidth) >= TIMELINE_MINIMAP_PERSISTENT_GUTTER
   );
+}
+
+export function resolveTimelineMinimapIsPersistent(
+  hasPersistentGutter: boolean,
+  itemCount: number,
+): boolean {
+  return hasPersistentGutter && itemCount >= TIMELINE_MINIMAP_PERSISTENT_MIN_ITEMS;
 }
 
 const TIMELINE_MINIMAP_HIT_STRIP_LEFT = 12;
