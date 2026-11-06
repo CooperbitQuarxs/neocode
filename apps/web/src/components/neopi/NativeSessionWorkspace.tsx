@@ -2,6 +2,8 @@ import { BracesIcon, GitForkIcon, PlugIcon, UnplugIcon, XIcon } from "lucide-rea
 import type { LegendListRef } from "@legendapp/list/react";
 import {
   NATIVE_COMMAND_COMPLETIONS_CAPABILITY,
+  deferNativeEditorText,
+  executeNativeSessionCommand,
   nativeCommandCompletions,
   nativeRecord,
   nativeSessionKey,
@@ -11,6 +13,10 @@ import {
   type NativeSessionTarget,
   type NativeSlashCommand,
 } from "@t3tools/client-runtime/neopi-native-sessions";
+import {
+  interruptNativeQueuedInput,
+  takeNativeQueuedInput,
+} from "@t3tools/client-runtime/neopi-native-queue";
 import {
   createTranscriptProjector,
   transcriptUserText,
@@ -102,8 +108,13 @@ import {
   toggleNativeThinkingVisibility,
   useNativeTranscriptView,
 } from "../../state/nativeTranscriptView";
-import { consumeNativeDraft, prepareNativePrompt } from "./neopiNativeComposer";
+import {
+  captureNativeComposerFocus,
+  consumeNativeDraft,
+  prepareNativePrompt,
+} from "./neopiNativeComposer";
 import { restoreNativeEditor } from "./neopiNativeDraft";
+import { restoreNativeQueuedDraft } from "./neopiNativeQueueDraft";
 import type { ComposerSubmissionIntent } from "../../composer-logic";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "../../terminalUiStateStore";
 
@@ -245,6 +256,13 @@ export function NativeSessionView({
   );
   const [composerElement, setComposerElement] = useState<HTMLDivElement | null>(null);
   const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
+  useEffect(() => {
+    const item = expandedImage?.images[expandedImage.index];
+    // Local video expansions mint their own URL; image previews belong to the draft.
+    if (item?.type !== "video" || item.src === null || !item.src.startsWith("blob:")) return;
+    const src = item.src;
+    return () => URL.revokeObjectURL(src);
+  }, [expandedImage]);
   const sendingRef = useRef(false);
   const focusComposer = useCallback(() => composerRef.current?.focusAtEnd(), [composerRef]);
   // The workspace remounts after Models Back; the draft stays in its store.
@@ -375,22 +393,35 @@ export function NativeSessionView({
     [request],
   );
   useEffect(() => {
-    if (!feed.editor || consumedEditors.get(key) === feed.editor.id) return;
-    consumedEditors.set(key, feed.editor.id);
-    // A native menu's editor text must not destroy a prompt the user is still composing.
-    if (!composerDraftHasUserContent(draftStore.getState().getComposerDraft(target))) {
-      draftStore.getState().setPrompt(target, feed.editor.text);
-    }
+    const editor = feed.editor;
+    if (!editor || consumedEditors.get(key) === editor.id) return;
+    return deferNativeEditorText({
+      hasDraft: () => composerDraftHasUserContent(draftStore.getState().getComposerDraft(target)),
+      apply: () => {
+        consumedEditors.set(key, editor.id);
+        draftStore.getState().setPrompt(target, editor.text);
+      },
+      subscribe: (changed) => draftStore.subscribe(changed),
+      onDeferred: () =>
+        toastManager.add({
+          id: "native-editor-draft-kept",
+          title: "Draft kept",
+          description:
+            "NeoPi provided editor text. It will be inserted after you clear or send your draft.",
+          timeout: 6000,
+        }),
+    });
   }, [feed.editor, key, target]);
   const execute = useCallback(
     async (command: Record<string, unknown> & { type: string }) => {
       setLocalError(null);
-      const result = await submit(command);
-      if (command.type !== "prompt" && command.type !== "extension_ui_response") {
-        const observed = await request({ type: "get_state" });
-        setState(nativeRecord(observed));
-      }
-      return result;
+      return executeNativeSessionCommand({
+        command,
+        submit: () => submit(command),
+        readState: () => request({ type: "get_state" }),
+        onState: setState,
+        onRefreshError: setLocalError,
+      });
     },
     [request, submit],
   );
@@ -405,6 +436,7 @@ export function NativeSessionView({
         setLocalError("Wait for the attachment to finish preparing before sending.");
         return;
       }
+      const refocus = captureNativeComposerFocus(composerRef);
       sendingRef.current = true;
       setSending(true);
       setLocalError(null);
@@ -427,7 +459,7 @@ export function NativeSessionView({
       } finally {
         sendingRef.current = false;
         setSending(false);
-        focusComposer();
+        refocus();
       }
     },
     [target, canSend, feed.connected, feed.busy, submit, reconnect, composerRef, focusComposer],
@@ -492,27 +524,20 @@ export function NativeSessionView({
   const removeQueued = useCallback(
     (id: string) => {
       const queued = parseNativeQueuedMessageId(id);
-      const parsed = queuedMessages.find((message) => message.id === id);
-      if (!queued || !parsed) return;
-      void request({ type: "remove_queued_message", message: queued.text, queue: queued.lane })
-        .then(() => {
-          // Cancel returns the draft, context included, without destroying a newer one.
-          const store = draftStore.getState();
-          const current = store.getComposerDraft(target)?.prompt ?? "";
-          store.setPrompt(
-            target,
-            current.trim() ? `${parsed.prompt}\n\n${current}` : parsed.prompt,
-          );
-          if (parsed.terminalContexts.length > 0)
-            store.addTerminalContexts(target, parsed.terminalContexts);
-          for (const annotation of parsed.previewAnnotations)
-            store.addPreviewAnnotation(target, annotation);
-          for (const comment of parsed.reviewComments) store.addReviewComment(target, comment);
+      if (!queued) return;
+      void takeNativeQueuedInput(request, queued)
+        .then(async (restoration) => {
+          if (restoration === null) {
+            setLocalError("That queued message has already been dispatched.");
+            return;
+          }
+          const notice = await restoreNativeQueuedDraft(target, restoration);
+          if (notice) setLocalError(notice);
           focusComposer();
         })
         .catch((cause) => setLocalError(String(cause)));
     },
-    [request, draftStore, target, focusComposer, queuedMessages],
+    [request, target, focusComposer],
   );
   // Selecting a user message in the tree hands its text back for editing, as the
   // TUI does. A draft already in the composer stays; the notice says why.
@@ -626,8 +651,14 @@ export function NativeSessionView({
     [execute],
   );
   const interrupt = useCallback(() => {
-    void execute({ type: "abort" }).catch((cause) => setLocalError(String(cause)));
-  }, [execute]);
+    void interruptNativeQueuedInput(request, session?.capabilities ?? [])
+      .then(async (restoration) => {
+        const notice = await restoreNativeQueuedDraft(target, restoration);
+        if (notice) setLocalError(notice);
+        focusComposer();
+      })
+      .catch((cause) => setLocalError(String(cause)));
+  }, [request, session?.capabilities, target, focusComposer]);
   const hideThinking = useNativeTranscriptView((state) => state.hideThinking);
   const [toolOutputSerial, setToolOutputSerial] = useState(0);
   const canCycleRole = session?.capabilities.includes(NATIVE_CYCLE_ROLE_CAPABILITY) === true;

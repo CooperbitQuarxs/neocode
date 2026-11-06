@@ -10,6 +10,11 @@ On web and desktop, scroll inside the composer to reach the rest of a long draft
 or its attachments. Scrolling the conversation leaves the draft and its controls
 in place.
 
+To give a long draft more room, drag the composer's top edge, or focus **Resize
+prompt** with `Tab` and use `Up` or `Down`. The chosen height is remembered but
+stays within the window. Double-click the edge or press `Enter` while it has
+focus to return to fitting the draft automatically.
+
 Pasting 32 KiB or more of text adds that fragment as a text-file attachment so
 the agent can inspect it without filling the model context. A smaller paste also
 becomes an attachment when inserting it would exceed the message limit. On a
@@ -25,8 +30,9 @@ In a session NeoCode runs itself, the menu marks commands that need NeoPi's
 terminal interface **Terminal only**; sending one shows NeoPi's explanation
 instead of reaching the model. In a session attached to a terminal NeoPi, those
 commands run in that terminal as if typed there. After a command name and a
-space, the menu offers NeoPi's completions for its argument: `Tab` takes the
-first, and `Enter` sends what you typed unless you highlight a completion first.
+space, the menu offers NeoPi's completions for the argument text before the caret.
+Suggestions update as you type; `Tab` takes the first, and `Enter` sends what you
+typed unless you highlight a completion first.
 
 If the terminal NeoPi that owns a session restarts (`/restart`), NeoCode reattaches
 when it comes back; a message you send meanwhile waits for it. If the terminal
@@ -81,6 +87,15 @@ the oldest queued message now. Change `thread.steerQueuedMessage` in
 **Settings → Keybindings** to use another shortcut. It leaves the current draft
 in the composer and waits if the agent needs an approval or an answer.
 
+In native NeoPi sessions, cancelling queued input returns its text, context and
+attachments without replacing a draft you are still writing. Input that has
+already been dispatched is not copied back into the composer. With a current
+NeoPi, **Stop** (or Escape on web and desktop) also withdraws queued steering
+and follow-up messages before stopping the turn, then returns them oldest first.
+Older NeoPi versions keep their original abort behavior and do not withdraw the
+queue. If an attachment is no longer available on its server, the composer names
+it so you can attach it again.
+
 ## Queue messages offline on mobile
 
 Mobile keeps local copies of draft attachments, so you can preview them and queue
@@ -104,10 +119,17 @@ means the native source has not supplied it. Missing metrics do not make a model
 unavailable; you can still select it. Saved selections that are no longer
 available stay visible.
 
+If several NeoPi runtimes are enabled, their choices appear as each runtime
+answers. You can use an available model without waiting for another runtime;
+a failed runtime reports its own error without hiding the others.
+
 Star a model to add it to Favorites. Use the arrow keys and Enter to select, or
 click a model; Left and Right move between the rail and the list. Choosing a role
 or model applies it to the session and returns focus to the prompt. This is the
 quick session switcher, separate from the Roles management page.
+
+On mobile, you can still choose a model if the connected NeoPi cannot provide
+its role list.
 
 ## Custom models
 
@@ -195,6 +217,8 @@ and use **Attach again** or remove the missing file before sending.
 On supported iPhones with iOS 26 or later, use the composer's microphone to record,
 then confirm to transcribe. Text is inserted where your selection was when
 recording started, ready for you to review and edit before sending.
+Finish or cancel voice input before choosing a slash-command suggestion or
+sending the draft.
 
 The first use may download Apple's speech model and needs a network connection.
 Later transcription works offline for that language. Recordings can be up to five
@@ -231,8 +255,10 @@ listed but cannot be selected.
 **New worktree** (or **Worktree**, when the session already works in one) asks for an
 optional branch name and runs NeoPi's `/wt`: NeoPi creates the worktree, carries
 uncommitted changes into it and moves the session there. The tab and header stay on
-the same session. Both controls are disabled while NeoPi is working, because NeoPi
-refuses `/wt` mid-run and switching branches would change files under it.
+the same session. Both controls are disabled while NeoPi is working or disconnected:
+NeoPi refuses `/wt` mid-run, and switching branches would change files under it.
+If that happens while the worktree form is open, its branch name stays in place
+until NeoPi is ready again.
 
 ## Commands and skills
 
@@ -290,6 +316,7 @@ files show the copy that was attached to the message.
 Select a file chip in your draft or a sent message to preview it. Code and JSON use syntax
 highlighting; Markdown, HTML, CSV, and TSV offer rendered and raw views. Audio files have
 playback controls. Large text files show a limited preview; save the file to read it in full.
+Attached files are read-only copies; edits to workspace files save automatically.
 
 On web and desktop, files open beside the conversation with the same controls as a workspace
 file: a header row with the view toggle, **Copy contents** and **Save file**. On mobile, documents

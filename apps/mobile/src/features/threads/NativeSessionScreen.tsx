@@ -1,7 +1,10 @@
 import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
+import { workspaceKey } from "@t3tools/client-runtime/environment";
 import {
   NATIVE_COMMAND_COMPLETIONS_CAPABILITY,
+  deferNativeEditorText,
+  executeNativeSessionCommand,
   nativeCatalogModels,
   nativeCommandCompletions,
   nativeCommandNeedsTerminal,
@@ -17,6 +20,10 @@ import {
   type NativeSlashCommand,
   type NativeTranscriptRow,
 } from "@t3tools/client-runtime/neopi-native-sessions";
+import {
+  interruptNativeQueuedInput,
+  takeNativeQueuedInput,
+} from "@t3tools/client-runtime/neopi-native-queue";
 import { journalEntryLabel } from "@t3tools/client-runtime/neopi-journal";
 import { createNativeSubmissionFollow } from "@t3tools/client-runtime/neopi-submission-follow";
 import { upgradeLegacyContextMessage } from "@t3tools/shared/composerContextLegacy";
@@ -32,10 +39,13 @@ import {
 } from "../../state/neopiNativeSessions";
 import { useNativeComposerState } from "../../state/use-native-composer-state";
 import {
+  composerDraftsAtom,
   getComposerDraftSnapshot,
+  relocateComposerDraft,
   setComposerDraftText,
   waitForComposerDraftsLoaded,
 } from "../../state/use-composer-drafts";
+import { restoreNativeMobileQueuedDraft } from "../../state/native-queued-draft";
 import { NativeSessionComposer } from "./NativeSessionComposer";
 import {
   NativeSessionWorkspaceControls,
@@ -48,6 +58,7 @@ import { NativeSessionMobileTree } from "./NativeSessionMobileTree";
 import { NeoPiModelsEntry } from "./NeoPiModelsScreen";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { appAtomRegistry } from "../../state/atom-registry";
 
 type Params = { environmentId: string; providerInstanceId: string; sessionFile: string };
 type Request = ReturnType<typeof useNativeSession>["request"];
@@ -148,6 +159,7 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
       .finally(() => setReconnecting(false));
   }, [reconnect]);
   const ownerNotice = nativeOwnerNotice(feed.ownerLoss, feed.session?.attachment);
+  const [editorNotice, setEditorNotice] = useState<string | null>(null);
   const [models, setModels] = useState(false);
   const [tree, setTree] = useState(false);
   const [debug, setDebug] = useState(false);
@@ -156,6 +168,7 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
   const [commands, setCommands] = useState<readonly NativeSlashCommand[]>([]);
   const [completions, setCompletions] = useState<{
     readonly command: string;
+    readonly prefix: string;
     readonly items: readonly NativeCommandCompletion[];
   } | null>(null);
   const key = nativeSessionKey(target);
@@ -169,14 +182,30 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
     if (feed.session) setState(feed.session.state);
   }, [feed.session]);
   useEffect(() => {
-    if (feed.session && feed.session.ref.sessionFile !== target.ref.sessionFile)
-      navigation.dispatch(
-        StackActions.replace("NativeSession", {
-          environmentId: target.environmentId,
-          ...feed.session.ref,
-        }),
-      );
-  }, [feed.session, target.environmentId, target.ref.sessionFile, navigation]);
+    const movedRef = feed.movedTo ?? feed.session?.ref;
+    if (!movedRef || movedRef.sessionFile === target.ref.sessionFile) return;
+    let active = true;
+    void relocateComposerDraft(
+      composer.key,
+      workspaceKey({ environmentId: target.environmentId, ref: movedRef }),
+    ).then(
+      () => {
+        if (active)
+          navigation.dispatch(
+            StackActions.replace("NativeSession", {
+              environmentId: target.environmentId,
+              ...movedRef,
+            }),
+          );
+      },
+      (cause) => {
+        if (active) setLocalError(String(cause));
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [feed.movedTo, feed.session?.ref, target, composer.key, navigation]);
   const loadOlder = async () => {
     cancelSubmissionFollow();
     nearEndRef.current = false;
@@ -234,11 +263,13 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
           if (active)
             setCompletions({
               command: argumentCommand,
+              prefix: argumentPrefix,
               items: nativeCommandCompletions(value, argumentPrefix),
             });
         })
         .catch(() => {
-          if (active) setCompletions({ command: argumentCommand, items: [] });
+          if (active)
+            setCompletions({ command: argumentCommand, prefix: argumentPrefix, items: [] });
         });
     }, 80);
     return () => {
@@ -248,32 +279,74 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
   }, [argumentCommand, argumentPrefix, request]);
   useEffect(() => {
     const editor = feed.editor;
+    setEditorNotice(null);
     if (!editor || editors.get(key) === editor.id) return;
     let active = true;
+    let cancel = () => {};
     void waitForComposerDraftsLoaded()
       .then(() => {
         if (!active || editors.get(key) === editor.id) return;
-        editors.set(key, editor.id);
-        const draft = getComposerDraftSnapshot(composer.key);
-        if (!draft.text && !draft.attachments.length && !draft.context?.records.length)
-          setComposerDraftText(composer.key, editor.text);
+        cancel = deferNativeEditorText({
+          hasDraft: () => {
+            const draft = getComposerDraftSnapshot(composer.key);
+            return !!(draft.text || draft.attachments.length || draft.context?.records.length);
+          },
+          apply: () => {
+            editors.set(key, editor.id);
+            setEditorNotice(null);
+            setComposerDraftText(composer.key, editor.text);
+          },
+          subscribe: (changed) => appAtomRegistry.subscribe(composerDraftsAtom, changed),
+          onDeferred: () =>
+            setEditorNotice(
+              "Draft kept. NeoPi's editor text will be inserted after you clear or send your draft.",
+            ),
+        });
       })
       .catch((cause) => {
         if (active) setLocalError(String(cause));
       });
     return () => {
       active = false;
+      cancel();
     };
   }, [feed.editor, key, composer.key]);
   const execute = useCallback<Request>(
     async (command, attachments) => {
-      const result = await submit(command, attachments);
-      if (command.type !== "prompt" && command.type !== "extension_ui_response")
-        setState(nativeRecord(await request({ type: "get_state" })));
-      return result;
+      setLocalError(null);
+      return executeNativeSessionCommand({
+        command,
+        submit: () => submit(command, attachments),
+        readState: () => request({ type: "get_state" }),
+        onState: setState,
+        onRefreshError: setLocalError,
+      });
     },
     [request, submit],
   );
+  const removeQueued = useCallback(
+    (queued: { text: string; lane: "steering" | "followUp" }) => {
+      void takeNativeQueuedInput(request, queued)
+        .then(async (restoration) => {
+          if (restoration === null) {
+            setLocalError("That queued message has already been dispatched.");
+            return;
+          }
+          const notice = await restoreNativeMobileQueuedDraft(target, restoration);
+          if (notice) setLocalError(notice);
+        })
+        .catch((cause) => setLocalError(String(cause)));
+    },
+    [request, target],
+  );
+  const interrupt = useCallback(() => {
+    void interruptNativeQueuedInput(request, feed.session?.capabilities ?? [])
+      .then(async (restoration) => {
+        const notice = await restoreNativeMobileQueuedDraft(target, restoration);
+        if (notice) setLocalError(notice);
+      })
+      .catch((cause) => setLocalError(String(cause)));
+  }, [request, target, feed.session?.capabilities]);
   const rows = useMemo(
     () =>
       nativeTranscriptRows(
@@ -297,7 +370,9 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
           .slice(0, 10)
       : [];
   const argumentSuggestions =
-    argumentCommand && completions?.command === argumentCommand
+    argumentCommand &&
+    completions?.command === argumentCommand &&
+    completions.prefix === argumentPrefix
       ? completions.items.filter((item) => item.value !== argumentPrefix).slice(0, 10)
       : [];
   const dialog = feed.dialogs.find(
@@ -341,6 +416,11 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
       <View className="px-4">
         <NativeError message={localError ?? error} />
       </View>
+      {editorNotice ? (
+        <Text accessibilityLiveRegion="polite" className="px-4 py-1 text-xs text-foreground-muted">
+          {editorNotice}
+        </Text>
+      ) : null}
       <FlatList
         ref={timelineRef}
         maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
@@ -432,17 +512,7 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
             {queued.lane === "steering" && queued.index < feed.queue.liveSteered ? (
               <Text className="text-xs text-foreground-muted">Sending</Text>
             ) : (
-              <MaterialButton
-                label="Cancel"
-                tone="text"
-                onPress={() =>
-                  void execute({
-                    type: "remove_queued_message",
-                    message: queued.text,
-                    queue: queued.lane,
-                  }).catch((cause) => setLocalError(String(cause)))
-                }
-              />
+              <MaterialButton label="Cancel" tone="text" onPress={() => removeQueued(queued)} />
             )}
           </View>
         ))}
@@ -453,56 +523,25 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
               {notice}
             </Text>
           ))}
-        {suggestions.length ? (
-          <ScrollView horizontal>
-            {suggestions.map((command) => (
-              <MaterialButton
-                key={command.name}
-                label={[
-                  `/${command.name}`,
-                  command.input?.hint,
-                  nativeCommandNeedsTerminal(command, feed.session?.attachment)
-                    ? "· terminal only"
-                    : undefined,
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                tone="text"
-                onPress={() => composer.setText(`/${command.name} `)}
-              />
-            ))}
-          </ScrollView>
-        ) : null}
-        {argumentCommand && argumentSuggestions.length ? (
-          <ScrollView horizontal>
-            {argumentSuggestions.map((item) => (
-              <MaterialButton
-                key={item.value}
-                label={item.label}
-                tone="text"
-                onPress={() => {
-                  composer.setText(`/${argumentCommand} ${item.value}`);
-                  if (item.submitsCommand) void composer.send();
-                }}
-              />
-            ))}
-          </ScrollView>
-        ) : null}
-        <NativeSessionWorkspaceControls
-          target={target}
-          cwd={feed.session?.cwd ?? null}
-          agentCount={feed.agents.length}
-          onOpenAgents={() => setAgents(true)}
-          onError={setLocalError}
-        />
         <NativeSessionComposer
           target={target}
           cwd={feed.session?.cwd ?? null}
           composer={composer}
           busy={feed.busy}
-          onStop={() =>
-            void execute({ type: "abort" }).catch((cause) => setLocalError(String(cause)))
+          commands={suggestions}
+          argumentCommand={argumentCommand}
+          argumentSuggestions={argumentSuggestions}
+          attachment={feed.session?.attachment}
+          workspaceControls={
+            <NativeSessionWorkspaceControls
+              target={target}
+              cwd={feed.session?.cwd ?? null}
+              agentCount={feed.agents.length}
+              onOpenAgents={() => setAgents(true)}
+              onError={setLocalError}
+            />
           }
+          onStop={interrupt}
         />
         <View className="flex-row flex-wrap items-center gap-2">
           <MaterialButton
@@ -547,7 +586,13 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
       {agents ? (
         <NativeSessionAgents agents={feed.agents} onClose={() => setAgents(false)} />
       ) : null}
-      {models ? <NativeMobileModels request={execute} onClose={() => setModels(false)} /> : null}
+      {models ? (
+        <NativeMobileModels
+          request={execute}
+          rolesSupported={feed.session?.capabilities.includes("get_roles") ?? false}
+          onClose={() => setModels(false)}
+        />
+      ) : null}
       {tree ? (
         <NativeSessionMobileTree target={target} request={execute} onClose={() => setTree(false)} />
       ) : null}
@@ -567,20 +612,26 @@ function NativeSessionBody({ target }: { target: NativeSessionTarget }) {
   );
 }
 
-function NativeMobileModels({ request, onClose }: { request: Request; onClose: () => void }) {
+export function NativeMobileModels({
+  request,
+  rolesSupported,
+  onClose,
+}: {
+  request: Request;
+  rolesSupported: boolean;
+  onClose: () => void;
+}) {
   const [models, setModels] = useState<ReturnType<typeof nativeCatalogModels>>([]);
   const [roles, setRoles] = useState<readonly Record<string, unknown>[]>([]);
   const [query, setQuery] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rolesError, setRolesError] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
-    void Promise.all([request({ type: "get_available_models" }), request({ type: "get_roles" })])
-      .then(([models, roles]) => {
-        if (!active) return;
-        setModels(nativeCatalogModels(models));
-        const items = nativeRecord(roles).roles;
-        if (Array.isArray(items)) setRoles(items.map(nativeRecord));
+    void request({ type: "get_available_models" })
+      .then((value) => {
+        if (active) setModels(nativeCatalogModels(value));
       })
       .catch((cause) => {
         if (active) setError(String(cause));
@@ -589,6 +640,24 @@ function NativeMobileModels({ request, onClose }: { request: Request; onClose: (
       active = false;
     };
   }, [request]);
+  useEffect(() => {
+    let active = true;
+    setRoles([]);
+    setRolesError(null);
+    if (rolesSupported) {
+      void request({ type: "get_roles" })
+        .then((value) => {
+          const items = nativeRecord(value).roles;
+          if (active && Array.isArray(items)) setRoles(items.map(nativeRecord));
+        })
+        .catch((cause) => {
+          if (active) setRolesError(`Could not load roles: ${String(cause)}`);
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [request, rolesSupported]);
   const choose = async (command: Record<string, unknown> & { type: string }) => {
     if (pending) return;
     setPending(true);
@@ -606,6 +675,12 @@ function NativeMobileModels({ request, onClose }: { request: Request; onClose: (
       <View className="gap-3 px-4 pb-3">
         <NativeField label="Search models and roles" value={query} onChange={setQuery} />
         <NativeError message={error} />
+        <NativeError message={rolesError} />
+        {!rolesSupported ? (
+          <Text className="text-sm text-foreground-muted">
+            Role selection is unavailable for this NeoPi session.
+          </Text>
+        ) : null}
       </View>
       <FlatList
         data={models.filter((model) =>
@@ -614,7 +689,7 @@ function NativeMobileModels({ request, onClose }: { request: Request; onClose: (
         keyExtractor={(model) => `${model.provider}/${model.id}`}
         ListHeaderComponent={
           <View className="px-4">
-            {roles
+            {(rolesSupported ? roles : [])
               .filter(
                 (role) =>
                   role.hidden !== true &&
@@ -813,26 +888,32 @@ function NativeMobileDialog({
               {(Array.isArray(question.options) ? question.options : []).map((item, index) => {
                 const option = nativeRecord(item);
                 const label = String(option.label);
+                const description =
+                  typeof option.description === "string" ? option.description.trim() : "";
                 return (
-                  <MaterialButton
-                    key={index}
-                    label={`${answer.selectedOptions.includes(label) ? "✓ " : ""}${label}`}
-                    tone="secondary"
-                    disabled={pending}
-                    onPress={() =>
-                      setAnswers({
-                        ...answers,
-                        [id]: {
-                          ...answer,
-                          selectedOptions: question.multi
-                            ? answer.selectedOptions.includes(label)
-                              ? answer.selectedOptions.filter((value) => value !== label)
-                              : [...answer.selectedOptions, label]
-                            : [label],
-                        },
-                      })
-                    }
-                  />
+                  <View key={index} className="gap-1">
+                    <MaterialButton
+                      label={`${answer.selectedOptions.includes(label) ? "✓ " : ""}${label}`}
+                      tone="secondary"
+                      disabled={pending}
+                      onPress={() =>
+                        setAnswers({
+                          ...answers,
+                          [id]: {
+                            ...answer,
+                            selectedOptions: question.multi
+                              ? answer.selectedOptions.includes(label)
+                                ? answer.selectedOptions.filter((value) => value !== label)
+                                : [...answer.selectedOptions, label]
+                              : [label],
+                          },
+                        })
+                      }
+                    />
+                    {description ? (
+                      <Text className="text-sm text-foreground-muted">{description}</Text>
+                    ) : null}
+                  </View>
                 );
               })}
               <NativeField

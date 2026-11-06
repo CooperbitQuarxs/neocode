@@ -91,6 +91,65 @@ export const nativeRecord = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+
+/** Keep an editor handoff pending until it can be applied without replacing a draft. */
+export function deferNativeEditorText(input: {
+  readonly hasDraft: () => boolean;
+  readonly apply: () => void;
+  readonly subscribe: (changed: () => void) => () => void;
+  readonly onDeferred: () => void;
+}): () => void {
+  let pending = true;
+  let unsubscribe: (() => void) | undefined;
+  const stopWatching = () => {
+    const stop = unsubscribe;
+    unsubscribe = undefined;
+    stop?.();
+  };
+  const attempt = () => {
+    if (!pending || input.hasDraft()) return;
+    pending = false;
+    stopWatching();
+    input.apply();
+  };
+  attempt();
+  if (pending) {
+    input.onDeferred();
+    unsubscribe = input.subscribe(attempt);
+    // Account for a store that changes or notifies synchronously on subscribe.
+    if (pending) attempt();
+    else stopWatching();
+  }
+  return () => {
+    pending = false;
+    stopWatching();
+  };
+}
+
+/** A follow-up read must not turn an accepted mutation into a failed command. */
+export async function executeNativeSessionCommand<Result>(input: {
+  readonly command: { readonly type: string };
+  readonly submit: () => Promise<Result>;
+  readonly readState: () => Promise<unknown>;
+  readonly onState: (state: Record<string, unknown>) => void;
+  readonly onRefreshError: (message: string) => void;
+}): Promise<Result> {
+  const result = await input.submit();
+  if (input.command.type === "prompt" || input.command.type === "extension_ui_response") {
+    return result;
+  }
+  let state: unknown;
+  try {
+    state = await input.readState();
+  } catch {
+    input.onRefreshError(
+      "Command accepted, but the state refresh failed. Reconnect to refresh session details.",
+    );
+    return result;
+  }
+  input.onState(nativeRecord(state));
+  return result;
+}
 interface NativeCommandOutput {
   readonly id: string;
   readonly text: string;
@@ -522,11 +581,11 @@ export function reduceNativeSessionFeed(
     { conversation: feed.conversation, busy: feed.busy, connection: null },
     { type: "native", event: frame },
   );
-  let next: NativeSessionFeed = {
-    ...feed,
-    conversation: projected.conversation,
-    busy: projected.busy ?? feed.busy,
-  };
+  const busy = projected.busy ?? feed.busy;
+  let next: NativeSessionFeed =
+    projected.conversation === feed.conversation && busy === feed.busy
+      ? feed
+      : { ...feed, conversation: projected.conversation, busy };
   if (frame.type === "subagent_lifecycle" || frame.type === "subagent_progress") {
     const agents = reduceNativeSubagents(
       next.agents,

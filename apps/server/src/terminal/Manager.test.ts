@@ -41,6 +41,7 @@ import * as ProcessRunner from "../processRunner.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "./Manager.ts";
 import * as PtyAdapter from "./PtyAdapter.ts";
+import { terminalAttachStream } from "./EventStream.ts";
 
 class WaitForConditionError extends Data.TaggedError("WaitForConditionError")<{
   readonly message: string;
@@ -56,6 +57,8 @@ class FakePtyProcess implements PtyAdapter.PtyProcess {
   private readonly dataListeners = new Set<(data: string) => void>();
   private readonly exitListeners = new Set<(event: PtyAdapter.PtyExitEvent) => void>();
   killed = false;
+  pauseCount = 0;
+  resumeCount = 0;
 
   constructor(pid: number) {
     this.pid = pid;
@@ -73,6 +76,14 @@ class FakePtyProcess implements PtyAdapter.PtyProcess {
       throw this.resizeFailure;
     }
     this.resizeCalls.push({ cols, rows });
+  }
+
+  pause(): void {
+    this.pauseCount += 1;
+  }
+
+  resume(): void {
+    this.resumeCount += 1;
   }
 
   kill(signal?: string): void {
@@ -418,6 +429,60 @@ it.layer(
       assert.equal(first.terminalId, DEFAULT_TERMINAL_ID);
       assert.equal(second.threadId, "thread-1");
       assert.equal(third.threadId, "thread-1");
+      expect(ptyAdapter.spawnInputs).toHaveLength(1);
+    }),
+  );
+
+  it.effect("keeps the thread lock while a holder survives a cancelled queued operation", () =>
+    Effect.gen(function* () {
+      const holderEntered = yield* Deferred.make<void>();
+      const releaseHolder = yield* Deferred.make<void>();
+      const laterEntered = yield* Deferred.make<void>();
+      const heldProvider = ProviderInstanceId.make("held");
+      const laterProvider = ProviderInstanceId.make("later");
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        resolveProviderInstanceEnvironment: (requestedId) =>
+          requestedId === heldProvider
+            ? Deferred.succeed(holderEntered, undefined).pipe(
+                Effect.andThen(Deferred.await(releaseHolder)),
+                Effect.as({}),
+              )
+            : Deferred.succeed(laterEntered, undefined).pipe(Effect.as({})),
+      });
+      const holder = yield* manager
+        .open(openInput({ providerInstanceId: heldProvider }))
+        .pipe(Effect.forkScoped({ startImmediately: true }));
+      yield* Deferred.await(holderEntered);
+      const cancelled = yield* manager
+        .close({ threadId: "thread-1" })
+        .pipe(Effect.forkScoped({ startImmediately: true }));
+      yield* Fiber.interrupt(cancelled);
+      const later = yield* manager
+        .open(openInput({ providerInstanceId: laterProvider }))
+        .pipe(Effect.forkScoped({ startImmediately: true }));
+      expect(yield* Deferred.isDone(laterEntered)).toBe(false);
+      expect(ptyAdapter.spawnInputs).toHaveLength(0);
+      yield* Deferred.succeed(releaseHolder, undefined);
+      yield* Fiber.join(holder);
+      yield* Fiber.join(later);
+      expect(yield* Deferred.isDone(laterEntered)).toBe(true);
+      expect(ptyAdapter.spawnInputs).toHaveLength(1);
+    }),
+  );
+
+  it.effect("allows fresh serialized opens after a thread-locked request fails", () =>
+    Effect.gen(function* () {
+      const providerInstanceId = ProviderInstanceId.make("missing");
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        resolveProviderInstanceEnvironment: () =>
+          Effect.fail(new TerminalProviderInstanceNotFoundError({ providerInstanceId })),
+      });
+      const failure = yield* manager.open(openInput({ providerInstanceId })).pipe(Effect.result);
+      expect(failure._tag).toBe("Failure");
+      const reopened = yield* Effect.all([manager.open(openInput()), manager.open(openInput())], {
+        concurrency: "unbounded",
+      });
+      expect(reopened.map((snapshot) => snapshot.status)).toEqual(["running", "running"]);
       expect(ptyAdapter.spawnInputs).toHaveLength(1);
     }),
   );
@@ -1704,6 +1769,25 @@ it.layer(
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
+  it.effect("does not escalate a detached terminal after observing its exit", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager(5, { processKillGraceMs: 10 });
+      yield* manager.open(openInput());
+      const process = ptyAdapter.processes[0]!;
+      const terminated = yield* Deferred.make<void>();
+      const kill = process.kill.bind(process);
+      process.kill = (signal) => {
+        kill(signal);
+        if (signal === "SIGTERM") Deferred.doneUnsafe(terminated, Effect.void);
+      };
+      yield* manager.close({ threadId: "thread-1" });
+      yield* Deferred.await(terminated);
+      process.emitExit({ exitCode: 0, signal: null });
+      yield* TestClock.adjust("10 millis");
+      assert.deepEqual(process.killSignals, ["SIGTERM"]);
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
   it.effect("publishes closed events when terminals are explicitly closed", () =>
     Effect.gen(function* () {
       const { manager, getEvents } = yield* createManager();
@@ -1915,24 +1999,26 @@ it.layer(
     }),
   );
 
-  it.effect("preserves explicit terminal environment values without runtime-specific expansion", () =>
-    Effect.gen(function* () {
-      const { manager, ptyAdapter } = yield* createManager(5);
+  it.effect(
+    "preserves explicit terminal environment values without runtime-specific expansion",
+    () =>
+      Effect.gen(function* () {
+        const { manager, ptyAdapter } = yield* createManager(5);
 
-      yield* manager.open({
-        ...openInput(),
-        env: {
-          CODEX_HOME: "~/.codex-work",
-          CLAUDE_CONFIG_DIR: "~/.claude-work",
-          CUSTOM_ACCOUNT: "~/leave-this-value-alone",
-        },
-      });
+        yield* manager.open({
+          ...openInput(),
+          env: {
+            CODEX_HOME: "~/.codex-work",
+            CLAUDE_CONFIG_DIR: "~/.claude-work",
+            CUSTOM_ACCOUNT: "~/leave-this-value-alone",
+          },
+        });
 
-      const environment = ptyAdapter.spawnInputs[0]?.env;
-      expect(environment?.CODEX_HOME).toBe("~/.codex-work");
-      expect(environment?.CLAUDE_CONFIG_DIR).toBe("~/.claude-work");
-      expect(environment?.CUSTOM_ACCOUNT).toBe("~/leave-this-value-alone");
-    }),
+        const environment = ptyAdapter.spawnInputs[0]?.env;
+        expect(environment?.CODEX_HOME).toBe("~/.codex-work");
+        expect(environment?.CLAUDE_CONFIG_DIR).toBe("~/.claude-work");
+        expect(environment?.CUSTOM_ACCOUNT).toBe("~/leave-this-value-alone");
+      }),
   );
 
   it.effect("strips AppImage runtime env from terminal sessions", () =>
@@ -2093,8 +2179,11 @@ it.layer(
         subscribeChanges: Effect.succeed(Stream.empty),
       });
 
-      const error = yield* TerminalManager.resolveProviderInstanceTerminalEnvironment({ serverSettings, rawProviderInstanceId: providerInstanceId,
-      env: undefined, }).pipe(Effect.flip);
+      const error = yield* TerminalManager.resolveProviderInstanceTerminalEnvironment({
+        serverSettings,
+        rawProviderInstanceId: providerInstanceId,
+        env: undefined,
+      }).pipe(Effect.flip);
 
       expect(error).toMatchObject({
         _tag: "TerminalProviderEnvironmentError",
@@ -2106,49 +2195,108 @@ it.layer(
     }),
   );
 
-  it.effect.each(["codex", "claudeAgent", "cursor", "grok", "opencode", "antigravity"] as const)("does not start a terminal bound to the removed %s runtime", (driver) =>
-    Effect.gen(function* () {
-      const serverSettings = yield* ServerSettings.ServerSettingsService;
-      const providerInstanceId = ProviderInstanceId.make("legacy");
-      const { manager, ptyAdapter } = yield* createManager(5, {
-        resolveProviderInstanceEnvironment: (rawProviderInstanceId, env) => TerminalManager.resolveProviderInstanceTerminalEnvironment({ serverSettings, rawProviderInstanceId, env }),
-      });
-      const error = yield* manager.open(openInput({ providerInstanceId })).pipe(Effect.flip);
-      expect(error).toMatchObject({ _tag: "TerminalProviderInstanceNotFoundError", providerInstanceId });
-      expect(ptyAdapter.spawnInputs).toHaveLength(0);
-      expect((yield* serverSettings.getSettings).providerInstances[providerInstanceId]?.config).toEqual({ homePath: "/saved/legacy" });
-    }).pipe(Effect.provide(ServerSettings.layerTest({ providerInstances: {
-      [ProviderInstanceId.make("legacy")]: { driver: ProviderDriverKind.make(driver), enabled: true, config: { homePath: "/saved/legacy" }, environment: [{ name: "LEGACY_SECRET", value: "saved", sensitive: false }] },
-    } }))),
+  it.effect.each(["codex", "claudeAgent", "cursor", "grok", "opencode", "antigravity"] as const)(
+    "does not start a terminal bound to the removed %s runtime",
+    (driver) =>
+      Effect.gen(function* () {
+        const serverSettings = yield* ServerSettings.ServerSettingsService;
+        const providerInstanceId = ProviderInstanceId.make("legacy");
+        const { manager, ptyAdapter } = yield* createManager(5, {
+          resolveProviderInstanceEnvironment: (rawProviderInstanceId, env) =>
+            TerminalManager.resolveProviderInstanceTerminalEnvironment({
+              serverSettings,
+              rawProviderInstanceId,
+              env,
+            }),
+        });
+        const error = yield* manager.open(openInput({ providerInstanceId })).pipe(Effect.flip);
+        expect(error).toMatchObject({
+          _tag: "TerminalProviderInstanceNotFoundError",
+          providerInstanceId,
+        });
+        expect(ptyAdapter.spawnInputs).toHaveLength(0);
+        expect(
+          (yield* serverSettings.getSettings).providerInstances[providerInstanceId]?.config,
+        ).toEqual({ homePath: "/saved/legacy" });
+      }).pipe(
+        Effect.provide(
+          ServerSettings.layerTest({
+            providerInstances: {
+              [ProviderInstanceId.make("legacy")]: {
+                driver: ProviderDriverKind.make(driver),
+                enabled: true,
+                config: { homePath: "/saved/legacy" },
+                environment: [{ name: "LEGACY_SECRET", value: "saved", sensitive: false }],
+              },
+            },
+          }),
+        ),
+      ),
   );
 
-  it.effect.each(["codex", "claudeAgent"] as const)("does not synthesize an executable legacy %s default", (driver) =>
-    Effect.gen(function* () {
-      const serverSettings = yield* ServerSettings.ServerSettingsService;
-      const error = yield* TerminalManager.resolveProviderInstanceTerminalEnvironment({ serverSettings, rawProviderInstanceId: driver, env: undefined }).pipe(Effect.flip);
-      expect(error).toMatchObject({ _tag: "TerminalProviderInstanceNotFoundError", providerInstanceId: driver });
-    }).pipe(Effect.provide(ServerSettings.layerTest({ providerInstances: {}, providers: { codex: { homePath: "~/.saved-codex" }, claudeAgent: { homePath: "~/.saved-claude" } } }))),
+  it.effect.each(["codex", "claudeAgent"] as const)(
+    "does not synthesize an executable legacy %s default",
+    (driver) =>
+      Effect.gen(function* () {
+        const serverSettings = yield* ServerSettings.ServerSettingsService;
+        const error = yield* TerminalManager.resolveProviderInstanceTerminalEnvironment({
+          serverSettings,
+          rawProviderInstanceId: driver,
+          env: undefined,
+        }).pipe(Effect.flip);
+        expect(error).toMatchObject({
+          _tag: "TerminalProviderInstanceNotFoundError",
+          providerInstanceId: driver,
+        });
+      }).pipe(
+        Effect.provide(
+          ServerSettings.layerTest({
+            providerInstances: {},
+            providers: {
+              codex: { homePath: "~/.saved-codex" },
+              claudeAgent: { homePath: "~/.saved-claude" },
+            },
+          }),
+        ),
+      ),
   );
 
-  ;
-
-  it.effect("uses the explicit native instance environment instead of legacy runtime settings", () =>
-    Effect.gen(function* () {
-      const serverSettings = yield* ServerSettings.ServerSettingsService;
-      const environment = yield* TerminalManager.resolveProviderInstanceTerminalEnvironment({ serverSettings, rawProviderInstanceId: "neopi", env: undefined });
-      expect(environment.OMP_PROFILE).toBe("work");
-      expect(environment.CODEX_HOME).toBeUndefined();
-    }).pipe(Effect.provide(ServerSettings.layerTest({
-      providers: { codex: { homePath: "~/.saved-codex" } },
-      providerInstances: { [ProviderInstanceId.make("neopi")]: { driver: ProviderDriverKind.make("neopi"), config: { profile: "work" }, environment: [{ name: "OMP_PROFILE", value: "work", sensitive: false }] } },
-    }))),
+  it.effect(
+    "uses the explicit native instance environment instead of legacy runtime settings",
+    () =>
+      Effect.gen(function* () {
+        const serverSettings = yield* ServerSettings.ServerSettingsService;
+        const environment = yield* TerminalManager.resolveProviderInstanceTerminalEnvironment({
+          serverSettings,
+          rawProviderInstanceId: "neopi",
+          env: undefined,
+        });
+        expect(environment.OMP_PROFILE).toBe("work");
+        expect(environment.CODEX_HOME).toBeUndefined();
+      }).pipe(
+        Effect.provide(
+          ServerSettings.layerTest({
+            providers: { codex: { homePath: "~/.saved-codex" } },
+            providerInstances: {
+              [ProviderInstanceId.make("neopi")]: {
+                driver: ProviderDriverKind.make("neopi"),
+                config: { profile: "work" },
+                environment: [{ name: "OMP_PROFILE", value: "work", sensitive: false }],
+              },
+            },
+          }),
+        ),
+      ),
   );
 
   it.effect("keeps unknown provider instance ids unavailable after legacy hydration", () =>
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettings.ServerSettingsService;
-      const error = yield* TerminalManager.resolveProviderInstanceTerminalEnvironment({ serverSettings, rawProviderInstanceId: "codex_unknown",
-      env: undefined, }).pipe(Effect.flip);
+      const error = yield* TerminalManager.resolveProviderInstanceTerminalEnvironment({
+        serverSettings,
+        rawProviderInstanceId: "codex_unknown",
+        env: undefined,
+      }).pipe(Effect.flip);
 
       expect(error).toMatchObject({
         _tag: "TerminalProviderInstanceNotFoundError",
@@ -2183,8 +2331,11 @@ it.layer(
       const { manager, ptyAdapter, logsDir } = yield* createManager(2, {
         historyByteLimit: 8,
         resolveProviderInstanceEnvironment: (rawProviderInstanceId, env) =>
-          TerminalManager.resolveProviderInstanceTerminalEnvironment({ serverSettings, rawProviderInstanceId,
-          env, }),
+          TerminalManager.resolveProviderInstanceTerminalEnvironment({
+            serverSettings,
+            rawProviderInstanceId,
+            env,
+          }),
       });
       const profile = "work";
       const updateSecret = (value: string) =>
@@ -2524,6 +2675,101 @@ it.layer(
     }),
   );
 
+  it.effect(
+    "keeps PTY output flowing to a healthy client while a stalled client resynchronizes",
+    () =>
+      Effect.gen(function* () {
+        const { manager, ptyAdapter } = yield* createManager(5, {
+          subprocessInspector: () =>
+            Effect.succeed({
+              hasRunningSubprocess: false,
+              childCommand: null,
+              processIds: [],
+            }),
+        });
+        yield* manager.open(openInput());
+        const process = ptyAdapter.processes[0]!;
+        const input = { threadId: "thread-1", terminalId: DEFAULT_TERMINAL_ID };
+        const slow = yield* Stream.toPull(terminalAttachStream(manager, input));
+        const fast = yield* Stream.toPull(terminalAttachStream(manager, input));
+        yield* slow;
+        yield* fast;
+        for (let index = 0; index < 600; index += 1) {
+          process.emitData("x");
+          expect(yield* fast).toMatchObject([{ type: "output", data: "x" }]);
+        }
+        expect(process.pauseCount).toBe(0);
+        expect(process.resumeCount).toBe(0);
+        expect(yield* slow).toMatchObject([
+          {
+            type: "resync",
+            snapshot: { status: "running", history: "x".repeat(600) },
+          },
+        ]);
+        expect(ptyAdapter.processes).toHaveLength(1);
+      }),
+  );
+
+  it.effect("preserves output arriving during attach replay and after live handoff", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      yield* manager.open(openInput());
+      const process = ptyAdapter.processes[0]!;
+      const snapshotStarted = yield* Deferred.make<void>();
+      const resumeSnapshot = yield* Deferred.make<void>();
+      const replayStarted = yield* Deferred.make<void>();
+      const resumeReplay = yield* Deferred.make<void>();
+      const firstBuffered = yield* Deferred.make<void>();
+      const secondBuffered = yield* Deferred.make<void>();
+      const liveDelivered = yield* Deferred.make<void>();
+      const events: TerminalAttachStreamEvent[] = [];
+      const attaching = yield* manager
+        .attachStream(openInput(), (event) =>
+          Effect.gen(function* () {
+            events.push(event);
+            if (event.type === "snapshot") {
+              yield* Deferred.succeed(snapshotStarted, undefined);
+              yield* Deferred.await(resumeSnapshot);
+            } else if (event.type === "output" && event.data === "during snapshot\n") {
+              yield* Deferred.succeed(replayStarted, undefined);
+              yield* Deferred.await(resumeReplay);
+            } else if (event.type === "output" && event.data === "live\n") {
+              yield* Deferred.succeed(liveDelivered, undefined);
+            }
+          }),
+        )
+        .pipe(Effect.forkScoped);
+      yield* Deferred.await(snapshotStarted);
+      const stopMonitor = yield* manager.subscribe((event) => {
+        if (event.type !== "output") return Effect.void;
+        if (event.data === "during snapshot\n")
+          return Deferred.succeed(firstBuffered, undefined).pipe(Effect.asVoid);
+        if (event.data === "during replay\n")
+          return Deferred.succeed(secondBuffered, undefined).pipe(Effect.asVoid);
+        return Effect.void;
+      });
+      yield* Effect.addFinalizer(() => Effect.sync(stopMonitor));
+      process.emitData("during snapshot\n");
+      yield* Deferred.await(firstBuffered);
+      yield* Deferred.succeed(resumeSnapshot, undefined);
+      yield* Deferred.await(replayStarted);
+      process.emitData("during replay\n");
+      yield* Deferred.await(secondBuffered);
+      yield* Deferred.succeed(resumeReplay, undefined);
+      const unsubscribe = yield* Fiber.join(attaching);
+      yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+      process.emitData("live\n");
+      yield* Deferred.await(liveDelivered);
+
+      expect(events).toMatchObject([
+        { type: "snapshot" },
+        { type: "output", data: "during snapshot\n" },
+        { type: "output", data: "during replay\n" },
+        { type: "output", data: "live\n" },
+      ]);
+    }),
+  );
+
   it.effect("preserves queued PTY output ordering through exit callbacks", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter, getEvents } = yield* createManager(5, {
@@ -2593,6 +2839,29 @@ it.layer(
 
       assert.equal(process.killSignals[0], "SIGTERM");
       expect(process.killSignals).toContain("SIGKILL");
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
+  it.effect("finishes detached terminal termination before shutting down its workers", () =>
+    Effect.gen(function* () {
+      const scope = yield* Scope.make("sequential");
+      const { manager, ptyAdapter } = yield* createManager(5, {
+        processKillGraceMs: 10,
+      }).pipe(Effect.provideService(Scope.Scope, scope));
+      yield* manager.open(openInput());
+      const process = ptyAdapter.processes[0]!;
+      const terminated = yield* Deferred.make<void>();
+      const kill = process.kill.bind(process);
+      process.kill = (signal) => {
+        kill(signal);
+        if (signal === "SIGTERM") Deferred.doneUnsafe(terminated, Effect.void);
+      };
+      yield* manager.close({ threadId: "thread-1" });
+      yield* Deferred.await(terminated);
+      const closing = yield* Scope.close(scope, Exit.void).pipe(Effect.forkScoped);
+      yield* TestClock.adjust("10 millis");
+      yield* Fiber.join(closing);
+      assert.deepEqual(process.killSignals, ["SIGTERM", "SIGKILL"]);
     }).pipe(Effect.provide(TestClock.layer())),
   );
 });

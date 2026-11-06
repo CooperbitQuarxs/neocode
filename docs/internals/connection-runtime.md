@@ -55,6 +55,13 @@ connection nor overwrite newer live data during a reconnect. Loading and
 resuming snapshots belongs to the shared state services, so every view agrees
 on which data is current.
 
+The [native feed](../../packages/client-runtime/src/state/neopiNativeSessions.ts)
+processes every raw frame for reconciliation and cache side effects, but only
+publishes changed projections. Preserve feed identity for ignored child-agent
+streaming deltas and deduplicate after those side effects; deduplicating raw
+frames first can skip a required state or branch read. Settled child steps
+still publish refresh ticks.
+
 [Thread detail](../../packages/client-runtime/src/state/threads.ts) separates
 subscription lifetime from cache lifetime. Mounted consumers share one live
 stream, which stops when the last consumer unmounts; hidden mounted routes still
@@ -74,6 +81,12 @@ Retain state and cursor together only after an update finishes. Cancellation mus
 not advance the cached cursor beyond the applied data, and an old scope must not
 overwrite its successor's cache. Preserve pagination data on reuse, but clear
 canceled loading state.
+
+Native session observations instead stay warm for five idle minutes so switching
+tabs does not reopen the owner. Their in-memory transcript cache belongs to that
+observation scope and expires with it, including unobserved session-move handoffs.
+A destination with its own observation retains its own cache. Disposing a client
+observation releases local history without closing the native owner.
 
 The [RPC boundary](../../packages/client-runtime/src/rpc/client.ts) resolves
 requests against the current session at execution time. Durable subscriptions
