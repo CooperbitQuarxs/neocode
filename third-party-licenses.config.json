@@ -153,6 +153,12 @@
   ],
   "packageOverrides": [
     {
+      "name": "effect-neopi-rpc",
+      "license": "MIT",
+      "noticeFile": "LICENSE",
+      "sourceUrl": "https://github.com/PsychedelicShayna/neocode"
+    },
+    {
       "license": "MIT",
       "name": "@react-grab/cli",
       "sourceUrl": "https://github.com/aidenybai/react-grab/tree/main/packages/cli",
