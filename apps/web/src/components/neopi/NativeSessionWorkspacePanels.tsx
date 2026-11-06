@@ -140,7 +140,7 @@ export function NativeSessionWorkspacePanels({
   /** Runs a keybinding command that only the native session implements. */
   onNativeCommand: (command: NativeSessionCommand) => void;
   busy: boolean;
-  /** Absent when this client cannot use the microphone NeoPi records from. */
+  /** Absent outside the desktop app, which has no microphone control. */
   onToggleDictation: (() => void) | undefined;
   /** Escape cancels a capture before it interrupts the running turn. */
   dictationActive: boolean;
@@ -427,8 +427,10 @@ export function NativeSessionWorkspacePanels({
           action = () => useAgentViewStore.getState().dispatch(key, { type: "toggleHub" });
           break;
         case "thread.stop":
+          // The hub and an opened agent own Escape: it leaves them, never interrupts the session behind.
           if (
             busy &&
+            !agentViewActive &&
             !dictationActive &&
             !event.isComposing &&
             !composerRef.current?.isMenuOpen() &&
@@ -464,6 +466,7 @@ export function NativeSessionWorkspacePanels({
     busy,
     onToggleDictation,
     dictationActive,
+    agentViewActive,
   ]);
 
   const openFile = (path: string) => useRightPanelStore.getState().openFile(target, path);
@@ -487,6 +490,9 @@ export function NativeSessionWorkspacePanels({
         if (surface.kind === "preview" && surface.resourceId)
           setActivePreviewTab(target, surface.resourceId);
       }}
+      onMoveSurface={(surface, toIndex) =>
+        useRightPanelStore.getState().moveSurface(target, surface.id, toIndex)
+      }
       onCloseSurface={(surface) => void closeSurfaces([surface])}
       onCloseOtherSurfaces={(surface) =>
         void closeSurfaces(panel.surfaces.filter((other) => other.id !== surface.id))
