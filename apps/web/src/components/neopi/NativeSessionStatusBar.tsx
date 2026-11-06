@@ -17,7 +17,7 @@ import {
 import { useEffect, useMemo, useReducer, useRef, type ReactNode } from "react";
 import { APP_BASE_NAME } from "../../branding";
 import { cn } from "../../lib/utils";
-import { useNativeSessionSlice } from "../../state/neopiNativeSessions";
+import { useNativeSessionRequest, useNativeSessionSlice } from "../../state/neopiNativeSessions";
 import { useEnvironmentQuery } from "../../state/query";
 import { vcsEnvironment } from "../../state/vcs";
 import { useRightPanelStore } from "../../rightPanelStore";
@@ -29,6 +29,13 @@ const selectState = (feed: NativeSessionFeed) => feed.session?.state;
 const selectCwd = (feed: NativeSessionFeed) => feed.session?.cwd;
 const selectConnected = (feed: NativeSessionFeed) => feed.connected;
 const selectAgents = (feed: NativeSessionFeed) => feed.agents;
+/** Whether the running-subagent count is real: read, failed to read, or not read yet. */
+const selectAgentCountState = (feed: NativeSessionFeed) =>
+  feed.agentsKnown
+    ? "known"
+    : feed.reconciliationError?.operation === "subagents"
+      ? "unavailable"
+      : "unknown";
 const selectJobs = (feed: NativeSessionFeed) => feed.jobs;
 const selectActivity = (feed: NativeSessionFeed) => feed.activity;
 const selectCapabilities = (feed: NativeSessionFeed) => feed.session?.capabilities;
@@ -80,8 +87,16 @@ function StatusItem(props: {
 function SubagentChip({ target }: { target: NativeSessionTarget }) {
   const agents = useNativeSessionSlice(target, selectAgents);
   const flash = useSubagentFlash(agents);
-  const count = liveSubagentCount(agents);
-  const label = `${count} running ${count === 1 ? "subagent" : "subagents"}`;
+  const countState = useNativeSessionSlice(target, selectAgentCountState);
+  const live = liveSubagentCount(agents);
+  // A started frame proves at least one; otherwise an empty roster is only unknown until the inventory lands.
+  const count = countState === "known" || live > 0 ? live : null;
+  const label =
+    count !== null
+      ? `${count} running ${count === 1 ? "subagent" : "subagents"}`
+      : countState === "unavailable"
+        ? "Subagent count unavailable."
+        : "Checking subagents.";
   return (
     <Tooltip>
       <TooltipTrigger
@@ -104,7 +119,7 @@ function SubagentChip({ target }: { target: NativeSessionTarget }) {
         }
       >
         <BotIcon className="size-3" />
-        {count}
+        {count ?? (countState === "unavailable" ? "—" : "…")}
       </TooltipTrigger>
       <TooltipPopup side="top">{label}</TooltipPopup>
     </Tooltip>
@@ -122,10 +137,13 @@ function JobsChip({
   const capabilities = useNativeSessionSlice(target, selectCapabilities);
   const jobs = useNativeSessionSlice(target, selectJobs);
   const supported = capabilities?.includes(NATIVE_JOBS_CAPABILITY) === true;
-  const count = jobs.runningCount ?? reportedRunning ?? 0;
-  const label = supported
-    ? `${count} running background ${count === 1 ? "task" : "tasks"}`
-    : "Background tasks need a newer NeoPi.";
+  // Zero only once NeoPi has said so; before its first answer the count is unknown, not none.
+  const count = jobs.runningCount ?? reportedRunning;
+  const label = !supported
+    ? "Background tasks need a newer NeoPi."
+    : count === null
+      ? "Checking background tasks."
+      : `${count} running background ${count === 1 ? "task" : "tasks"}`;
   return (
     <Tooltip>
       <TooltipTrigger
@@ -135,7 +153,7 @@ function JobsChip({
             aria-label={`${label} Open the Background tasks panel.`}
             className={cn(
               CHIP_BASE,
-              supported && count > 0
+              supported && count !== null && count > 0
                 ? "bg-primary/10 text-primary"
                 : "text-muted-foreground hover:bg-accent/50",
             )}
@@ -144,7 +162,7 @@ function JobsChip({
         }
       >
         <ListChecksIcon className="size-3" />
-        {supported ? count : "—"}
+        {supported ? (count ?? "…") : "—"}
       </TooltipTrigger>
       <TooltipPopup side="top">{label}</TooltipPopup>
     </Tooltip>
@@ -222,13 +240,23 @@ function ContextMeter({
 
 /**
  * Compact session status under the composer, spanning the main column. Facts come
- * from NeoPi's `get_state` (refreshed after each prompt) and the feed's lifecycle
- * frames; a value NeoPi did not report is left out rather than guessed.
+ * from NeoPi's `get_state`, re-read by the feed after turns, compaction, journal
+ * commits, model changes and (for a terminal-owned session) on a slow timer while
+ * the tab is visible, plus the feed's lifecycle frames; a value NeoPi did not
+ * report is left out rather than guessed.
  */
 export function NativeSessionStatusBar({ target }: { target: NativeSessionTarget }) {
   const state = useNativeSessionSlice(target, selectState);
   const cwd = useNativeSessionSlice(target, selectCwd);
   const connected = useNativeSessionSlice(target, selectConnected);
+  const request = useNativeSessionRequest(target);
+  // Selecting a session (or its connection coming back) reads NeoPi's current
+  // telemetry; the reconciler's own reads cover everything after that. The
+  // result lands in the feed through the request atom.
+  useEffect(() => {
+    if (!connected) return;
+    void request({ type: "get_state", includeDump: false }).catch(() => undefined);
+  }, [connected, request]);
   const facts = useMemo(() => (state ? nativeStatusFacts(state) : null), [state]);
   const gitStatus = useEnvironmentQuery(
     cwd ? vcsEnvironment.status({ environmentId: target.environmentId, input: { cwd } }) : null,

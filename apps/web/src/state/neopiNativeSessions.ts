@@ -13,9 +13,10 @@ import { useCallback } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { connectionAtomRuntime } from "../connection/runtime";
+import { appAtomRegistry } from "../rpc/atomRegistry";
 import {
   closeNativeSessionTab,
-  cycleNativeSessionTab,
+  moveNativeSessionTab,
   openNativeSessionTab,
   replaceNativeSessionTab,
   type NativeSessionTabs,
@@ -41,11 +42,19 @@ export const useNativeSessionSelection = create(
   }),
 );
 /** Selecting opens the session's tab when it has none. */
-export const selectNativeSession = (target: NativeSessionTarget) =>
+export const selectNativeSession = (target: NativeSessionTarget) => {
   useNativeSessionSelection.setState((state) => ({
     target,
     tabs: openNativeSessionTab(state.tabs, target),
   }));
+  // Selecting a session whose feed went dead (an exited owner, a failed open) retries it.
+  // A detach stays until Reconnect, and a reconnecting session is already being retried.
+  const feed = nativeSessionAtoms.cached(target);
+  if (feed && !feed.connected && feed.ownerLoss !== "detached")
+    appAtomRegistry.refresh(
+      nativeSessionAtoms.watch({ environmentId: target.environmentId, input: { ref: target.ref } }),
+    );
+};
 export const closeNativeSession = (target: NativeSessionTarget) =>
   useNativeSessionSelection.setState((state) => {
     const next = closeNativeSessionTab(state.tabs, state.target, target);
@@ -56,13 +65,11 @@ export const replaceNativeSession = (from: NativeSessionTarget, to: NativeSessio
     target: to,
     tabs: replaceNativeSessionTab(state.tabs, from, to),
   }));
-/** Returns whether there was another tab to move to. */
-export const cycleNativeSession = (direction: "previous" | "next") => {
-  const { target, tabs } = useNativeSessionSelection.getState();
-  const next = tabs.length > 1 ? cycleNativeSessionTab(tabs, target, direction) : null;
-  if (next) useNativeSessionSelection.setState({ target: next });
-  return next !== null;
-};
+/** Drag-to-reorder: the tab lands on `toIndex`. The order persists with the selection. */
+export const moveNativeSession = (target: NativeSessionTarget, toIndex: number) =>
+  useNativeSessionSelection.setState((state) => ({
+    tabs: moveNativeSessionTab(state.tabs, target, toIndex),
+  }));
 
 /** Sends one native command to the session's owner and resolves with its response. */
 export function useNativeSessionRequest(target: NativeSessionTarget) {
@@ -80,6 +87,14 @@ export function useNativeSessionRequest(target: NativeSessionTarget) {
       return response.value;
     },
     [send, target.environmentId, target.ref.providerInstanceId, target.ref.sessionFile],
+  );
+}
+
+/** Reopens a detached or ownerless session; see `nativeSessionAtoms.reconnect`. */
+export function useNativeSessionReconnect(target: NativeSessionTarget) {
+  return useCallback(
+    () => nativeSessionAtoms.reconnect(appAtomRegistry, target),
+    [target.environmentId, target.ref.providerInstanceId, target.ref.sessionFile],
   );
 }
 

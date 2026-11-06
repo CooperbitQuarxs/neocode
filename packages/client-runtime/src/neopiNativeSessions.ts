@@ -18,6 +18,7 @@ import {
 import { applyNativeConversationEvent } from "./state/neopiConversation.ts";
 import {
   disconnectNativeSubagents,
+  mergeNativeSubagentHistory,
   reduceNativeSubagents,
   snapshotNativeSubagents,
   type NativeSubagent,
@@ -60,6 +61,11 @@ export type NativeSessionUpdate =
       ref: NeoPiNativeSessionRef;
       revision: number;
       epoch: number;
+      /**
+       * `get_subagent_history` rows read with the inventory: the whole roster, finished
+       * children included. Absent when NeoPi cannot list them.
+       */
+      history?: readonly unknown[];
       agents: readonly unknown[];
     }
   | {
@@ -156,6 +162,7 @@ function reduceNativeDictation(
     };
   return current;
 }
+export type NativeOwnerLoss = "reconnecting" | "orphaned" | "detached";
 export interface NativeSessionFeed {
   readonly session: NativeSession | null;
   readonly conversation: NativeConversation;
@@ -170,6 +177,8 @@ export interface NativeSessionFeed {
   readonly agents: readonly NativeSubagent[];
   readonly agentsRevision: number;
   readonly agentsEpoch: number;
+  /** The live inventory has been read since the roster last reset; until then an empty roster means unknown, not none. */
+  readonly agentsKnown: boolean;
   /** Settled-step counter per child (`subagent_event` at the `events` level); a re-read trigger, not content. */
   readonly agentTicks: Readonly<Record<string, number>>;
   /** Background jobs; maintained only for a NeoPi that advertises `background_jobs`. */
@@ -183,6 +192,14 @@ export interface NativeSessionFeed {
    * observation of the old ref ends here; the web layer repoints to this ref.
    */
   readonly movedTo: NeoPiNativeSessionRef | null;
+  /**
+   * Why the session has no live owner, when that is expected rather than a failure.
+   * `reconnecting`: the terminal that owned it exited and a successor is awaited (the
+   * session still accepts sends, which wait). `orphaned`: it exited and nothing
+   * replaced it. `detached`: NeoCode let go on request. The last two end with
+   * `connected: false`; any snapshot clears them.
+   */
+  readonly ownerLoss: NativeOwnerLoss | null;
   readonly error: string | null;
   readonly reconciliationError: {
     readonly operation: "state" | "branch" | "subagents" | "jobs";
@@ -202,6 +219,7 @@ export const emptyNativeSessionFeed = (): NativeSessionFeed => ({
   agents: [],
   agentsRevision: 0,
   agentsEpoch: 0,
+  agentsKnown: false,
   agentTicks: {},
   jobs: EMPTY_NATIVE_JOBS,
   activity: EMPTY_NATIVE_ACTIVITY,
@@ -209,6 +227,7 @@ export const emptyNativeSessionFeed = (): NativeSessionFeed => ({
   dictation: null,
   movedTo: null,
   error: null,
+  ownerLoss: null,
   reconciliationError: null,
 });
 
@@ -271,16 +290,23 @@ export function reduceNativeSessionFeed(
       feed.session.ref.providerInstanceId !== event.ref.providerInstanceId
     )
       return feed;
+    const at = DateTime.formatIso(DateTime.nowUnsafe());
+    // History first, stamped with the read revision, so the live inventory read in
+    // the same pass still refines what it lists and nothing a frame touched since.
+    const roster = event.history
+      ? mergeNativeSubagentHistory(feed.agents, event.history, event.revision, at)
+      : feed.agents;
     return {
       ...feed,
       agents: snapshotNativeSubagents(
-        feed.agents,
+        roster,
         event.agents,
         event.revision,
         feed.agentsRevision + 1,
-        DateTime.formatIso(DateTime.nowUnsafe()),
+        at,
       ),
       agentsRevision: feed.agentsRevision + 1,
+      agentsKnown: true,
     };
   }
   if (event.type === "jobs") {
@@ -340,10 +366,46 @@ export function reduceNativeSessionFeed(
         }
       : next;
   }
-  if (event.type === "disconnected" || event.type === "closed")
+  if (event.type === "reconnecting")
+    // The session stays connected to the server, which is waiting for the owner's
+    // successor: sends are held there. Nothing the old owner was doing continues.
+    return {
+      ...feed,
+      ownerLoss: "reconnecting",
+      busy: false,
+      queue: EMPTY_NATIVE_QUEUE,
+      dialogs: [],
+      agents: disconnectNativeSubagents(
+        feed.agents,
+        feed.agentsRevision + 1,
+        DateTime.formatIso(DateTime.nowUnsafe()),
+      ),
+      agentsRevision: feed.agentsRevision + 1,
+      agentsEpoch: feed.agentsEpoch + 1,
+      activity: closeNativeActivity(feed.activity, nowMs()),
+      error: null,
+      dictation:
+        feed.dictation && feed.dictation.phase !== "ended"
+          ? { ...feed.dictation, phase: "ended" as const, error: event.reason }
+          : feed.dictation,
+    };
+  if (event.type === "disconnected" || event.type === "closed") {
+    // A detach and an exited terminal are states of their own, not failures: the
+    // composer offers the way back instead of an error.
+    const ownerLoss: NativeOwnerLoss | null =
+      event.type === "closed"
+        ? event.code === "detached"
+          ? "detached"
+          : event.code === "owner_exited"
+            ? "orphaned"
+            : null
+        : feed.ownerLoss === "reconnecting"
+          ? null
+          : feed.ownerLoss;
     return {
       ...feed,
       connected: false,
+      ownerLoss,
       // Pending UI replays independently and may precede the next snapshot.
       // Retire stale requests here so that snapshot cannot erase a live replay.
       dialogs: [],
@@ -354,12 +416,13 @@ export function reduceNativeSessionFeed(
       ),
       agentsRevision: feed.agentsRevision + 1,
       agentsEpoch: feed.agentsEpoch + 1,
+      agentsKnown: false,
       activity: closeNativeActivity(feed.activity, nowMs()),
       ...(event.type === "closed"
         ? {
             busy: false,
             queue: EMPTY_NATIVE_QUEUE,
-            error: event.reason,
+            error: ownerLoss === null ? event.reason : null,
             // The owner is gone, so no end frame is coming for a live capture.
             dictation:
               feed.dictation && feed.dictation.phase !== "ended"
@@ -368,6 +431,7 @@ export function reduceNativeSessionFeed(
           }
         : {}),
     };
+  }
   if (event.type === "snapshot") {
     const page = nativeJournalPage(event.journal);
     const previous = feed.conversation;
@@ -397,6 +461,7 @@ export function reduceNativeSessionFeed(
         : [],
       agentsRevision: feed.agentsRevision + 1,
       agentsEpoch: feed.agentsEpoch + 1,
+      agentsKnown: false,
       jobs: sameFile ? feed.jobs : EMPTY_NATIVE_JOBS,
       activity: observeNativeActivity(
         sameFile ? closeNativeActivity(feed.activity, nowMs()) : EMPTY_NATIVE_ACTIVITY,
@@ -409,6 +474,7 @@ export function reduceNativeSessionFeed(
       busy: event.session.state.isStreaming === true,
       queue: nativePromptQueue(event.session.state.queuedMessages) ?? EMPTY_NATIVE_QUEUE,
       error: null,
+      ownerLoss: null,
       reconciliationError: null,
     };
   }
@@ -447,6 +513,7 @@ export function reduceNativeSessionFeed(
       activity: EMPTY_NATIVE_ACTIVITY,
       agentsRevision: feed.agentsRevision + 1,
       agentsEpoch: feed.agentsEpoch + 1,
+      agentsKnown: false,
       error:
         "The native owner changed session. Select its new native file before sending commands.",
     };
@@ -484,6 +551,9 @@ export function reduceNativeSessionFeed(
     const at = nowMs();
     next = {
       ...next,
+      // A new turn starts clean: the last prompt's failure does not outlive it.
+      // A failed state or branch read stays until that read recovers.
+      ...(frame.type === "agent_start" && !next.reconciliationError ? { error: null } : {}),
       activity:
         frame.type === "agent_start"
           ? openNativeActivity(next.activity, at)
@@ -511,6 +581,7 @@ export function reduceNativeSessionFeed(
             jobs: EMPTY_NATIVE_JOBS,
             activity: EMPTY_NATIVE_ACTIVITY,
             agentsEpoch: next.agentsEpoch + 1,
+            agentsKnown: false,
           }
         : {}),
     };
@@ -763,4 +834,46 @@ export function nativeCommandCompletions(
       },
     ];
   });
+}
+
+export interface NativeOwnerNotice {
+  readonly text: string;
+  /** The button that gets the session back; absent while the server is already doing it. */
+  readonly action: string | null;
+}
+
+/** What a client tells the user while a session has no live owner. */
+export function nativeOwnerNotice(
+  ownerLoss: NativeOwnerLoss | null,
+  attachment: "owned" | "terminal" | undefined,
+): NativeOwnerNotice | null {
+  switch (ownerLoss) {
+    case null:
+      return null;
+    case "reconnecting":
+      return {
+        text: "The terminal running this session exited. Waiting for it to come back; a message you send now is held until it does, or NeoCode takes the session over.",
+        action: null,
+      };
+    case "orphaned":
+      return {
+        text: "No terminal is running this session now. Send a message to continue it in NeoCode.",
+        action: "Continue in NeoCode",
+      };
+    case "detached":
+      return {
+        text:
+          attachment === "terminal"
+            ? "Detached from the terminal session. The terminal still owns it."
+            : "Disconnected from this session.",
+        action: "Reconnect",
+      };
+  }
+}
+
+/** Disconnect on a terminal session only lets go of the control socket; the terminal keeps the session. */
+export function nativeDisconnectLabel(attachment: "owned" | "terminal" | undefined): string {
+  return attachment === "terminal"
+    ? "Detach from terminal session (the terminal keeps it)"
+    : "Disconnect session";
 }
