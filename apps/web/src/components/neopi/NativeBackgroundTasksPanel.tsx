@@ -9,6 +9,7 @@ import {
   applyNativeJobOutput,
   emptyNativeJobOutput,
   nativeJobElapsedMs,
+  nativeJobOutputRequest,
   orderNativeJobs,
   type NativeJob,
 } from "@t3tools/client-runtime/neopi-native-jobs";
@@ -26,6 +27,9 @@ import { Button } from "../ui/button";
 const selectJobs = (feed: NativeSessionFeed) => feed.jobs;
 const selectCapabilities = (feed: NativeSessionFeed) => feed.session?.capabilities;
 const selectConnected = (feed: NativeSessionFeed) => feed.connected;
+const selectFeedError = (feed: NativeSessionFeed) => feed.error;
+const selectJobsError = (feed: NativeSessionFeed) =>
+  feed.reconciliationError?.operation === "jobs" ? feed.reconciliationError.message : null;
 
 const STATUS_BADGE = {
   running: { variant: "info", label: "Running" },
@@ -104,31 +108,49 @@ function JobDetail(props: {
   const [outputText, setOutputText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
-  const reading = useRef(false);
+  const readState = useRef({ active: false, reading: false, pending: false });
   const viewport = useRef<HTMLPreElement>(null);
   const stickToEnd = useRef(true);
   const running = job.status === "running";
 
   const read = useCallback(async () => {
-    if (reading.current) return;
-    reading.current = true;
-    try {
-      const response = await request({
-        type: "get_job_output",
-        jobId: job.id,
-        fromByte: accumulated.current.nextByte,
-      });
-      setError(null);
-      const next = applyNativeJobOutput(accumulated.current, response);
-      if (next !== accumulated.current) {
-        accumulated.current = next;
-        setOutputText(next.text);
-      }
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      reading.current = false;
+    const current = readState.current;
+    if (!current.active) return;
+    if (current.reading) {
+      current.pending = true;
+      return;
     }
+    current.reading = true;
+    try {
+      do {
+        current.pending = false;
+        try {
+          const response = await request(nativeJobOutputRequest(accumulated.current));
+          if (!current.active) return;
+          setError(null);
+          const next = applyNativeJobOutput(accumulated.current, response);
+          if (next !== accumulated.current) {
+            accumulated.current = next;
+            setOutputText(next.text);
+          }
+        } catch (cause) {
+          if (!current.active) return;
+          setError(cause instanceof Error ? cause.message : String(cause));
+        }
+        // A completion frame may stop polling while this read is in flight.
+      } while (current.active && current.pending);
+    } finally {
+      current.reading = false;
+    }
+  }, [request, job.id]);
+
+  useEffect(() => {
+    const current = { active: true, reading: false, pending: false };
+    readState.current = current;
+    return () => {
+      current.active = false;
+      current.pending = false;
+    };
   }, [request, job.id]);
 
   // A progress frame or a status change means there is more output to read.
@@ -206,17 +228,81 @@ export function NativeBackgroundTasksPanel({ target }: { target: NativeSessionTa
   const capabilities = useNativeSessionSlice(target, selectCapabilities);
   const connected = useNativeSessionSlice(target, selectConnected);
   const jobs = useNativeSessionSlice(target, selectJobs);
+  const feedError = useNativeSessionSlice(target, selectFeedError);
+  const reconciliationError = useNativeSessionSlice(target, selectJobsError);
   const request = useNativeSessionRequest(target);
   const supported = capabilities?.includes(NATIVE_JOBS_CAPABILITY) === true;
   const ordered = useMemo(() => orderNativeJobs(jobs.entries), [jobs.entries]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = ordered.find((job) => job.id === selectedId) ?? ordered[0] ?? null;
+  const [inventoryRead, setInventoryRead] = useState<{
+    request: typeof request;
+    pending: boolean;
+    ready: boolean;
+    error: string | null;
+  } | null>(null);
+  const readGeneration = useRef(0);
+  const refresh = useCallback(async () => {
+    const generation = ++readGeneration.current;
+    setInventoryRead({ request, pending: true, ready: false, error: null });
+    try {
+      await request({ type: "get_jobs" });
+      if (generation === readGeneration.current)
+        setInventoryRead({ request, pending: false, ready: true, error: null });
+    } catch (cause) {
+      if (generation === readGeneration.current)
+        setInventoryRead({
+          request,
+          pending: false,
+          ready: false,
+          error: cause instanceof Error ? cause.message : String(cause),
+        });
+    }
+  }, [request]);
 
   // Opening the panel reads a fresh inventory; frames keep it current afterwards.
   useEffect(() => {
-    if (supported && connected) void request({ type: "get_jobs" }).catch(() => undefined);
-  }, [supported, connected, request]);
+    if (supported && connected) void refresh();
+    return () => {
+      readGeneration.current++;
+    };
+  }, [supported, connected, refresh]);
 
+  const currentRead = inventoryRead?.request === request ? inventoryRead : null;
+  const error = currentRead?.error ?? reconciliationError;
+  const known = currentRead?.ready === true;
+  const retry = (
+    <Button
+      size="xs"
+      variant="outline"
+      disabled={!connected || currentRead?.pending}
+      onClick={() => void refresh()}
+    >
+      Retry
+    </Button>
+  );
+  const notice = error ? (
+    <div role="alert" className="flex items-center gap-2 p-3 text-xs text-destructive-foreground">
+      <span className="flex-1">Could not refresh background tasks: {error}</span>
+      {retry}
+    </div>
+  ) : !connected ? (
+    <p role="status" className="p-3 text-xs text-muted-foreground">
+      Disconnected. Reconnect this session to refresh background tasks.
+    </p>
+  ) : null;
+
+  if (capabilities === undefined)
+    return (
+      <div
+        role={feedError ? "alert" : "status"}
+        className="flex flex-1 items-center justify-center p-6 text-center text-sm text-muted-foreground"
+      >
+        {feedError
+          ? `Could not load background tasks: ${feedError}`
+          : "Loading background task capabilities…"}
+      </div>
+    );
   if (!supported)
     return (
       <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-muted-foreground">
@@ -224,14 +310,22 @@ export function NativeBackgroundTasksPanel({ target }: { target: NativeSessionTa
         jobs here.
       </div>
     );
-  if (ordered.length === 0)
+  if (ordered.length === 0) {
+    if (notice) return notice;
     return (
-      <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-muted-foreground">
-        No background tasks yet. Commands NeoPi runs in the background appear here.
+      <div
+        role="status"
+        className="flex flex-1 items-center justify-center p-6 text-center text-sm text-muted-foreground"
+      >
+        {known
+          ? "No background tasks yet. Commands NeoPi runs in the background appear here."
+          : "Loading background tasks…"}
       </div>
     );
+  }
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {notice}
       <div className="max-h-[40%] shrink-0 overflow-y-auto">
         <ul className="flex flex-col gap-0.5 p-1">
           {ordered.map((job) => (

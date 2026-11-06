@@ -73,6 +73,7 @@ import { usePreviewSession } from "../preview/usePreviewSession";
 import { NativeBackgroundTasksPanel } from "./NativeBackgroundTasksPanel";
 import { NativeSessionTerminal, type NativeSessionTerminalHandle } from "./NativeSessionTerminal";
 import { isNativeSessionCommand, type NativeSessionCommand } from "./nativeSessionShortcuts";
+import { useNativePendingFiles } from "./useNativePendingFiles";
 
 /** Escape belongs to these while one is open; it must not also interrupt the turn. */
 const ESCAPE_OWNING_OVERLAYS = [
@@ -194,7 +195,7 @@ export function NativeSessionWorkspacePanels({
   const openTerminal = useAtomCommand(terminalEnvironment.open, { reportFailure: false });
   const closeTerminal = useAtomCommand(terminalEnvironment.close, { reportFailure: false });
   const [error, setError] = useState<string | null>(null);
-  const [pendingFiles, setPendingFiles] = useState<ReadonlySet<string>>(new Set());
+  const { pendingFiles, onPendingChange } = useNativePendingFiles();
   const [maximized, setMaximized] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const drawerRef = useRef<NativeSessionTerminalHandle | null>(null);
@@ -569,8 +570,16 @@ export function NativeSessionWorkspacePanels({
                 size="xs"
                 variant="ghost"
                 onClick={() => {
+                  useTerminalUiStateStore.getState().returnTerminalGroup(
+                    target,
+                    {
+                      id: surface.id,
+                      terminalIds: surface.terminalIds,
+                      ...(surface.splitDirection ? { splitDirection: surface.splitDirection } : {}),
+                    },
+                    surface.activeTerminalId,
+                  );
                   useRightPanelStore.getState().closeSurface(target, surface.id);
-                  useTerminalUiStateStore.getState().setTerminalOpen(target, true);
                 }}
               >
                 Return to terminal drawer
@@ -605,14 +614,7 @@ export function NativeSessionWorkspacePanels({
                 revealLine={surface.kind === "file" ? surface.revealLine : null}
                 revealRequestId={surface.kind === "file" ? surface.revealRequestId : 0}
                 onOpenFile={openFile}
-                onPendingChange={(path, pending) =>
-                  setPendingFiles((current) => {
-                    const next = new Set(current);
-                    if (pending) next.add(path);
-                    else next.delete(path);
-                    return next;
-                  })
-                }
+                onPendingChange={onPendingChange}
                 selectedFilePending={
                   surface.kind === "file" && pendingFiles.has(surface.relativePath)
                 }

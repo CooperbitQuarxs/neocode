@@ -269,6 +269,8 @@ import {
   rankPullRequestMatches,
 } from "../pullRequest/pullRequestList.logic";
 import {
+  currentComposerArgumentCompletions,
+  type ComposerArgumentCompletions,
   searchSlashCommandItems,
   slashCommandItemsForPromptPosition,
 } from "./composerSlashCommandSearch";
@@ -1690,10 +1692,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         : null),
     [composerTextTrigger, completeCommandArgument, composerCursor, prompt, resolveComposerTrigger],
   );
-  const [commandArgumentCompletions, setCommandArgumentCompletions] = useState<{
-    readonly command: string;
-    readonly items: readonly NativeCommandCompletion[];
-  } | null>(null);
+  const [commandArgumentCompletions, setCommandArgumentCompletions] =
+    useState<ComposerArgumentCompletions | null>(null);
   const argumentCommand =
     composerTrigger?.kind === "slash-argument" &&
     composerTrigger.command &&
@@ -1708,14 +1708,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   useEffect(() => {
     if (!completeCommandArgument || argumentCommand === null || argumentPrefix === null) return;
     let active = true;
-    // Typing settles before NeoPi is asked; the previous answer stays visible meanwhile.
+    // Typing settles before NeoPi is asked; only answers for the current prefix are selectable.
     const timer = window.setTimeout(() => {
       void completeCommandArgument(argumentCommand, argumentPrefix)
         .then((items) => {
-          if (active) setCommandArgumentCompletions({ command: argumentCommand, items });
+          if (active)
+            setCommandArgumentCompletions({
+              command: argumentCommand,
+              prefix: argumentPrefix,
+              source: completeCommandArgument,
+              items,
+            });
         })
         .catch(() => {
-          if (active) setCommandArgumentCompletions({ command: argumentCommand, items: [] });
+          if (active)
+            setCommandArgumentCompletions({
+              command: argumentCommand,
+              prefix: argumentPrefix,
+              source: completeCommandArgument,
+              items: [],
+            });
         });
     }, 80);
     return () => {
@@ -2038,12 +2050,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       return searchSlashCommandItems(slashCommandItems, query);
     }
     if (composerTrigger.kind === "slash-argument") {
-      if (
-        !commandArgumentCompletions ||
-        commandArgumentCompletions.command !== composerTrigger.command
+      return currentComposerArgumentCompletions(
+        commandArgumentCompletions,
+        argumentCommand ?? undefined,
+        composerTrigger.query,
+        completeCommandArgument,
       )
-        return [];
-      return commandArgumentCompletions.items
         .filter((completion) => completion.value !== composerTrigger.query)
         .map((completion) => ({
           id: `command-argument:${completion.value}`,
@@ -2119,8 +2131,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     return [];
   }, [
+    argumentCommand,
     commandArgumentCompletions,
     compactSlashCommandAvailable,
+    completeCommandArgument,
     composerTrigger,
     exactPullRequestLookup.data,
     noProviderAvailable,
@@ -2930,7 +2944,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         if (activePendingProgress.activeQuestion.allowCustomAnswer === false) return;
         setComposerCursor(nextCursor);
         setComposerTrigger(
-          cursorAdjacentToMention ? null : detectComposerTrigger(nextPrompt, expandedCursor),
+          cursorAdjacentToMention
+            ? null
+            : detectComposerTrigger(nextPrompt, expandedCursor, Boolean(completeCommandArgument)),
         );
         onChangeActivePendingUserInputCustomAnswer?.(
           activePendingProgress.activeQuestion.id,
@@ -3022,11 +3038,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
       setComposerCursor(nextCursor);
       setComposerTrigger(
-        cursorAdjacentToMention ? null : detectComposerTrigger(nextPrompt, expandedCursor),
+        cursorAdjacentToMention
+          ? null
+          : detectComposerTrigger(nextPrompt, expandedCursor, Boolean(completeCommandArgument)),
       );
     },
     [
       activePendingProgress?.activeQuestion,
+      completeCommandArgument,
       pendingUserInputs.length,
       onChangeActivePendingUserInputCustomAnswer,
       promptRef,
@@ -3295,7 +3314,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         return;
       }
       if (item.type === "command-argument") {
-        if (trigger.kind !== "slash-argument") return;
+        if (
+          trigger.kind !== "slash-argument" ||
+          trigger.command !== argumentCommand ||
+          !currentComposerArgumentCompletions(
+            commandArgumentCompletions,
+            trigger.command,
+            trigger.query,
+            completeCommandArgument,
+          ).includes(item.completion)
+        )
+          return;
         const applied = applyPromptReplacement(
           trigger.rangeStart,
           trigger.rangeEnd,
@@ -3311,8 +3340,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     },
     [
       addComposerDraftReviewComment,
+      argumentCommand,
       applyPromptReplacement,
       composerDraftTarget,
+      commandArgumentCompletions,
+      completeCommandArgument,
       handleInteractionModeChange,
       planModeUiEnabled,
       onUsageLimitsCommand,
@@ -5536,11 +5568,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           role="separator"
           aria-orientation="horizontal"
           aria-label="Resize prompt"
-          title="Drag to resize · double-click to fit the draft"
-          className="group/composer-resize absolute inset-x-0 -top-2.5 z-30 mx-auto flex h-2.5 max-w-(--chat-max-width) cursor-row-resize touch-none justify-center"
+          title="Drag or use Up/Down to resize · double-click or Enter to fit the draft"
+          className="group/composer-resize absolute inset-x-0 -top-2.5 z-30 mx-auto flex h-2.5 max-w-(--chat-max-width) cursor-row-resize touch-none justify-center outline-none focus-visible:ring-2 focus-visible:ring-ring"
           {...composerBodyResize.handleProps}
         >
-          <span className="mt-[3px] h-0.5 w-10 rounded-full bg-border opacity-0 transition-opacity group-hover/composer-resize:opacity-100" />
+          <span className="mt-[3px] h-0.5 w-10 rounded-full bg-border opacity-0 transition-opacity group-hover/composer-resize:opacity-100 group-focus-visible/composer-resize:opacity-100" />
         </div>
         <ComposerSurface.Main>
           <div

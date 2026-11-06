@@ -196,6 +196,7 @@ import {
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectWriteFileError,
+  ProjectWriteFileAtomicInput,
   ProjectWriteFileInput,
   ProjectWriteFileResult,
 } from "./project.ts";
@@ -205,7 +206,7 @@ import {
   TerminalClearInput,
   TerminalCloseInput,
   TerminalError,
-  TerminalEvent,
+  TerminalEventsStreamEvent,
   TerminalMetadataStreamEvent,
   TerminalOpenInput,
   TerminalResizeInput,
@@ -315,6 +316,7 @@ export const WS_METHODS = {
   projectsSearchContents: "projects.searchContents",
   projectsSearchEntries: "projects.searchEntries",
   projectsWriteFile: "projects.writeFile",
+  projectsWriteFileAtomic: "projects.writeFileAtomic",
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
@@ -931,6 +933,14 @@ const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   error: Schema.Union([ProjectWriteFileError, EnvironmentAuthorizationError]),
 });
 
+// A separate method fails closed on older servers, which would otherwise
+// discard an unknown no-clobber flag on the editor's writeFile request.
+const WsProjectsWriteFileAtomicRpc = Rpc.make(WS_METHODS.projectsWriteFileAtomic, {
+  payload: ProjectWriteFileAtomicInput,
+  success: ProjectWriteFileResult,
+  error: Schema.Union([ProjectWriteFileError, EnvironmentAuthorizationError]),
+});
+
 const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   payload: LaunchEditorInput,
   error: Schema.Union([ExternalLauncherError, EnvironmentAuthorizationError]),
@@ -1451,7 +1461,7 @@ const WsOrchestrationSubscribeThreadRpc = Rpc.make(ORCHESTRATION_WS_METHODS.subs
 
 const WsSubscribeTerminalEventsRpc = Rpc.make(WS_METHODS.subscribeTerminalEvents, {
   payload: Schema.Struct({}),
-  success: TerminalEvent,
+  success: TerminalEventsStreamEvent,
   error: EnvironmentAuthorizationError,
   stream: true,
 });
@@ -1582,6 +1592,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsSearchContentsRpc,
   WsProjectsSearchEntriesRpc,
   WsProjectsWriteFileRpc,
+  WsProjectsWriteFileAtomicRpc,
   WsShellOpenInEditorRpc,
   WsFilesystemBrowseRpc,
   WsNeoPiNativeSessionsListRpc,

@@ -46,6 +46,7 @@ import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import {
   makeNeoPiNativeSettledStore,
+  type NeoPiNativeSettledRecord,
   type NeoPiNativeSettledStore,
   resolveNativeSettlement,
 } from "./NeoPiNativeSettlement.ts";
@@ -222,7 +223,8 @@ export const makeNeoPiNativeSessionsWith = Effect.fn("NeoPiNativeSessions.makeWi
 ) {
   // A new or closed connection changes who owns a file, so the shared listing is rescanned.
   const invalidateCatalog = dependencies.invalidateCatalog ?? Effect.void;
-  const lifetime = yield* Effect.scope;
+  // Closing N owners must cost one RPC shutdown window, not N sequential windows.
+  const lifetime = yield* Scope.fork(yield* Effect.scope, "parallel");
   const clock = yield* Clock.Clock;
   const sessions = new Map<string, NativeSession>();
   // Gates are per native path: unrelated sessions can start independently.
@@ -757,7 +759,7 @@ export const makeNeoPiNativeSessionsWith = Effect.fn("NeoPiNativeSessions.makeWi
         const records = yield* settlement.store.read;
         const autoSettleAfterDays = yield* settlement.autoSettleAfterDays;
         const now = DateTime.toEpochMillis(yield* DateTime.now);
-        const forgotten: Array<readonly [string, null]> = [];
+        const forgotten: Array<readonly [string, null, NeoPiNativeSettledRecord]> = [];
         rows.forEach((row, index) => {
           const record = records.get(row.ref.sessionFile);
           const resolved = resolveNativeSettlement({
@@ -767,7 +769,7 @@ export const makeNeoPiNativeSessionsWith = Effect.fn("NeoPiNativeSessions.makeWi
             autoSettleAfterDays,
             now,
           });
-          if (record && !resolved.retain) forgotten.push([row.ref.sessionFile, null]);
+          if (record && !resolved.retain) forgotten.push([row.ref.sessionFile, null, record]);
           if (resolved.settledAt !== null) rows[index] = { ...row, settledAt: resolved.settledAt };
         });
         // Waking is bookkeeping: a failed write only means it is retried on the next list.
@@ -1553,6 +1555,9 @@ export const makeNeoPiNativeSessions = Effect.fn("NeoPiNativeSessions.make")(fun
         "--cwd",
         canonicalCwd,
         "--no-title",
+        ...(source.capabilities.has(NEOPI_CAPABILITIES.exitWithParent)
+          ? ["--exit-with-parent"]
+          : []),
         ...extra,
         ...(input.sessionFile ? ["--session", input.sessionFile] : ["--new-session"]),
       ];
