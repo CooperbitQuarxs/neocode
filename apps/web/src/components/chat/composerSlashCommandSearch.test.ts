@@ -3,10 +3,40 @@ import { ProviderDriverKind } from "@t3tools/contracts";
 
 import type { ComposerCommandItem } from "./ComposerCommandMenu";
 import {
+  currentComposerArgumentCompletions,
   searchSlashCommandItems,
   slashCommandItemsForPromptPosition,
 } from "./composerSlashCommandSearch";
 import { composerCapabilitiesForProvider } from "./neopiComposerUi";
+
+describe("native slash argument completions", () => {
+  it("only offers and accepts completions for the current prefix, command, and session", () => {
+    const source = async () => [];
+    const otherSession = async () => [];
+    const angela = { value: "Angela", label: "Angela", submitsCommand: true };
+    const bella = { value: "Bella", label: "Bella", submitsCommand: true };
+    const earlier = { command: "personality", prefix: "An", source, items: [angela] };
+
+    expect(currentComposerArgumentCompletions(earlier, "personality", "An", source)).toEqual([
+      angela,
+    ]);
+    const whileTyping = currentComposerArgumentCompletions(earlier, "personality", "Be", source);
+    expect(whileTyping).toEqual([]);
+    expect(whileTyping.includes(angela)).toBe(false);
+    expect(currentComposerArgumentCompletions(earlier, "other", "An", source)).toEqual([]);
+    expect(currentComposerArgumentCompletions(earlier, "personality", "An", otherSession)).toEqual(
+      [],
+    );
+
+    const latest = { command: "personality", prefix: "Be", source, items: [bella] };
+    expect(currentComposerArgumentCompletions(latest, "personality", "Be", source)).toEqual([
+      bella,
+    ]);
+    expect(
+      currentComposerArgumentCompletions(latest, "personality", "Be", source).includes(angela),
+    ).toBe(false);
+  });
+});
 
 describe("searchSlashCommandItems", () => {
   const claudeDriver = ProviderDriverKind.make("claudeAgent");
@@ -53,6 +83,36 @@ describe("searchSlashCommandItems", () => {
       true,
     );
     expect(searchSlashCommandItems(menu, "model")).toEqual([]);
+  });
+
+  const aliasedCommand = {
+    id: "native:model",
+    type: "provider-slash-command" as const,
+    provider: ProviderDriverKind.make("neopi"),
+    command: { name: "model", aliases: ["Mi", "provider-switch", "model-switch"] },
+    label: "/model",
+    description: "Choose an inference configuration",
+  };
+
+  it.each(["mi", "/MI", "provider-sw", "pswtch", "mod"])(
+    "finds advertised aliases with query %s without duplicating the command",
+    (query) => {
+      expect(searchSlashCommandItems([aliasedCommand], query)).toEqual([aliasedCommand]);
+    },
+  );
+
+  it("ranks an exact alias ahead of a description-only match", () => {
+    const descriptionMatch = {
+      ...aliasedCommand,
+      id: "native:describe",
+      command: { name: "describe" },
+      label: "/describe",
+      description: "mi",
+    };
+    expect(searchSlashCommandItems([descriptionMatch, aliasedCommand], "mi")).toEqual([
+      aliasedCommand,
+      descriptionMatch,
+    ]);
   });
 
   it("moves exact provider command matches ahead of broader description matches", () => {

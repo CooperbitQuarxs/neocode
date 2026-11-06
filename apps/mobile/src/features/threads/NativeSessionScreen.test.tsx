@@ -32,12 +32,13 @@ import { EnvironmentRegistry } from "../../../../../packages/client-runtime/src/
 import { EnvironmentSupervisor } from "../../../../../packages/client-runtime/src/connection/supervisor";
 import type { WsRpcProtocolClient } from "../../../../../packages/client-runtime/src/rpc/protocol";
 import type { RpcSession } from "../../../../../packages/client-runtime/src/rpc/session";
-import { NativeSessionScreen } from "./NativeSessionScreen";
+import { NativeMobileModels, NativeSessionScreen } from "./NativeSessionScreen";
 
 type Router = ReturnType<typeof StackRouter>;
 type Action = Parameters<Router["getStateForAction"]>[1];
 const fixture = vi.hoisted(() => ({
   current: undefined as Effect.Success<ReturnType<typeof makeHarness>> | undefined,
+  draftText: "",
   navigation: undefined as
     | {
         navigate: (name: string, params?: object) => void;
@@ -166,7 +167,14 @@ vi.mock("../../components/ScreenHeader", () => ({
   ),
 }));
 vi.mock("../../state/use-native-composer-state", () => ({
-  useNativeComposerState: () => ({ key: "unused-draft", draft: { text: "" }, setText: () => {} }),
+  useNativeComposerState: () => ({
+    key: "unused-draft",
+    draft: { text: fixture.draftText },
+    setText: (text: string) => {
+      fixture.draftText = text;
+    },
+    send: vi.fn(),
+  }),
 }));
 vi.mock("../../state/use-composer-drafts", () => ({
   getComposerDraftSnapshot: vi.fn(),
@@ -180,7 +188,7 @@ vi.mock("./NativeSessionWorkspaceControls", () => ({
 }));
 vi.mock("./NativeNeoPiControls", () => ({
   NativeField: () => null,
-  NativeModal: () => null,
+  NativeModal: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   NativeError: ({ message }: { message: string | null }) =>
     message ? <p role="alert">{message}</p> : null,
 }));
@@ -216,7 +224,15 @@ const user: NeoPiJournalEntry = {
 };
 const closedReason = "The native connection was explicitly closed.";
 
-const makeHarness = Effect.fnUntraced(function* () {
+const makeHarness = Effect.fnUntraced(function* (
+  options: {
+    readonly session?: NativeSession;
+    readonly request?: (
+      command: Record<string, unknown> & { type: string },
+    ) => Effect.Effect<unknown>;
+  } = {},
+) {
+  const currentSession = options.session ?? session;
   const active = new Set<Queue.Queue<NativeSessionUpdate>>();
   let watches = 0;
   let closes = 0;
@@ -226,7 +242,7 @@ const makeHarness = Effect.fnUntraced(function* () {
   const closeOwner = (code?: string) =>
     publish({ type: "closed", reason: closedReason, ...(code ? { code } : {}) });
   const client = {
-    [WS_METHODS.neopiNativeSessionsOpen]: () => Effect.succeed(session),
+    [WS_METHODS.neopiNativeSessionsOpen]: () => Effect.succeed(currentSession),
     [WS_METHODS.neopiNativeSessionsClose]: () =>
       Effect.sync(() => {
         closes++;
@@ -236,6 +252,7 @@ const makeHarness = Effect.fnUntraced(function* () {
     [WS_METHODS.neopiNativeSessionsRequest]: (input: {
       command: Record<string, unknown> & { type: string };
     }) =>
+      options.request?.(input.command) ??
       Effect.succeed(
         input.command.type === "get_subagents"
           ? { subagents: [] }
@@ -260,7 +277,7 @@ const makeHarness = Effect.fnUntraced(function* () {
           return Stream.concat(
             Stream.succeed<NativeSessionUpdate>({
               type: "snapshot",
-              session,
+              session: currentSession,
               journal: {
                 sessionId: session.sessionId,
                 sessionFile: ref.sessionFile,
@@ -517,4 +534,160 @@ describe("NativeSessionScreen exit and canonical reselection", () => {
       });
     }),
   );
+});
+
+describe("NativeSessionScreen command argument completions", () => {
+  it.effect("hides results from the previous prefix during debounce and the next request", () =>
+    Effect.gen(function* () {
+      let resolveNext: ((value: unknown) => void) | undefined;
+      const h = yield* makeHarness({
+        session: { ...session, capabilities: ["command_completions"] },
+        request: (command) => {
+          if (command.type === "get_available_commands")
+            return Effect.succeed({ commands: [{ name: "personality" }] });
+          if (command.type !== "get_command_completions") return Effect.succeed({});
+          if (command.prefix === "a")
+            return Effect.succeed({
+              items: [{ value: "Angel", label: "Angel", submitsCommand: true }],
+            });
+          return Effect.promise(
+            () =>
+              new Promise<unknown>((resolve) => {
+                resolveNext = resolve;
+              }),
+          );
+        },
+      });
+      yield* Effect.promise(async () => {
+        vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+        fixture.current = h;
+        fixture.draftText = "/personality a";
+        fixture.navigation = {
+          navigate: () => {},
+          dispatch: () => {},
+          addListener: () => () => {},
+        };
+        const container = document.createElement("div");
+        document.body.append(container);
+        const root = createRoot(container);
+        const route = {
+          params: { environmentId: h.target.environmentId, ...ref },
+        };
+        const render = () => root.render(<NativeSessionScreen route={route} />);
+        try {
+          await act(async () => {
+            await h.atoms.open.run(h.registry, {
+              environmentId: h.target.environmentId,
+              input: ref,
+            });
+            render();
+          });
+          await act(async () => h.flush());
+          await act(async () => {
+            await vi.advanceTimersByTimeAsync(80);
+          });
+          expect(container.textContent).toContain("Angel");
+
+          await act(async () => {
+            fixture.draftText = "/personality b";
+            render();
+          });
+          expect(container.textContent).not.toContain("Angel");
+          expect(resolveNext).toBeUndefined();
+
+          await act(async () => {
+            await vi.advanceTimersByTimeAsync(80);
+          });
+          expect(resolveNext).toBeDefined();
+          expect(container.textContent).not.toContain("Angel");
+          await act(async () => {
+            resolveNext!({ items: [{ value: "Bunny", label: "Bunny", submitsCommand: true }] });
+          });
+          expect(container.textContent).toContain("Bunny");
+          expect(container.textContent).not.toContain("Angel");
+        } finally {
+          await act(async () => root.unmount());
+          h.registry.dispose();
+          h.flush();
+          container.remove();
+          fixture.current = undefined;
+          fixture.navigation = undefined;
+          fixture.draftText = "";
+          vi.useRealTimers();
+          vi.unstubAllGlobals();
+        }
+      });
+    }),
+  );
+});
+
+describe("native mobile model picker", () => {
+  it("keeps models selectable while the optional roles request is pending or fails", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    let rejectRoles!: (cause: Error) => void;
+    const roles = new Promise<unknown>((_resolve, reject) => {
+      rejectRoles = reject;
+    });
+    const request = vi.fn((command: Record<string, unknown> & { type: string }) => {
+      if (command.type === "get_available_models")
+        return Promise.resolve({ models: [{ provider: "example", id: "one", name: "Model One" }] });
+      if (command.type === "get_roles") return roles;
+      return Promise.resolve({});
+    });
+    const onClose = vi.fn();
+    try {
+      await act(async () => {
+        root.render(<NativeMobileModels request={request} rolesSupported onClose={onClose} />);
+      });
+      expect(container.textContent).toContain("Model One · example");
+      await act(async () => rejectRoles(new Error("roles unavailable")));
+      expect(container.textContent).toContain("Could not load roles: Error: roles unavailable");
+      expect(container.textContent).toContain("Model One · example");
+      await act(async () => {
+        const model = Array.from(container.querySelectorAll("button")).find((button) =>
+          button.textContent?.includes("Model One"),
+        );
+        expect(model).toBeDefined();
+        model!.click();
+      });
+      expect(request).toHaveBeenCalledWith({
+        type: "set_model",
+        provider: "example",
+        modelId: "one",
+      });
+      expect(onClose).toHaveBeenCalledOnce();
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not ask older sessions for unsupported roles", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const request = vi.fn(async (_command: Record<string, unknown> & { type: string }) => ({
+      models: [{ provider: "example", id: "one", name: "Model One" }],
+    }));
+    try {
+      await act(async () => {
+        root.render(
+          <NativeMobileModels request={request} rolesSupported={false} onClose={() => {}} />,
+        );
+      });
+      expect(container.textContent).toContain("Model One · example");
+      expect(container.textContent).toContain("Role selection is unavailable");
+      expect(request.mock.calls.map(([command]) => command.type)).toEqual(["get_available_models"]);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+    }
+  });
 });

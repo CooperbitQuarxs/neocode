@@ -22,6 +22,7 @@ import {
   type NativeSessionTabs,
 } from "./nativeSessionTabs";
 import { useAtomCommand } from "./use-atom-command";
+import { relocateNativeWorkspace } from "./nativeWorkspaceRelocation";
 
 export const nativeSessionAtoms = createNativeSessionAtoms(connectionAtomRuntime);
 interface NativeSessionSelection {
@@ -41,6 +42,15 @@ export const useNativeSessionSelection = create(
     },
   }),
 );
+
+let nativeOpenGeneration = 0;
+/** A pending open may select only until another open or tab mutation supersedes it. */
+export function beginNativeSessionOpen(): () => boolean {
+  const generation = ++nativeOpenGeneration;
+  const selection = useNativeSessionSelection.getState();
+  return () =>
+    generation === nativeOpenGeneration && selection === useNativeSessionSelection.getState();
+}
 /** Selecting opens the session's tab when it has none. */
 export const selectNativeSession = (target: NativeSessionTarget) => {
   useNativeSessionSelection.setState((state) => ({
@@ -60,11 +70,13 @@ export const closeNativeSession = (target: NativeSessionTarget) =>
     const next = closeNativeSessionTab(state.tabs, state.target, target);
     return { target: next.active, tabs: next.tabs };
   });
-export const replaceNativeSession = (from: NativeSessionTarget, to: NativeSessionTarget) =>
+export const replaceNativeSession = (from: NativeSessionTarget, to: NativeSessionTarget) => {
+  relocateNativeWorkspace(from, to);
   useNativeSessionSelection.setState((state) => ({
     target: to,
     tabs: replaceNativeSessionTab(state.tabs, from, to),
   }));
+};
 /** Drag-to-reorder: the tab lands on `toIndex`. The order persists with the selection. */
 export const moveNativeSession = (target: NativeSessionTarget, toIndex: number) =>
   useNativeSessionSelection.setState((state) => ({

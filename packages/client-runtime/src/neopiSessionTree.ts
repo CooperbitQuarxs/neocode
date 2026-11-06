@@ -90,6 +90,23 @@ export interface SessionTreeProjection {
   readonly toolCalls: ReadonlyMap<string, SessionTreeToolCall>;
 }
 
+/** Find the nearest listed ancestor, even when a hidden parent chain is cyclic. */
+export function sessionTreeVisibleParent(
+  item: SessionTreeItem,
+  itemById: ReadonlyMap<string, SessionTreeItem>,
+  visibleIds: ReadonlyMap<string, unknown>,
+): string | null {
+  let parentId = item.entry.parentId;
+  // A finite parent chain cannot visit more records than the snapshot contains.
+  // Bound the walk without allocating another ancestry set for each key press.
+  for (let remaining = itemById.size; parentId !== null && remaining > 0; remaining--) {
+    if (parentId === item.entry.id) return null;
+    if (visibleIds.has(parentId)) return parentId;
+    parentId = itemById.get(parentId)?.entry.parentId ?? null;
+  }
+  return null;
+}
+
 interface PendingRow {
   readonly item: SessionTreeItem;
   readonly depth: number;
@@ -155,12 +172,16 @@ export function projectSessionTree(
     if (index <= 0) return siblings;
     return [siblings[index]!, ...siblings.slice(0, index), ...siblings.slice(index + 1)];
   };
-  /** Hides a collapsed branch from the walk, so it is not mistaken for a cycle. */
+  /**
+   * Hides a collapsed branch from the walk, so it is not mistaken for a cycle.
+   * Already visited ancestors stay visible when malformed parent links cycle.
+   */
   const foldDescendants = (id: string) => {
     let count = 0;
     const pending = [...(children.get(id) ?? [])];
     while (pending.length > 0) {
       const descendant = pending.pop()!;
+      if (visited.has(descendant.entry.id)) continue;
       count++;
       visited.add(descendant.entry.id);
       pending.push(...(children.get(descendant.entry.id) ?? []));
@@ -325,6 +346,7 @@ const assistantErrorText = (message: Record<string, unknown>) =>
 export function describeSessionTreeEntry(
   entry: NeoPiJournalEntry,
   toolCalls: ReadonlyMap<string, SessionTreeToolCall>,
+  textLimit = 2000,
 ): SessionTreeDescription {
   if (entry.type === "message") {
     const message = journalRecord(entry.message);
@@ -337,11 +359,11 @@ export function describeSessionTreeEntry(
     });
     switch (role) {
       case "user":
-        return row("user", textOf(message.content));
+        return row("user", textOf(message.content, textLimit));
       case "developer":
-        return row("system", textOf(message.content));
+        return row("system", textOf(message.content, textLimit));
       case "assistant": {
-        const text = textOf(message.content);
+        const text = textOf(message.content, textLimit);
         const failure = assistantErrorText(message);
         const failed = message.stopReason === "error" || failure !== null;
         if (text) return row("assistant", text, failed);
@@ -374,13 +396,18 @@ export function describeSessionTreeEntry(
       case "pythonExecution":
         return row("tool", String(message.code ?? ""), false, "eval");
       default:
-        return row("system", textOf(message.content));
+        return row("system", textOf(message.content, textLimit));
     }
   }
   const custom = typeof entry.customType === "string" ? entry.customType : "custom";
   switch (entry.type) {
     case "custom_message":
-      return { kind: "custom", label: custom, text: oneLine(textOf(entry.content)), error: false };
+      return {
+        kind: "custom",
+        label: custom,
+        text: oneLine(textOf(entry.content, textLimit)),
+        error: false,
+      };
     case "custom":
       return { kind: "system", label: custom, text: "", error: false };
     case "compaction": {
@@ -463,7 +490,8 @@ const searchTexts = new WeakMap<SessionTreeItem, string>();
 function searchText(row: SessionTreeRow, toolCalls: SessionTreeProjection["toolCalls"]): string {
   const cached = searchTexts.get(row.item);
   if (cached !== undefined) return cached;
-  const described = describeSessionTreeEntry(row.item.entry, toolCalls);
+  // Search the full entry while keeping rendered row snippets bounded.
+  const described = describeSessionTreeEntry(row.item.entry, toolCalls, Infinity);
   const text = `${row.item.label ?? ""} ${described.label} ${described.text}`.toLowerCase();
   searchTexts.set(row.item, text);
   return text;
@@ -478,7 +506,8 @@ export function filterSessionTree(
   const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
   return projection.rows.filter((row) => {
     const { entry } = row.item;
-    if (isBareToolTurn(row)) return false;
+    // Explicit bookmark browsing must not fold away the bookmarked tool turn.
+    if (filter !== "labeled-only" && isBareToolTurn(row)) return false;
     const isSettings = SETTINGS_ENTRY_TYPES.has(entry.type);
     const isToolResult =
       entry.type === "message" && journalRecord(entry.message).role === "toolResult";

@@ -72,6 +72,14 @@ storage and instance lock. It does not reuse the default profile's saved browser
 connections. Use another window, not another profile pointed at the same state,
 when you want to work with the same local sessions.
 
+If startup reports that desktop preferences could not be loaded, NeoCode stops
+instead of resetting them. The error identifies the settings file; invalid
+documents also get an adjacent `.invalid-….bak` copy when the directory is
+writable. Keep that backup, then repair the original document or restore a
+known-good copy. For a read-permission error, make the original file readable.
+Restart NeoCode after the repair. Closing the app does not overwrite the
+unreadable or invalid preferences with defaults.
+
 Open **Roles** from the sidebar or press **Alt-M** to configure NeoPi's native
 inference providers, model roles and effort rules. The page opens on role
 assignments; **All models**, **Effort rules** and each provider are in its rail.
@@ -313,6 +321,10 @@ changes in that session's folder, even when it is outside the folder where
 NeoCode started. Native sessions do not create the turn snapshots used by
 turn-based diffs.
 
+Use **Return to terminal drawer** to move a native terminal panel back below the
+conversation without closing its shells. Split panes keep their grouping,
+direction and active terminal.
+
 In a native session, the **Session tree** button in the tab strip opens the tree
 in the right panel beside the conversation, the way NeoPi's `/tree` draws it.
 Forks get `├─`/`└─` connectors and `│` gutters, a straight run of entries stays in
@@ -323,8 +335,11 @@ entry in view unless you scrolled away. Click a row to preview the whole entry
 under the tree, then choose **Go to this point** or press Enter; **Go and
 summarize** or Shift+Enter carries a branch summary along. Click a chevron, or
 press Left and Right, to fold a branch. The filter offers Default, No tools, User
-only, Labeled and All, and the search box narrows the rows; press `/` in the tree
-to reach it. Up, Down, Page Up, Page Down, Home and End move through rows.
+only, Labeled and All. Search matches the full text of prompts and replies, not just
+the row snippets; press `/` in the tree to reach it. Up, Down, Page Up, Page Down,
+Home and End move through rows. Navigation applies only to a visible selected row;
+filtering or folding it out of view hides its preview and prevents Enter from
+navigating to it.
 Going to a message you wrote puts it back in the composer for editing, unless the
 composer already holds a draft; that draft is kept.
 
@@ -343,9 +358,12 @@ windows drop the lower-priority items first. The subagent count flashes green
 when a subagent starts, red when one finishes or is stopped, and yellow when
 one fails; click it to open **Agents**. Click the task count to open
 **Background tasks**, which lists NeoPi's background jobs with their output and
-a **Cancel** button for running ones. That panel needs a NeoPi release that
-supports background jobs; with an older one the count shows "—" and the panel
-says so.
+a **Cancel** button for running ones. Select a job to follow its output through
+completion, including the final lines after it finishes. That panel needs a NeoPi
+release that supports background jobs; with an older one the count shows "—"
+and the panel says so. While the inventory loads, the panel does not report it
+as empty. If a refresh fails, existing jobs stay visible; use **Retry** after
+reconnecting to refresh the list.
 
 Open **NeoPi session configuration** in the header to inspect native ownership,
 current permissions and role configuration. **Next owned turn** changes the

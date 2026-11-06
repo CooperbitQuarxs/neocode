@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import {
   ProviderInstanceId,
   type NeoPiJournalEntry,
@@ -6,6 +6,8 @@ import {
 } from "@t3tools/contracts";
 import {
   emptyNativeSessionFeed,
+  deferNativeEditorText,
+  executeNativeSessionCommand,
   nativeCommandCompletions,
   nativeCommandNeedsTerminal,
   nativeSessionKey,
@@ -16,6 +18,167 @@ import {
   reduceNativeSessionFeed,
   type NativeSession,
 } from "./neopiNativeSessions.ts";
+
+describe("deferred native editor text", () => {
+  function fixture(initialDraft: string) {
+    let draft = initialDraft;
+    const listeners = new Set<() => void>();
+    const deferred = vi.fn();
+    const applied = vi.fn();
+    const setDraft = (value: string) => {
+      draft = value;
+      for (const changed of listeners) changed();
+    };
+    const cancel = deferNativeEditorText({
+      hasDraft: () => draft.length > 0,
+      apply: () => {
+        applied();
+        setDraft("Native requested text");
+      },
+      onDeferred: deferred,
+      subscribe: (changed) => {
+        listeners.add(changed);
+        return () => listeners.delete(changed);
+      },
+    });
+    return { applied, deferred, setDraft, cancel, listeners, draft: () => draft };
+  }
+
+  it("inserts immediately into an empty draft without retaining a subscription", () => {
+    const test = fixture("");
+    expect(test.draft()).toBe("Native requested text");
+    expect(test.applied).toHaveBeenCalledTimes(1);
+    expect(test.deferred).not.toHaveBeenCalled();
+    expect(test.listeners.size).toBe(0);
+  });
+
+  it("preserves a draft and its further edits, then applies exactly once after it is cleared", () => {
+    const test = fixture("Unsent draft");
+    expect(test.draft()).toBe("Unsent draft");
+    expect(test.applied).not.toHaveBeenCalled();
+    expect(test.deferred).toHaveBeenCalledTimes(1);
+    test.setDraft("Still editing the unsent draft");
+    expect(test.applied).not.toHaveBeenCalled();
+    test.setDraft("");
+    expect(test.draft()).toBe("Native requested text");
+    expect(test.applied).toHaveBeenCalledTimes(1);
+    expect(test.listeners.size).toBe(0);
+    test.setDraft("");
+    expect(test.applied).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops a superseded or unmounted request without consuming it", () => {
+    const test = fixture("Draft");
+    test.cancel();
+    test.setDraft("");
+    expect(test.applied).not.toHaveBeenCalled();
+    expect(test.listeners.size).toBe(0);
+    test.cancel();
+  });
+
+  it("handles an empty-draft notification delivered synchronously during subscription", () => {
+    let occupied = true;
+    const apply = vi.fn();
+    const unsubscribe = vi.fn();
+    const cancel = deferNativeEditorText({
+      hasDraft: () => occupied,
+      apply,
+      onDeferred: vi.fn(),
+      subscribe: (changed) => {
+        occupied = false;
+        changed();
+        return unsubscribe;
+      },
+    });
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    cancel();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("native command acceptance and observation", () => {
+  it("returns the original acceptance receipt when the follow-up read disconnects", async () => {
+    const receipt = { accepted: true, commandId: "native-command" };
+    const submit = vi.fn().mockResolvedValue(receipt);
+    const readState = vi.fn().mockRejectedValue(new Error("Disconnected"));
+    const onState = vi.fn();
+    const onRefreshError = vi.fn();
+
+    const result = await executeNativeSessionCommand({
+      command: { type: "set_model" },
+      submit,
+      readState,
+      onState,
+      onRefreshError,
+    });
+
+    expect(result).toBe(receipt);
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(readState).toHaveBeenCalledTimes(1);
+    expect(onState).not.toHaveBeenCalled();
+    expect(onRefreshError).toHaveBeenCalledWith(
+      "Command accepted, but the state refresh failed. Reconnect to refresh session details.",
+    );
+  });
+
+  it("still rejects the command's own failure without reading state or claiming acceptance", async () => {
+    const failure = new Error("The selected model is unavailable");
+    const readState = vi.fn();
+    const onRefreshError = vi.fn();
+    await expect(
+      executeNativeSessionCommand({
+        command: { type: "set_role" },
+        submit: vi.fn().mockRejectedValue(failure),
+        readState,
+        onState: vi.fn(),
+        onRefreshError,
+      }),
+    ).rejects.toBe(failure);
+    expect(readState).not.toHaveBeenCalled();
+    expect(onRefreshError).not.toHaveBeenCalled();
+  });
+
+  it("applies a successful authoritative refresh and returns the acceptance receipt", async () => {
+    const state = { model: { id: "selected-model" }, role: "reviewer" };
+    const receipt = { accepted: true };
+    const onState = vi.fn();
+    const onRefreshError = vi.fn();
+    expect(
+      await executeNativeSessionCommand({
+        command: { type: "set_role" },
+        submit: async () => receipt,
+        readState: async () => state,
+        onState,
+        onRefreshError,
+      }),
+    ).toBe(receipt);
+    expect(onState).toHaveBeenCalledWith(state);
+    expect(onRefreshError).not.toHaveBeenCalled();
+  });
+
+  it.each(["prompt", "extension_ui_response"])(
+    "does not add a state read after %s",
+    async (type) => {
+      const receipt = { accepted: true };
+      const readState = vi.fn();
+      const onState = vi.fn();
+      const onRefreshError = vi.fn();
+      expect(
+        await executeNativeSessionCommand({
+          command: { type },
+          submit: async () => receipt,
+          readState,
+          onState,
+          onRefreshError,
+        }),
+      ).toBe(receipt);
+      expect(readState).not.toHaveBeenCalled();
+      expect(onState).not.toHaveBeenCalled();
+      expect(onRefreshError).not.toHaveBeenCalled();
+    },
+  );
+});
 
 const ref = {
   providerInstanceId: ProviderInstanceId.make("neopi"),
@@ -50,6 +213,35 @@ const initial = () =>
   });
 
 describe("canonical native client projection", () => {
+  it.each(["message_start", "message_update", "tool_execution_update", "unknown"])(
+    "retains feed identity for ignored child %s frames",
+    (type) => {
+      const feed = initial();
+      const next = reduceNativeSessionFeed(feed, {
+        type: "event",
+        frame: { type: "subagent_event", payload: { id: "child", event: { type } } },
+      });
+      expect(next).toBe(feed);
+    },
+  );
+
+  it.each(["message_end", "tool_execution_end", "agent_end"])(
+    "publishes a child refresh tick for settled %s frames",
+    (type) => {
+      const feed = initial();
+      const update = {
+        type: "event" as const,
+        frame: { type: "subagent_event", payload: { id: "child", event: { type } } },
+      };
+      const next = reduceNativeSessionFeed(feed, update);
+      expect(next).not.toBe(feed);
+      expect(next.agentTicks.child).toBe(1);
+      expect(next.conversation).toBe(feed.conversation);
+      expect(next.busy).toBe(feed.busy);
+      expect(reduceNativeSessionFeed(next, update).agentTicks.child).toBe(2);
+    },
+  );
+
   it("keeps command output between messages across hidden entries and reconnect", () => {
     let feed = initial();
     const bookkeeping = { ...user, id: "config", parentId: user.id, type: "model_change" };
