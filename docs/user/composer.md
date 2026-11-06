@@ -28,6 +28,13 @@ commands run in that terminal as if typed there. After a command name and a
 space, the menu offers NeoPi's completions for its argument: `Tab` takes the
 first, and `Enter` sends what you typed unless you highlight a completion first.
 
+If the terminal NeoPi that owns a session restarts (`/restart`), NeoCode reattaches
+when it comes back; a message you send meanwhile waits for it. If the terminal
+quits and nothing replaces it within about ten seconds, the session stays open: send
+a message or choose **Continue in NeoCode** and NeoCode runs it from then on, but
+never while a terminal still owns it. **Detach from terminal session** lets go
+without ending the terminal's session; the tab stays put with a **Reconnect** button.
+
 When NeoPi fails to start a turn in a saved conversation, web and desktop return
 the unsent prompt and its attachments to an empty composer. If you've already
 started another draft there, it stays unchanged: send or clear it before using
@@ -100,11 +107,11 @@ available stay visible.
 Star a model to add it to Favorites. Use the arrow keys and Enter to select, or
 click a model; Left and Right move between the rail and the list. Choosing a role
 or model applies it to the session and returns focus to the prompt. This is the
-quick session switcher, separate from the Models management page.
+quick session switcher, separate from the Roles management page.
 
 ## Custom models
 
-NeoPi owns the model catalog and role configuration. Use **Settings → Models** to
+NeoPi owns the model catalog and role configuration. Use **Settings → Roles** to
 inspect the catalog and manage native model roles. Configure an unlisted model
 in NeoPi rather than adding a separate NeoCode runtime.
 
@@ -206,11 +213,13 @@ Click again to stop. While you speak, a notice above the composer shows the live
 transcript. When you stop, the final text is inserted at the cursor where you
 started, and nothing is sent. Press Escape to throw the recording away.
 
-Dictation needs NeoPi's `stt.enabled` setting. If it is off, the speech model is
-unavailable, or live voice is running, the composer shows NeoPi's message. The
-button appears only for native sessions NeoCode owns on the desktop app's own
-backend, because NeoPi records on the machine it runs on. Browsers and remote
-environments do not offer it.
+Dictation needs NeoPi's `stt.enabled` setting. If the speech model is
+unavailable or live voice is running, the composer shows NeoPi's message. It
+works in sessions NeoCode owns and in sessions attached to a terminal NeoPi, as
+long as that NeoPi supports it. NeoPi records on the machine it runs on, so
+browsers and remote environments do not have the button. In the desktop app it
+is always there: when dictation cannot work it is greyed out, and hovering it
+says why and what to change.
 
 ## Branch and worktree
 

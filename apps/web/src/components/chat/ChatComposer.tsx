@@ -945,6 +945,10 @@ export interface LegacyChatComposerProps {
 }
 
 const EMPTY_LEGACY_COMPOSER_LIST: never[] = [];
+// Stable empties: these reach the editor's skill context and the menu memo, so a fresh `[]`
+// per render would re-render every skill mention and rebuild the menu on each keystroke.
+const NO_PROVIDER_SKILLS: ServerProvider["skills"] = [];
+const NO_PROVIDER_SLASH_COMMANDS: readonly ServerProviderSlashCommand[] = [];
 const EMPTY_LEGACY_COMPOSER_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 
 /** Native authority supplies controls, not a synthetic SQL thread or provider snapshot. */
@@ -1000,7 +1004,7 @@ export type NativeChatComposerProps = Pick<
     onOpenModeControl: () => void;
     onToggleModelPicker: () => void;
     onCompactContext: () => void;
-    /** Present only when NeoPi can use the microphone of the machine this client runs on. */
+    /** Present on the desktop app, enabled or with its reason for being disabled. */
     dictation?: ComposerDictationControl;
     /** Effort and fast-mode controls built from NeoPi's own levels; null while none apply. */
     traits: {
@@ -1520,12 +1524,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const compactCommandAvailable = providerSupportsManualCompaction(selectedProviderEntry);
   const selectedProviderSkills = selectedProviderStatus
     ? resolveProviderSkillsForCwd(selectedProviderStatus, gitCwd)
-    : [];
+    : NO_PROVIDER_SKILLS;
   const selectedProviderSlashCommands: readonly ServerProviderSlashCommand[] = nativeSession
     ? nativeSession.commands
     : selectedProviderStatus
       ? resolveProviderSlashCommandsForCwd(selectedProviderStatus, gitCwd)
-      : [];
+      : NO_PROVIDER_SLASH_COMMANDS;
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });

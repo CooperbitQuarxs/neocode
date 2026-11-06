@@ -403,15 +403,15 @@ describe("settings search targets", () => {
   });
 
   it("keeps environment-wide settings out of project scopes", () => {
-    const updates = getSettingsSearchTargetScope("provider-update-checks")!;
-    expect(updates.scope).toBe("environment-defaults");
-    expect(isSettingsSearchScopeAvailable(updates.scope, "environment")).toBe(true);
-    expect(isSettingsSearchScopeAvailable(updates.scope, "all")).toBe(true);
-    expect(isSettingsSearchScopeAvailable(updates.scope, "project")).toBe(false);
+    const activity = getSettingsSearchTargetScope("background-activity")!;
+    expect(activity.scope).toBe("environment-defaults");
+    expect(isSettingsSearchScopeAvailable(activity.scope, "environment")).toBe(true);
+    expect(isSettingsSearchScopeAvailable(activity.scope, "all")).toBe(true);
+    expect(isSettingsSearchScopeAvailable(activity.scope, "project")).toBe(false);
     const streaming = getSettingsSearchTargetScope("response-streaming")!;
     expect(streaming.scope).toBe("project-defaults");
     expect(isSettingsSearchScopeAvailable(streaming.scope, "project")).toBe(true);
-    for (const id of ["legacy-plan-mode", "legacy-context-window-indicator", "legacy-sidebar"]) {
+    for (const id of ["legacy-plan-mode", "legacy-sidebar"]) {
       expect(getSettingsSearchTargetScope(id)!.scope).toBeNull();
     }
   });

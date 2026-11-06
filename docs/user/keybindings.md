@@ -29,9 +29,12 @@ panel and `alt+s` (`agents.hub.toggle`) shows or hides the full Agent Hub. These
 match NeoPi's own chords for those views. Both apply only in native sessions
 (`when: nativeSession`), where `ctrl+s` replaces the composer stash on Linux and
 Windows; other threads keep the stash. Rebind `agents.panel.toggle` to keep
-`ctrl+s` for the stash everywhere. In the panel and the hub, click or use the
-arrow keys (or `j`/`k`) to preview an agent, Enter or a double-click to open it,
-and Esc to go back.
+`ctrl+s` for the stash everywhere. In the panel and the hub, click an agent to
+expand it and click it again to collapse it, or use the arrow keys (or `j`/`k`)
+to move through the list. Press Enter or the **Open** button to open an agent,
+and Esc to go back. The roster lists finished and stopped agents too, as long as
+NeoPi can report the session's earlier agents, and their transcripts open
+read-only.
 
 In the model picker, press Left in an empty search field or Shift+Tab to reach
 the provider list. Use Up/Down to move and Enter to choose. Right returns to
@@ -166,10 +169,17 @@ terminals so native undo keeps working there.
 through the pages you have visited, like a browser's back and forward buttons.
 
 `sessionTab.next` (`ctrl+tab` by default) and `sessionTab.previous`
-(`ctrl+shift+tab`) switch between the session tabs at the top of the window and
-wrap around at either end. They work from the composer and are skipped while the
-terminal has focus. Browsers reserve `ctrl+tab` for their own tabs, so this is a
-desktop shortcut; assign another binding to use it on the web.
+(`ctrl+shift+tab`) switch between session tabs in recently-used order, like
+Firefox. While you hold `ctrl`, each `tab` press steps one session further back
+(`shift` steps forward) and a list shows where you are; releasing `ctrl` opens
+that session and makes it the most recent, so a single `ctrl+tab` afterwards
+returns to the one you left. `escape` cancels. They work from the composer and
+are skipped while the terminal has focus. Browsers reserve `ctrl+tab` for their
+own tabs, so this is a desktop shortcut; assign another binding to use it on the
+web.
+
+Drag session tabs, and the tabs in the right panel, to reorder them. The order
+is kept between launches.
 
 `chat.new` may ask you to choose a project when there is more than one.
 `chat.newLocal` skips that chooser. Both use your

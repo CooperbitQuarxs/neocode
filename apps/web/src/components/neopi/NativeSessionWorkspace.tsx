@@ -1,16 +1,18 @@
-import { BracesIcon, GitForkIcon, UnplugIcon } from "lucide-react";
+import { BracesIcon, GitForkIcon, PlugIcon, UnplugIcon, XIcon } from "lucide-react";
 import type { LegendListRef } from "@legendapp/list/react";
 import {
   NATIVE_COMMAND_COMPLETIONS_CAPABILITY,
   nativeCommandCompletions,
   nativeRecord,
   nativeSessionKey,
+  nativeDisconnectLabel,
+  nativeOwnerNotice,
   nativeSlashCommands,
   type NativeSessionTarget,
   type NativeSlashCommand,
 } from "@t3tools/client-runtime/neopi-native-sessions";
 import {
-  projectTranscript,
+  createTranscriptProjector,
   transcriptUserText,
   type CommandRow,
 } from "@t3tools/client-runtime/neopi-transcript";
@@ -19,7 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { isElectron } from "../../env";
-import { nativeDictationAvailable } from "./nativeDictation";
+import { nativeDictationAvailability } from "./nativeDictation";
 import { useNativeDictation } from "./useNativeDictation";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
@@ -27,9 +29,9 @@ import { ComposerSurface } from "../chat/ComposerSurface";
 import { cn } from "../../lib/utils";
 import {
   nativeSessionAtoms,
-  closeNativeSession,
   replaceNativeSession,
   useNativeSession,
+  useNativeSessionReconnect,
   useNativeSessionSelection,
 } from "../../state/neopiNativeSessions";
 import { Button } from "../ui/button";
@@ -75,7 +77,11 @@ import {
 } from "../../state/server";
 import { selectThreadRightPanelState, useRightPanelStore } from "../../rightPanelStore";
 import type { TerminalContextDraft } from "../../lib/terminalContext";
-import { ChatComposer, type ChatComposerHandle } from "../chat/ChatComposer";
+import {
+  ChatComposer,
+  type ChatComposerHandle,
+  type NativeChatComposerProps,
+} from "../chat/ChatComposer";
 import { ExpandedImageDialog } from "../chat/ExpandedImageDialog";
 import type { ExpandedImagePreview } from "../chat/ExpandedImagePreview";
 import { createPageScrollController } from "../chat/pageScrollController";
@@ -190,6 +196,8 @@ export function NativeSessionView({
   actionsSlot?: HTMLElement | null;
 }) {
   const { feed, session, conversation, request, loading, error } = useNativeSession(target);
+  // Dismissing hides that one message; a different failure shows again.
+  const [dismissedError, setDismissedError] = useState<string | null>(null);
   const close = useAtomCommand(nativeSessionAtoms.close, { reportFailure: false });
   const key = nativeSessionKey(target);
   const assistantName = agentIdentity(
@@ -225,14 +233,6 @@ export function NativeSessionView({
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const dictation = useNativeDictation({ feed, request, composerRef });
-  const dictationAvailable = nativeDictationAvailable({
-    isDesktop: isElectron,
-    localEnvironmentDisabled: isLocalEnvironmentDisabled(),
-    environmentId: target.environmentId,
-    primaryEnvironmentId,
-    attachment: session?.attachment,
-  });
   const timelineRef = useRef<LegendListRef | null>(null);
   const [followSignal, setFollowSignal] = useState(0);
   const submit = useCallback<Request>(
@@ -270,9 +270,53 @@ export function NativeSessionView({
   const [state, setState] = useState<Record<string, unknown>>({});
   const [commands, setCommands] = useState<readonly NativeSlashCommand[]>([]);
   const [dismissed, setDismissed] = useState(() => answeredDialogs.get(key) ?? new Set<string>());
+  const reconnect = useNativeSessionReconnect(target);
+  const [reconnecting, setReconnecting] = useState(false);
+  const reconnectNow = useCallback(() => {
+    setReconnecting(true);
+    setLocalError(null);
+    void reconnect()
+      .catch((cause) => setLocalError(cause instanceof Error ? cause.message : String(cause)))
+      .finally(() => setReconnecting(false));
+  }, [reconnect]);
+  // A reconnecting session still takes sends (the server holds them); an orphaned one
+  // takes them by starting an owner first.
+  const canSend = feed.connected || feed.ownerLoss === "orphaned";
+  const ownerNotice = nativeOwnerNotice(feed.ownerLoss, session?.attachment);
   useEffect(() => {
     if (session) setState(session.state);
   }, [session]);
+  const sttEnabled = state.dictationEnabled;
+  const availability = nativeDictationAvailability({
+    isDesktop: isElectron,
+    localEnvironmentDisabled: isLocalEnvironmentDisabled(),
+    environmentId: target.environmentId,
+    primaryEnvironmentId,
+    attachment: session?.attachment,
+    capabilities: session?.capabilities ?? null,
+    connected: feed.connected,
+    sttEnabled: typeof sttEnabled === "boolean" ? sttEnabled : undefined,
+  });
+  const dictation = useNativeDictation({
+    feed,
+    request,
+    composerRef,
+    unavailableReason: availability.kind === "disabled" ? availability.reason : null,
+  });
+  const dictationShown = availability.kind !== "hidden";
+  // Turning stt.enabled on happens in NeoPi's own settings, which announce nothing:
+  // coming back to this window re-reads it, so the button does not stay disabled.
+  const sttOff = state.dictationEnabled === false;
+  useEffect(() => {
+    if (!sttOff) return;
+    const refresh = () => {
+      void request({ type: "get_state" })
+        .then((observed) => setState(nativeRecord(observed)))
+        .catch(() => undefined);
+    };
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [sttOff, request]);
   // NeoPi moved this session to another file (`/wt`, fork): the selection and
   // its tab follow in place, never a second tab for the same session.
   const movedRef = feed.movedTo ?? session?.ref ?? null;
@@ -355,12 +399,7 @@ export function NativeSessionView({
   const send = useCallback(
     async (intent?: ComposerSubmissionIntent) => {
       const snapshot = draftStore.getState().getComposerDraft(target);
-      if (
-        !composerDraftHasUserContent(snapshot) ||
-        !snapshot ||
-        sendingRef.current ||
-        !feed.connected
-      )
+      if (!composerDraftHasUserContent(snapshot) || !snapshot || sendingRef.current || !canSend)
         return;
       if (composerRef.current?.hasPendingAttachments()) {
         setLocalError("Wait for the attachment to finish preparing before sending.");
@@ -371,6 +410,8 @@ export function NativeSessionView({
       setLocalError(null);
       try {
         const prompt = await prepareNativePrompt(target, snapshot);
+        // Nothing owns the session: take it over first, so the prompt lands in a live one.
+        if (!feed.connected) await reconnect();
         const busy = nativeSessionAtoms.cached(target)?.busy ?? feed.busy;
         await submit(
           {
@@ -389,7 +430,7 @@ export function NativeSessionView({
         focusComposer();
       }
     },
-    [target, feed.connected, feed.busy, submit, composerRef, focusComposer],
+    [target, canSend, feed.connected, feed.busy, submit, reconnect, composerRef, focusComposer],
   );
   const commandOutputs = useMemo(() => {
     // Command results are local display history anchored after the entry they followed.
@@ -405,9 +446,11 @@ export function NativeSessionView({
     }
     return outputs;
   }, [feed.commandOutputs, conversation.persisted]);
+  // Streaming replaces only live messages; the projector keeps the rest of the rows as they were.
+  const [projectRows] = useState(createTranscriptProjector);
   const rows = useMemo(
     () =>
-      projectTranscript(
+      projectRows(
         {
           entries: conversation.entries,
           pending: conversation.pending,
@@ -416,6 +459,7 @@ export function NativeSessionView({
         { debug, commandOutputs },
       ),
     [
+      projectRows,
       conversation.entries,
       conversation.pending,
       conversation.identity?.leafId,
@@ -627,6 +671,100 @@ export function NativeSessionView({
     },
     [execute, canCycleRole],
   );
+  // Streamed tokens re-render this view, and the composer is the costliest
+  // subtree on it: everything it takes stays referentially stable until its own
+  // inputs change, so only keystrokes and real composer state re-render it.
+  const providers = serverConfig?.providers ?? EMPTY_SERVER_PROVIDERS;
+  const modelProvider = typeof model.provider === "string" ? model.provider : null;
+  const modelSelector =
+    modelProvider !== null && modelId !== null ? `${modelProvider}/${modelId}` : "";
+  const modelControl = useMemo(
+    () => (
+      <NativeSessionModelPicker
+        target={target}
+        providers={providers}
+        settings={settings}
+        keybindings={keybindings}
+        modelLabel={modelLabel}
+        modelSelector={modelSelector}
+        displayState={displayState}
+        open={models}
+        onOpenChange={setModels}
+        disabled={sending}
+        terminalOpen={terminalOpen}
+        onSelect={selectModel}
+      />
+    ),
+    [
+      target,
+      providers,
+      settings,
+      keybindings,
+      modelLabel,
+      modelSelector,
+      displayState,
+      models,
+      sending,
+      terminalOpen,
+      selectModel,
+    ],
+  );
+  const nativeSessionComposer = useMemo<NativeChatComposerProps["nativeSession"]>(
+    () => ({
+      modelControl,
+      commands,
+      attachment: session?.attachment,
+      ...(completesArguments ? { completeCommandArgument } : {}),
+      traits,
+      onSendQueuedNow: sendNextQueuedNow,
+      promptHistory,
+      modelPickerOpen: models,
+      onOpenModelPicker: () => setModels(true),
+      onOpenSessionTree: openTree,
+      onOpenModeControl: () => {
+        void execute({ type: "prompt", message: "/chat" }).catch((cause) =>
+          setLocalError(String(cause)),
+        );
+      },
+      onToggleModelPicker: () => setModels((value) => !value),
+      onCompactContext: () => {
+        void execute({ type: "prompt", message: "/compact" }).catch((cause) =>
+          setLocalError(String(cause)),
+        );
+      },
+      ...(dictationShown ? { dictation } : {}),
+    }),
+    [
+      modelControl,
+      commands,
+      session?.attachment,
+      completesArguments,
+      completeCommandArgument,
+      traits,
+      sendNextQueuedNow,
+      promptHistory,
+      models,
+      openTree,
+      execute,
+      dictationShown,
+      dictation,
+    ],
+  );
+  const onComposerSend = useCallback<NativeChatComposerProps["onSend"]>(
+    (event, intent) => {
+      event?.preventDefault();
+      void send(intent);
+    },
+    [send],
+  );
+  const setComposerError = useCallback<NativeChatComposerProps["setThreadError"]>(
+    (_, message) => setLocalError(message),
+    [],
+  );
+  const openComposerFile = useCallback<NativeChatComposerProps["onFileOpen"]>(
+    (attachment) => useRightPanelStore.getState().openAttachment(target, attachment),
+    [target],
+  );
   const dialog = feed.dialogs.find(
     (item) => typeof item.id === "string" && !dismissed.has(item.id),
   );
@@ -652,21 +790,27 @@ export function NativeSessionView({
               >
                 <BracesIcon className="size-4" />
               </HeaderIconButton>
-              <HeaderIconButton
-                label="Disconnect session"
-                onClick={() =>
-                  void close({
-                    environmentId: target.environmentId,
-                    input: { ref: target.ref },
-                  }).then((result) => {
-                    if (result._tag === "Failure")
-                      setLocalError(String(squashAtomCommandFailure(result)));
-                    else closeNativeSession(target);
-                  })
-                }
-              >
-                <UnplugIcon className="size-4" />
-              </HeaderIconButton>
+              {feed.ownerLoss === "detached" || feed.ownerLoss === "orphaned" ? (
+                <HeaderIconButton label="Reconnect session" onClick={reconnectNow}>
+                  <PlugIcon className="size-4" />
+                </HeaderIconButton>
+              ) : (
+                // Stays on this tab: the feed shows the session as detached, with a way back.
+                <HeaderIconButton
+                  label={nativeDisconnectLabel(session?.attachment)}
+                  onClick={() =>
+                    void close({
+                      environmentId: target.environmentId,
+                      input: { ref: target.ref },
+                    }).then((result) => {
+                      if (result._tag === "Failure")
+                        setLocalError(String(squashAtomCommandFailure(result)));
+                    })
+                  }
+                >
+                  <UnplugIcon className="size-4" />
+                </HeaderIconButton>
+              )}
             </div>,
             actionsSlot,
           )
@@ -688,13 +832,24 @@ export function NativeSessionView({
         onOpenModels={() => setModels((value) => !value)}
         onInterrupt={interrupt}
         busy={feed.busy}
-        onToggleDictation={dictationAvailable ? dictation.toggle : undefined}
+        onToggleDictation={dictationShown ? dictation.toggle : undefined}
         dictationActive={dictation.phase !== "idle"}
         onNativeCommand={runNativeCommand}
       >
-        {error || localError ? (
-          <p role="alert" className="shrink-0 px-5 py-1 text-xs text-destructive">
-            {localError ?? error}
+        {localError || (error && error !== dismissedError) ? (
+          <p
+            role="alert"
+            className="flex shrink-0 items-start gap-2 px-5 py-1 text-xs text-destructive"
+          >
+            <span className="min-w-0 flex-1">{localError ?? error}</span>
+            <button
+              type="button"
+              aria-label="Dismiss error"
+              className="shrink-0 rounded-sm p-0.5 hover:bg-destructive/10"
+              onClick={() => (localError ? setLocalError(null) : setDismissedError(error))}
+            >
+              <XIcon aria-hidden className="size-3" />
+            </button>
           </p>
         ) : null}
         <div className="relative flex min-h-0 flex-1 flex-col">
@@ -717,6 +872,24 @@ export function NativeSessionView({
           />
         </div>
         <ComposerSurface.Shell ref={setComposerElement} contextStrip className="shrink-0">
+          {ownerNotice ? (
+            <div
+              role="status"
+              className="flex items-center gap-2 ps-(--workspace-gutter-start) pe-(--workspace-gutter-end) pt-2 text-xs text-muted-foreground"
+            >
+              <p className="min-w-0 flex-1">{ownerNotice.text}</p>
+              {ownerNotice.action ? (
+                <Button
+                  size="compact"
+                  variant="outline"
+                  disabled={reconnecting}
+                  onClick={reconnectNow}
+                >
+                  {ownerNotice.action}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
           {Object.values(feed.notices).some(Boolean) ? (
             <div className="flex flex-col gap-0.5 ps-(--workspace-gutter-start) pe-(--workspace-gutter-end) pt-2 text-xs text-muted-foreground">
               {Object.values(feed.notices)
@@ -743,10 +916,18 @@ export function NativeSessionView({
                   ? null
                   : clampFileAttachmentUploadBytes(fileAttachmentBytes)
               }
-              phase={feed.connected ? (feed.busy ? "running" : "ready") : "disconnected"}
+              phase={
+                feed.connected
+                  ? feed.busy
+                    ? "running"
+                    : "ready"
+                  : feed.ownerLoss === "orphaned"
+                    ? "ready"
+                    : "disconnected"
+              }
               isConnecting={loading}
               isSendBusy={sending}
-              sendDisabledReason={feed.connected ? null : "Reconnect NeoPi before sending."}
+              sendDisabledReason={canSend ? null : "Reconnect NeoPi before sending."}
               settings={settings}
               resolvedTheme={resolvedTheme}
               keybindings={keybindings}
@@ -760,61 +941,14 @@ export function NativeSessionView({
               onPageScrollKeyDown={pageScroll.handleKeyDown}
               onPageScrollKeyUp={pageScroll.handleKeyUp}
               onPageScrollRelease={pageScroll.releaseActiveKey}
-              onSend={(event, intent) => {
-                event?.preventDefault();
-                void send(intent);
-              }}
+              onSend={onComposerSend}
               onInterrupt={interrupt}
               focusComposer={focusComposer}
               scheduleComposerFocus={focusComposer}
-              setThreadError={(_, message) => setLocalError(message)}
+              setThreadError={setComposerError}
               onExpandImage={setExpandedImage}
-              onFileOpen={(attachment) =>
-                useRightPanelStore.getState().openAttachment(target, attachment)
-              }
-              nativeSession={{
-                modelControl: (
-                  <NativeSessionModelPicker
-                    target={target}
-                    providers={serverConfig?.providers ?? EMPTY_SERVER_PROVIDERS}
-                    settings={settings}
-                    keybindings={keybindings}
-                    modelLabel={modelLabel}
-                    modelSelector={
-                      typeof model.provider === "string" && typeof model.id === "string"
-                        ? `${model.provider}/${model.id}`
-                        : ""
-                    }
-                    displayState={displayState}
-                    open={models}
-                    onOpenChange={setModels}
-                    disabled={sending}
-                    terminalOpen={terminalOpen}
-                    onSelect={selectModel}
-                  />
-                ),
-                commands,
-                attachment: session?.attachment,
-                ...(completesArguments ? { completeCommandArgument } : {}),
-                traits,
-                onSendQueuedNow: sendNextQueuedNow,
-                promptHistory,
-                modelPickerOpen: models,
-                onOpenModelPicker: () => setModels(true),
-                onOpenSessionTree: openTree,
-                onOpenModeControl: () => {
-                  void execute({ type: "prompt", message: "/chat" }).catch((cause) =>
-                    setLocalError(String(cause)),
-                  );
-                },
-                onToggleModelPicker: () => setModels((value) => !value),
-                onCompactContext: () => {
-                  void execute({ type: "prompt", message: "/compact" }).catch((cause) =>
-                    setLocalError(String(cause)),
-                  );
-                },
-                ...(dictationAvailable ? { dictation } : {}),
-              }}
+              onFileOpen={openComposerFile}
+              nativeSession={nativeSessionComposer}
             />
           </ComposerSurface.Host>
           <NativeBranchToolbar
