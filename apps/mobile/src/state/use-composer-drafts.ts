@@ -57,7 +57,11 @@ import {
 } from "./thread-outbox-model";
 import { flushThreadOutbox, threadOutboxManager } from "./thread-outbox";
 import { composerDraftEnvironmentId } from "../lib/composerAttachmentUploadQueue";
-import { bindNativeComposerDraft, syncNativeComposerDrafts } from "./native-composer-draft-state";
+import {
+  bindNativeComposerDraft,
+  relocateNativeComposerDraft,
+  syncNativeComposerDrafts,
+} from "./native-composer-draft-state";
 import { NativeTreeDraft, emptyNativeTreeDraft } from "./native-tree-draft";
 
 const COMPOSER_DRAFTS_SCHEMA_VERSION = 1;
@@ -1268,6 +1272,20 @@ export async function bindComposerDraftToNativeSession(
   updateComposerDrafts((current) => bindNativeComposerDraft(current, draftKey, nativeKey));
 }
 
+export async function relocateComposerDraft(from: string, to: string): Promise<void> {
+  await waitForComposerDraftsLoaded();
+  const current = appAtomRegistry.get(composerDraftsAtom);
+  const next = relocateNativeComposerDraft(current, from, to);
+  if (next === current) return;
+  appAtomRegistry.set(composerDraftsAtom, next);
+  if (lastComposerSelection?.draftKey === from)
+    lastComposerSelection = { ...lastComposerSelection, draftKey: to };
+  for (const [key, nativeKey] of requestedNativeDraftBindings) {
+    if (nativeKey === from) requestedNativeDraftBindings.set(key, to);
+  }
+  schedulePersistComposerState();
+}
+
 /** A native navigation result replaces content, while local settings and file-scoped persistence survive. */
 export function replaceComposerDraftFromNative(
   draftKey: string,
@@ -1280,6 +1298,26 @@ export function replaceComposerDraftFromNative(
       text: content.text,
       attachments: content.attachments,
       context: content.context,
+    });
+  });
+}
+
+/** Withdrawn input is recovery: retain every attachment, even above the normal send limit. */
+export function prependRecoveredComposerDraft(
+  draftKey: string,
+  content: ComposerDraftContent,
+): void {
+  updateComposerDrafts((current) => {
+    const previous = normalizeDraft(current[draftKey]);
+    const text =
+      content.text && previous.text
+        ? `${content.text}\n\n${previous.text}`
+        : content.text || previous.text;
+    return withComposerDraft(current, draftKey, {
+      ...previous,
+      text,
+      context: mergeReferencedComposerContext(text, content.context, previous.context),
+      attachments: [...previous.attachments, ...content.attachments],
     });
   });
 }

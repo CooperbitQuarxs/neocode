@@ -11,11 +11,13 @@ import type { ProcessExit, SessionEventFrame } from "effect-neopi-rpc/client";
 import { NeoPiRpcError } from "effect-neopi-rpc/errors";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
 import * as Queue from "effect/Queue";
 import * as TestClock from "effect/testing/TestClock";
 import { NEOPI_NATIVE_IDLE_DEBOUNCE_MS } from "./NeoPiNativeIdle.ts";
+import * as Scope from "effect/Scope";
 import {
   makeNeoPiNativeSessionsWith,
   type NeoPiNativeConnection,
@@ -75,6 +77,7 @@ const fixture = (attachment: "owned" | "terminal" = "owned") =>
       inventoryFailure: false,
       inventoryHook: Effect.void as Effect.Effect<void>,
       pageHook: Effect.void as Effect.Effect<void>,
+      disposeHook: Effect.void as Effect.Effect<void>,
       afterPageHook: Effect.void as Effect.Effect<void>,
       publish: (_frame: SessionEventFrame): Effect.Effect<void> => Effect.void,
     };
@@ -140,6 +143,7 @@ const fixture = (attachment: "owned" | "terminal" = "owned") =>
           native.exit = exit;
           yield* Effect.addFinalizer(() =>
             Effect.gen(function* () {
+              yield* native.disposeHook;
               native.connections--;
               if (connectionAttachment === "owned") {
                 native.disposals++;
@@ -1201,6 +1205,42 @@ describe("canonical native session lifecycle", () => {
         assert.equal(native.disposals, 1);
       }).pipe(Effect.scoped),
   );
+
+  it.effect("begins every owned runtime shutdown before awaiting any one runtime's exit", () =>
+    Effect.gen(function* () {
+      const first = yield* fixture();
+      const second = yield* fixture();
+      const firstRef = { ...originalRef, sessionFile: "/native/first.jsonl" };
+      const secondRef = { ...originalRef, sessionFile: "/native/second.jsonl" };
+      const serviceScope = yield* Scope.make();
+      yield* Effect.addFinalizer(() => Scope.close(serviceScope, Exit.void));
+      const service = yield* makeNeoPiNativeSessionsWith({
+        ...first.dependencies,
+        connect: (profile, input, publish) =>
+          (input.sessionFile === firstRef.sessionFile ? first : second).dependencies.connect(
+            profile,
+            input,
+            publish,
+          ),
+      }).pipe(Effect.provideService(Scope.Scope, serviceScope));
+      yield* service.open(firstRef);
+      yield* service.open(secondRef);
+      const started = yield* Queue.unbounded<string>();
+      const release = yield* Deferred.make<void>();
+      first.native.disposeHook = Queue.offer(started, "first").pipe(
+        Effect.andThen(Deferred.await(release)),
+      );
+      second.native.disposeHook = Queue.offer(started, "second").pipe(
+        Effect.andThen(Deferred.await(release)),
+      );
+      const closing = yield* Scope.close(serviceScope, Exit.void).pipe(Effect.forkScoped);
+      assert.deepEqual((yield* Queue.takeN(started, 2)).toSorted(), ["first", "second"]);
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(closing);
+      assert.equal(first.native.disposals, 1);
+      assert.equal(second.native.disposals, 1);
+    }).pipe(Effect.scoped),
+  );
 });
 
 /** Collects a watch stream so a test can wait on its events in order, never on time. */
@@ -1373,9 +1413,10 @@ const memorySettledStore = () => {
     read: Effect.sync(() => new Map(records)),
     update: (changes) =>
       Effect.sync(() => {
-        for (const [file, record] of changes) {
-          if (record === null) records.delete(file);
-          else records.set(file, record);
+        for (const [file, record, expected] of changes) {
+          if (record === null) {
+            if (records.get(file) === expected) records.delete(file);
+          } else records.set(file, record);
         }
       }),
   };
@@ -1464,6 +1505,47 @@ describe("native session liveness and settling", () => {
       row = { ...row, modified: "2999-01-02T00:00:00Z" };
       assert.equal(yield* settledAt(), undefined);
       assert.equal(records.size, 0);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("does not discard a manual decision made while a stale list is paused", () =>
+    Effect.gen(function* () {
+      const { dependencies } = yield* fixture();
+      for (const settled of [true, false]) {
+        const { records, store } = memorySettledStore();
+        records.set(originalRef.sessionFile, {
+          state: "settled",
+          settledAt: "2999-01-01T00:00:00Z",
+          modifiedAt: "2999-01-01T00:00:00Z",
+        });
+        const snapshotRead = yield* Deferred.make<void>();
+        const resumeList = yield* Deferred.make<void>();
+        const row = catalogRow({ modified: "2999-01-02T00:00:00Z" });
+        const service = yield* makeNeoPiNativeSessionsWith({
+          ...dependencies,
+          catalog: (profile) =>
+            Effect.succeed(profile.providerInstanceId === instanceId ? [row] : []),
+          settlement: {
+            store,
+            autoSettleAfterDays: Effect.gen(function* () {
+              yield* Deferred.succeed(snapshotRead, undefined);
+              yield* Deferred.await(resumeList);
+              return null;
+            }),
+          },
+        });
+        const listing = yield* service.list({}).pipe(Effect.forkChild);
+        yield* Deferred.await(snapshotRead);
+        yield* service.setSettled({ ref: originalRef, settled });
+        const decision = records.get(originalRef.sessionFile);
+        yield* Deferred.succeed(resumeList, undefined);
+        yield* Fiber.join(listing);
+
+        assert.equal(records.get(originalRef.sessionFile), decision);
+        assert.equal(decision?.state, settled ? "settled" : "unsettled");
+        const result = yield* service.list({});
+        assert.equal(result.sessions[0]?.settledAt, settled ? decision?.settledAt : undefined);
+      }
     }).pipe(Effect.scoped),
   );
 

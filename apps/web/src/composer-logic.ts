@@ -223,7 +223,11 @@ export function isCollapsedCursorAdjacentToInlineToken(
   return false;
 }
 
-export function detectComposerTrigger(text: string, cursorInput: number): ComposerTrigger | null {
+export function detectComposerTrigger(
+  text: string,
+  cursorInput: number,
+  completeSlashArguments = false,
+): ComposerTrigger | null {
   const cursor = clampCursor(text, cursorInput);
   const lineStart = text.lastIndexOf("\n", Math.max(0, cursor - 1)) + 1;
   const linePrefix = text.slice(lineStart, cursor);
@@ -262,7 +266,7 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
     };
   }
   if (!token.startsWith("@")) {
-    return null;
+    return completeSlashArguments ? detectComposerSlashArgument(text, cursor) : null;
   }
   return {
     kind: "path",
@@ -279,15 +283,16 @@ export function detectComposerSlashArgument(
 ): ComposerTrigger | null {
   const cursor = clampCursor(text, cursorInput);
   const argument = nativeSlashArgument(text, cursor);
-  return argument
-    ? {
-        kind: "slash-argument",
-        command: argument.command,
-        query: argument.prefix,
-        rangeStart: argument.start,
-        rangeEnd: cursor,
-      }
-    : null;
+  if (!argument) return null;
+  // Completions replace the whole argument, even when the caret is in its middle.
+  const lineEnd = text.indexOf("\n", argument.start);
+  return {
+    kind: "slash-argument",
+    command: argument.command,
+    query: argument.prefix,
+    rangeStart: argument.start,
+    rangeEnd: lineEnd < 0 ? text.length : lineEnd,
+  };
 }
 
 /** Caret and trigger after replacing composer text and continuing at the end. */

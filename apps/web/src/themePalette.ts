@@ -53,6 +53,7 @@ export type ThemeFile = Readonly<{
   variants?: ThemeVariantOverrides;
   collection?: ThemeCollection;
   managed?: boolean;
+  neoPiSourceName?: string | null;
 }>;
 
 // Reserved ids come from shared so the CLI, the server watcher, and this
@@ -168,6 +169,9 @@ function parseStoredTheme(value: unknown): ThemeDefinition | null {
     colors,
     ...(variants ? { variants } : {}),
     ...(collection ? { collection } : {}),
+    ...(typeof value.neoPiSourceName === "string" || value.neoPiSourceName === null
+      ? { neoPiSourceName: value.neoPiSourceName }
+      : {}),
     ...(value.managed === true ? { managed: true } : {}),
   };
 }
@@ -1483,6 +1487,9 @@ export function parseThemeFile(value: unknown): ThemeDefinition {
     colors: { ...fallback, ...overrides },
     ...(Object.keys(variants).length > 0 ? { variants } : {}),
     ...(collection ? { collection } : {}),
+    ...(typeof value.neoPiSourceName === "string" || value.neoPiSourceName === null
+      ? { neoPiSourceName: value.neoPiSourceName }
+      : {}),
     ...(value.managed === true ? { managed: true } : {}),
   };
 }
@@ -1497,6 +1504,9 @@ export function serializeThemeFile(theme: ThemeDefinition): string {
     colors: canonicalTheme.colors,
     ...(canonicalTheme.variants ? { variants: canonicalTheme.variants } : {}),
     ...(canonicalTheme.collection ? { collection: canonicalTheme.collection } : {}),
+    ...(canonicalTheme.neoPiSourceName !== undefined
+      ? { neoPiSourceName: canonicalTheme.neoPiSourceName }
+      : {}),
     ...(canonicalTheme.managed ? { managed: true } : {}),
   };
   return `${JSON.stringify(file, null, 2)}\n`;
@@ -1566,6 +1576,23 @@ export function getThemeColorVariable(role: ThemeColorRole): string {
   return APP_THEME_VARIABLES[role];
 }
 
+const DESTRUCTIVE_SOLID_FOREGROUND_VARIABLE = "--app-theme-error-solid-foreground";
+
+/** Status text is solved against errorSurface; filled actions need their own foreground. */
+export function getDestructiveSolidForeground(
+  colors: Pick<ThemeColors, "canvas" | "error">,
+): string | null {
+  const error = parseThemeColor(colors.error);
+  const canvas = parseThemeColor(colors.canvas);
+  if (!error || !canvas) return null;
+  const fill = mixThemeRgbColors(
+    themeOklchToRgb(canvas.color),
+    themeOklchToRgb(error.color),
+    error.alpha,
+  );
+  return themeRgbToThemeColor(readableThemeForeground(fill));
+}
+
 /** Marks the document as wearing an unsaved draft rather than a stored theme. */
 export const THEME_PREVIEW_ID = "__preview";
 
@@ -1585,6 +1612,9 @@ export function applyThemeColorPreview(colors: ThemeColors, appearance: ThemeApp
     // A half-typed hex keeps the last good value instead of blanking the role.
     if (isThemeColor(value)) root.style.setProperty(APP_THEME_VARIABLES[role], value);
   }
+  const destructiveForeground = getDestructiveSolidForeground(colors);
+  if (destructiveForeground)
+    root.style.setProperty(DESTRUCTIVE_SOLID_FOREGROUND_VARIABLE, destructiveForeground);
 }
 
 export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppearance): void {
@@ -1602,6 +1632,9 @@ export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppe
     for (const [role, value] of Object.entries(colors) as Array<[ThemeColorRole, string]>) {
       root.style.setProperty(APP_THEME_VARIABLES[role], value);
     }
+    const destructiveForeground = getDestructiveSolidForeground(colors);
+    if (destructiveForeground)
+      root.style.setProperty(DESTRUCTIVE_SOLID_FOREGROUND_VARIABLE, destructiveForeground);
     return;
   }
 
@@ -1609,6 +1642,7 @@ export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppe
   for (const variable of Object.values(APP_THEME_VARIABLES)) {
     root.style.removeProperty(variable);
   }
+  root.style.removeProperty(DESTRUCTIVE_SOLID_FOREGROUND_VARIABLE);
 }
 
 export function resolveThemeAppearance(

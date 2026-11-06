@@ -7,6 +7,7 @@ import {
   projectSessionTree,
   sessionTreePrefix,
   sessionTreeScrollOffset,
+  sessionTreeVisibleParent,
   type SessionTreeItem,
 } from "./neopiSessionTree.ts";
 
@@ -100,11 +101,76 @@ describe("projectSessionTree", () => {
     expect(rows.map((row) => row.id).toSorted()).toEqual(["a", "o", "p", "q"]);
   });
 
+  it.each([
+    { collapsedId: "a", visibleIds: ["a"], hiddenCount: 2 },
+    { collapsedId: "b", visibleIds: ["a", "b"], hiddenCount: 1 },
+  ])("folds a cycle at $collapsedId", ({ collapsedId, visibleIds, hiddenCount }) => {
+    const rows = projectSessionTree(
+      [item("a", "b"), item("b", "a"), item("c", "b")],
+      "c",
+      new Set([collapsedId]),
+    ).rows;
+    expect(rows.map((row) => row.id)).toEqual(visibleIds);
+    expect(rows.find((row) => row.id === collapsedId)).toMatchObject({
+      collapsed: true,
+      hiddenCount,
+    });
+  });
+
   it("walks a very long chain without recursion", () => {
     const chain = Array.from({ length: 50_000 }, (_, index) =>
       item(`n${index}`, index === 0 ? null : `n${index - 1}`),
     );
     expect(projectSessionTree(chain, "n49999").rows).toHaveLength(50_000);
+  });
+});
+
+describe("sessionTreeVisibleParent", () => {
+  const parent = (items: readonly SessionTreeItem[], id: string) => {
+    const projection = projectSessionTree(items, id);
+    const rows = filterSessionTree(projection, "user-only", "");
+    const itemById = new Map(items.map((item) => [item.entry.id, item]));
+    const visibleIds = new Map(rows.map((row, index) => [row.id, index]));
+    return sessionTreeVisibleParent(itemById.get(id)!, itemById, visibleIds);
+  };
+
+  it("steps over filtered entries to the nearest listed ancestor", () => {
+    expect(
+      parent(
+        [
+          item("root", null),
+          item("hidden", "root", { type: "model_change" }),
+          item("child", "hidden"),
+        ],
+        "child",
+      ),
+    ).toBe("root");
+  });
+
+  it("stops when filtered ancestors form a cycle that does not include the selected row", () => {
+    expect(
+      parent(
+        [
+          item("a", "b", { type: "model_change" }),
+          item("b", "a", { type: "thinking_level_change" }),
+          item("child", "a"),
+        ],
+        "child",
+      ),
+    ).toBeNull();
+  });
+
+  it("stops at roots, missing parents, self-parenting and cycles back to the selection", () => {
+    expect(parent([item("root", null)], "root")).toBeNull();
+    expect(parent([item("orphan", "missing")], "orphan")).toBeNull();
+    expect(parent([item("self", "self")], "self")).toBeNull();
+    expect(
+      parent([item("child", "hidden"), item("hidden", "child", { type: "model_change" })], "child"),
+    ).toBeNull();
+  });
+
+  it("still selects a listed ancestor before encountering the rest of a malformed cycle", () => {
+    expect(parent([item("parent", "child"), item("child", "parent")], "child")).toBe("parent");
   });
 });
 
@@ -189,10 +255,53 @@ describe("filterSessionTree", () => {
     expect(ids("default", "parser")).toEqual(["u"]);
     expect(ids("default", "src/a.ts read")).toEqual(["r"]);
   });
+  it("searches beyond row snippets in string and multi-block messages", () => {
+    const longText = "x".repeat(2500);
+    const longItems = [
+      item("user", null, {
+        message: { role: "user", content: `${longText} late-user-token` },
+      }),
+      item("assistant", "user", {
+        message: {
+          role: "assistant",
+          content: [
+            { type: "text", text: longText },
+            { type: "text", text: " late-assistant-token" },
+          ],
+        },
+      }),
+      item("custom", "assistant", {
+        type: "custom_message",
+        content: `${longText} late-custom-token`,
+      }),
+    ];
+    const tree = projectSessionTree(longItems, "custom");
+    for (const id of ["user", "assistant", "custom"]) {
+      expect(filterSessionTree(tree, "all", `late-${id}-token`).map((row) => row.id)).toEqual([id]);
+    }
+    expect(describeSessionTreeEntry(longItems[0]!.entry, tree.toolCalls).text).toHaveLength(2000);
+  });
   it("shows the current leaf even when it is a bare tool turn", () => {
     expect(
       filterSessionTree(projectSessionTree(items, "t"), "default", "").map((row) => row.id),
     ).toContain("t");
+  });
+  it("keeps bookmarked tool-only turns navigable in Labeled, including label searches", () => {
+    const bookmarked = projectSessionTree(
+      items.map((value) =>
+        value === toolTurn ? { ...value, label: "inspect parser bookmark" } : value,
+      ),
+      "s",
+    );
+    const bookmarkedIds = (filter: Parameters<typeof filterSessionTree>[1], query = "") =>
+      filterSessionTree(bookmarked, filter, query).map((row) => row.id);
+    expect(bookmarkedIds("labeled-only")).toEqual(["t"]);
+    expect(bookmarkedIds("labeled-only", "parser bookmark")).toEqual(["t"]);
+    expect(bookmarkedIds("labeled-only", "unmatched")).toEqual([]);
+    expect(ids("labeled-only")).toEqual([]);
+    // Ordinary browsing still folds bare turns, even when they have a bookmark.
+    expect(bookmarkedIds("default")).toEqual(["u", "r", "s"]);
+    expect(bookmarkedIds("all")).toEqual(["u", "r", "m", "s"]);
   });
 });
 
