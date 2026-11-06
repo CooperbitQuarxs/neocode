@@ -2,7 +2,7 @@ import {
   nativeRecord,
   type NativeSessionFeed,
 } from "@t3tools/client-runtime/neopi-native-sessions";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { randomUUID } from "../../lib/utils";
 import type { ChatComposerHandle } from "../chat/ChatComposer";
@@ -40,8 +40,10 @@ export function useNativeDictation(input: {
   readonly feed: Pick<NativeSessionFeed, "dictation">;
   readonly request: Request;
   readonly composerRef: { readonly current: ChatComposerHandle | null };
+  /** Why dictation cannot start right now; null when it can. */
+  readonly unavailableReason: string | null;
 }): ComposerDictationControl {
-  const { feed, request, composerRef } = input;
+  const { feed, request, composerRef, unavailableReason } = input;
   const [capture, setCapture] = useState<Capture | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const captureRef = useRef<Capture | null>(null);
@@ -92,6 +94,11 @@ export function useNativeDictation(input: {
       stop(false);
       return;
     }
+    // The shortcut gets the same explanation the disabled button shows.
+    if (unavailableReason) {
+      setNotice(unavailableReason);
+      return;
+    }
     const snapshot = composerRef.current?.readSnapshot();
     const started: Capture = {
       captureId: randomUUID(),
@@ -114,7 +121,7 @@ export function useNativeDictation(input: {
         setCapture(null);
         setNotice(message(cause));
       });
-  }, [composerRef, stop]);
+  }, [composerRef, stop, unavailableReason]);
 
   // NeoPi ended the capture itself: an error, or a stop from another window.
   const observed = feed.dictation;
@@ -147,17 +154,18 @@ export function useNativeDictation(input: {
 
   const dismissNotice = useCallback(() => setNotice(null), []);
   const live = capture && observed?.captureId === capture.captureId ? observed : null;
-  return {
-    phase: !capture
-      ? "idle"
-      : capture.stopping || live?.phase === "transcribing"
-        ? "transcribing"
-        : live?.phase === "recording"
-          ? "recording"
-          : "starting",
-    preview: live?.text ?? "",
-    notice,
-    toggle,
-    dismissNotice,
-  };
+  const phase = !capture
+    ? "idle"
+    : capture.stopping || live?.phase === "transcribing"
+      ? "transcribing"
+      : live?.phase === "recording"
+        ? "recording"
+        : "starting";
+  const preview = live?.text ?? "";
+  // The composer takes this as a prop: a stable identity keeps it from re-rendering
+  // on every feed update that leaves the capture unchanged.
+  return useMemo(
+    () => ({ phase, preview, notice, unavailableReason, toggle, dismissNotice }),
+    [phase, preview, notice, unavailableReason, toggle, dismissNotice],
+  );
 }

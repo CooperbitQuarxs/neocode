@@ -33,6 +33,12 @@ It appears under the title in the session's tab, in its sidebar row, and on the
 assistant's messages; hover the tab to see the pronouns. A session keeps its name
 across reloads and devices, and its subagents have names of their own.
 
+When you stop viewing a session, NeoCode keeps it warm for about five minutes.
+An idle runtime started by NeoCode is then released to save memory. Active turns,
+unanswered questions, running background jobs, and live subagents keep it running.
+Returning to its tab opens the saved session again; your unsent draft stays intact.
+This idle release never stops a session owned by a terminal.
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.
@@ -134,9 +140,11 @@ Each row shows the project folder, title, branch and, when the branch has one, i
 request. Hover a row or right-click it to **Settle** or **Un-settle** it; sessions that are
 working or waiting cannot be settled. A settled session returns on its own when it becomes
 busy or gets new activity. Settling persists on the server, so it follows you across
-devices. NeoPi 18.14 or later reports what terminal sessions are doing; with older versions
-only sessions NeoCode itself runs show Working and Waiting. Search lists matches from every
-section in one list.
+devices. **Working** means the NeoPi process running the session is streaming a reply or
+compacting; **Waiting** means it has a question, approval or plan review open. Panes you
+opened yourself, a queued message, and sessions with no running NeoPi show neither. A
+session open in a terminal on a NeoPi older than the one NeoCode follows cannot be opened
+here until you restart it. Search lists matches from every section in one list.
 
 ## Link a pull request
 

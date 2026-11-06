@@ -478,35 +478,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 }
 
-@keyframes live-tool-shine {
-  from {
-    background-position:
-      -4.5rem 0,
-      0 0;
-  }
-  to {
-    background-position:
-      calc(100% + 4.5rem) 0,
-      0 0;
-  }
-}
-
-@utility live-tool-shine {
-  @media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
-    color: transparent;
-    background-image:
-      linear-gradient(to right, transparent, var(--contrast-foreground), transparent),
-      linear-gradient(var(--contrast-secondary-label), var(--contrast-secondary-label));
-    background-size:
-      4.5rem 100%,
-      100% 100%;
-    background-repeat: no-repeat;
-    background-clip: text;
-    animation: live-tool-shine 2.2s steps(30) infinite;
-    animation-play-state: var(--visible-animation-state, paused);
-  }
-}
-
 @utility visible-animate-spin {
   animation: var(--animate-spin);
   animation-play-state: var(--visible-animation-state, paused);
@@ -1583,10 +1554,13 @@ html[data-theme-id="t3-chat"] [data-app-sidebar] {
   /* A message bubble with a static tail on its outer bottom corner: a 13x16px
      fin cut from the bubble fill by one SVG mask. It overlaps the bubble edge
      by 1px so there is no seam, and rows reserve 0.75rem on the tail side so
-     the column's overflow clip never trims it. Plain geometry: no animation,
-     no extra element, no measurement. */
+     the column's overflow clip never trims it. The fin sweeps out of the
+     bubble edge and lands on the bubble's own bottom line at a clear angle:
+     a hairline tip hovering above that line leaves a stray pixel step at
+     fractional zoom. Plain geometry: no animation, no extra element, no
+     measurement. */
   .chat-bubble {
-    --chat-bubble-tail-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 13 16'%3E%3Cpath d='M0 0H1C1 8 5 12 13 15C9 16.5 4 16 0 16Z'/%3E%3C/svg%3E");
+    --chat-bubble-tail-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 13 16'%3E%3Cpath d='M0 0H1C1 7 3.5 12.5 13 16H0Z'/%3E%3C/svg%3E");
     position: relative;
     background-color: var(--chat-bubble-fill);
     color: var(--chat-bubble-foreground);
@@ -1633,6 +1607,16 @@ html[data-theme-id="t3-chat"] [data-app-sidebar] {
   .chat-harness {
     --contrast-secondary-label: var(--chat-harness-foreground);
     --contrast-icon-muted: var(--chat-harness-foreground);
+  }
+
+  /* The work rail: a slim line on the assistant bubble's left edge that joins
+     consecutive work rows into one quiet block. Each row draws its own slice,
+     and rows sit flush, so the line runs unbroken through a run of them. */
+  .chat-harness-rail {
+    margin-inline-start: 0.75rem;
+    padding-inline-start: 0.375rem;
+    border-inline-start: 1px solid
+      color-mix(in oklab, var(--chat-harness-foreground) 26%, transparent);
   }
 }
 
